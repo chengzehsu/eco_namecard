@@ -1,0 +1,110 @@
+{
+  "name": "linebot-namecard-system",
+  "description": "LINE Bot 名片管理系統 - AI 智能識別名片並自動存入 Notion",
+  "template": "python",
+  "plan": "Hobby",
+  "env": {
+    "LINE_CHANNEL_ACCESS_TOKEN": {
+      "description": "LINE Bot Channel Access Token",
+      "required": true
+    },
+    "LINE_CHANNEL_SECRET": {
+      "description": "LINE Bot Channel Secret",
+      "required": true
+    },
+    "GOOGLE_API_KEY": {
+      "description": "Google Gemini AI API Key",
+      "required": true
+    },
+    "GOOGLE_API_KEY_FALLBACK": {
+      "description": "Fallback Google API Key (optional)",
+      "required": false
+    },
+    "NOTION_API_KEY": {
+      "description": "Notion Integration API Key",
+      "required": true
+    },
+    "NOTION_DATABASE_ID": {
+      "description": "Notion Database ID for storing business cards",
+      "required": true
+    },
+    "SECRET_KEY": {
+      "description": "Flask application secret key",
+      "required": true,
+      "default": "your-secret-key-change-in-production"
+    },
+    "APP_PORT": {
+      "description": "Application port",
+      "required": false,
+      "default": "5002"
+    },
+    "APP_HOST": {
+      "description": "Application host",
+      "required": false,
+      "default": "0.0.0.0"
+    },
+    "FLASK_ENV": {
+      "description": "Flask environment",
+      "required": false,
+      "default": "production"
+    },
+    "RATE_LIMIT_PER_USER": {
+      "description": "Daily rate limit per user",
+      "required": false,
+      "default": "50"
+    },
+    "BATCH_SIZE_LIMIT": {
+      "description": "Maximum batch processing size",
+      "required": false,
+      "default": "10"
+    },
+    "MAX_IMAGE_SIZE": {
+      "description": "Maximum image size in bytes",
+      "required": false,
+      "default": "10485760"
+    },
+    "SENTRY_DSN": {
+      "description": "Sentry DSN for error monitoring (optional)",
+      "required": false
+    },
+    "DEBUG": {
+      "description": "Enable debug mode",
+      "required": false,
+      "default": "False"
+    }
+  },
+  "build": {
+    "commands": [
+      "pip install -r requirements.txt"
+    ]
+  },
+  "start": {
+    "command": "python app.py"
+  },
+  "healthcheck": {
+    "path": "/health",
+    "interval": 30,
+    "timeout": 10,
+    "retries": 3
+  },
+  "scaling": {
+    "min": 1,
+    "max": 3
+  },
+  "resources": {
+    "memory": "512Mi",
+    "cpu": "0.5"
+  },
+  "volumes": [],
+  "regions": ["hkg"],
+  "features": {
+    "auto_deploy": true,
+    "zero_downtime": true
+  },
+  "domains": [
+    {
+      "domain": "namecard-app.zeabur.app",
+      "redirect": false
+    }
+  ]
+}

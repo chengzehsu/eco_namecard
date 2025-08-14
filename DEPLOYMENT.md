@@ -4,6 +4,8 @@
 
 您的 LINE Bot 將部署到：**https://namecard-app.zeabur.app**
 
+⚠️ **重要**: 需要在 Zeabur Dashboard 中手動連接 GitHub Repository 才能觸發自動部署！
+
 ### 1. 🔧 Zeabur Dashboard 環境變數設定
 
 在 Zeabur Dashboard → 您的專案 → Environment Variables 中設置：

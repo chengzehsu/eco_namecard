@@ -1,218 +1,163 @@
-# Claude Code 協作記錄
+# CLAUDE.md
 
-## 專案概述
-這是一個 LINE Bot 名片管理系統，使用 Google Gemini AI 識別名片內容並自動存入 Notion 資料庫。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 關鍵指令
+## Project Overview
 
-### 開發指令
+LINE Bot namecard management system that uses Google Gemini AI to recognize business card content and automatically saves to Notion database. The system supports batch processing, multi-card detection, and includes comprehensive security and error handling.
+
+## Essential Commands
+
+### Development
 ```bash
-# 啟動本地開發
+# Start local development server
 python app.py
 
-# 運行測試
+# Run all tests with coverage
 pytest
 
-# 代碼品質檢查
+# Run specific test file
+pytest tests/test_health.py -v
+
+# Run tests with specific marker
+pytest -m unit
+
+# Code quality checks
 black src/
 flake8 src/
 mypy src/
 
-# 安全性檢查
+# Security scanning
 bandit -r src/
 safety check
+
+# Quick setup for new environment
+./setup.sh
 ```
 
-### 部署指令
+### Deployment
 ```bash
-# 推送到 GitHub 觸發 CI/CD
-git add .
-git commit -m "feat: 功能描述"
+# Deploy to GitHub (triggers CI/CD)
 git push origin main
 
-# 本地 Docker 測試
+# One-click deployment script
+./deploy_to_github.sh
+
+# Local Docker testing
 docker build -t linebot-namecard .
 docker run -p 5002:5002 --env-file .env linebot-namecard
 ```
 
-## 架構設計
+## Architecture Overview
 
-### 核心組件
-1. **LINE Bot API** (`src/namecard/api/line_bot/main.py`)
-   - 處理 webhook 回調
-   - 用戶指令解析
-   - 圖片消息處理
+### Core Processing Flow
+1. **LINE Webhook** (`/callback`) receives image messages
+2. **CardProcessor** uses Google Gemini AI for OCR and multi-card detection
+3. **NotionClient** stores structured data with validation
+4. **UserService** manages batch processing and rate limiting
+5. **SecurityService** handles authentication and input sanitization
 
-2. **AI 處理器** (`src/namecard/infrastructure/ai/card_processor.py`)
-   - Google Gemini AI 整合
-   - 多名片檢測
-   - 品質評估
+### Key Components
 
-3. **Notion 客戶端** (`src/namecard/infrastructure/storage/notion_client.py`)
-   - 資料庫操作
-   - 名片資料存儲
-   - 搜尋功能
+**LINE Bot Handler** (`src/namecard/api/line_bot/main.py`)
+- Webhook event processing with signature validation
+- Command parsing (help, 批次, 狀態, 結束批次)
+- Image message handling with size/format validation
+- Batch mode state management
 
-4. **用戶服務** (`src/namecard/core/services/user_service.py`)
-   - 批次模式管理
-   - 速率限制
-   - 使用統計
+**AI Processing** (`src/namecard/infrastructure/ai/card_processor.py`)
+- Google Gemini integration with fallback API key support
+- Multi-card detection in single images
+- Quality assessment and confidence scoring
+- Taiwan address normalization
 
-5. **安全服務** (`src/namecard/core/services/security.py`)
-   - 簽名驗證
-   - 輸入清理
-   - 錯誤處理
+**Data Storage** (`src/namecard/infrastructure/storage/notion_client.py`)
+- Notion database integration with property mapping
+- Search functionality by name/company
+- User-specific card retrieval
 
-### 資料模型
-- `BusinessCard`: 名片資料結構
-- `BatchProcessResult`: 批次處理結果
-- `ProcessingStatus`: 用戶處理狀態
+**Core Models** (`src/namecard/core/models/card.py`)
+- `BusinessCard`: Pydantic model with validation (email, phone, address normalization)
+- `BatchProcessResult`: Session tracking with success rates
+- `ProcessingStatus`: User state with daily usage limits
 
-## 環境配置
+### Configuration System
+Centralized in `simple_config.py` using Pydantic BaseSettings:
+- Environment variable mapping with defaults
+- Type validation and conversion
+- Support for .env files
 
-### 必要環境變數
-```bash
-LINE_CHANNEL_ACCESS_TOKEN=
-LINE_CHANNEL_SECRET=
-GOOGLE_API_KEY=
-GOOGLE_API_KEY_FALLBACK=
-NOTION_API_KEY=
-NOTION_DATABASE_ID=
-SECRET_KEY=
-```
+## Testing Structure
 
-### 可選配置
-```bash
-APP_PORT=5002
-RATE_LIMIT_PER_USER=50
-BATCH_SIZE_LIMIT=10
-MAX_IMAGE_SIZE=10485760
-SENTRY_DSN=
-DEBUG=False
-```
+- `tests/test_health.py` - API endpoint health checks
+- `tests/test_card_models.py` - Pydantic model validation
+- `tests/test_user_service.py` - Batch processing and rate limiting
+- `tests/conftest.py` - Shared fixtures and mocks
 
-## 測試策略
+Target coverage: 70% minimum, 90%+ for core business logic.
 
-### 測試結構
-- `tests/test_health.py` - API 端點測試
-- `tests/test_card_models.py` - 資料模型測試
-- `tests/test_user_service.py` - 用戶服務測試
+## Deployment Configuration
 
-### 覆蓋率目標
-- 最低覆蓋率: 70%
-- 核心功能: 90%+
+**GitHub Actions** (`.github/workflows/deploy.yml`)
+- Multi-stage pipeline: test → security-scan → deploy → performance-test
+- Zeabur integration with service ID and API token
+- Automatic health checks post-deployment
 
-## 部署流程
+**Zeabur** (`zeabur.json`)
+- Production deployment to namecard-app.zeabur.app
+- Environment variables for external services
+- Health check endpoint: `/health`
 
-### GitHub Actions CI/CD
-1. **測試階段**
-   - 代碼品質檢查
-   - 單元測試
-   - 安全性掃描
+## Security Implementation
 
-2. **部署階段**
-   - 自動部署到 Zeabur
-   - 健康檢查
-   - 效能測試
+**Rate Limiting**: 50 cards/day per user with cleanup of inactive sessions
+**Input Validation**: Image size (10MB), format checking, text sanitization
+**Webhook Security**: LINE signature verification with HMAC-SHA256
+**Data Encryption**: Sensitive data encryption using Fernet (symmetric)
+**Error Handling**: Comprehensive error classification with user-friendly messages
 
-### Zeabur 配置
-- 部署地址: https://namecard-app.zeabur.app
+## External Service Integration
+
+**LINE Bot**
 - Webhook URL: https://namecard-app.zeabur.app/callback
-- 健康檢查: https://namecard-app.zeabur.app/health
-- 自動部署: 啟用
-- 零停機部署: 啟用
+- Rich messaging with Quick Reply buttons
+- Batch mode with progress tracking
 
-## 監控和日誌
+**Google Gemini AI**
+- Primary + fallback API key configuration
+- Structured JSON response parsing
+- Image preprocessing and size optimization
 
-### 日誌系統
-- 使用 `structlog` 結構化日誌
-- 支援 JSON 格式輸出
-- 分級日誌記錄
+**Notion Database**
+- Required properties: 姓名(Title), 公司, 職稱, 電話, Email, etc.
+- Integration permissions and database sharing
+- User-based data segregation
 
-### 錯誤監控
-- Sentry 整合 (可選)
-- 自定義錯誤處理
-- 安全事件記錄
+## Development Workflow
 
-## 安全性措施
+1. Changes to `main` branch trigger automatic deployment
+2. GitHub Actions runs quality checks, tests, and security scans
+3. Successful builds deploy to Zeabur automatically
+4. Health checks validate deployment success
 
-### 已實現
-- LINE Webhook 簽名驗證
-- Rate Limiting
-- 輸入資料驗證
-- 圖片格式檢查
-- 敏感資料加密
+## Critical Environment Variables
 
-### 最佳實踐
-- 環境變數管理
-- 最小權限原則
-- 錯誤訊息清理
-- 安全事件記錄
+**Required**:
+- `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`
+- `GOOGLE_API_KEY` (with optional `GOOGLE_API_KEY_FALLBACK`)
+- `NOTION_API_KEY`, `NOTION_DATABASE_ID`
+- `SECRET_KEY`
 
-## 效能優化
+**Operational**:
+- `RATE_LIMIT_PER_USER=50`, `BATCH_SIZE_LIMIT=10`
+- `MAX_IMAGE_SIZE=10485760` (10MB)
 
-### 當前指標
-- 處理時間: 5-10秒/張
-- 並發支援: 多用戶
-- 記憶體使用: 適中
+## Troubleshooting Common Issues
 
-### 優化空間
-- AI 結果快取
-- 圖片預處理優化
-- 批次處理優化
+**502 Errors**: Check Zeabur environment variables and service status
+**AI Recognition Failures**: Verify Google API quotas and network connectivity
+**Notion Storage Errors**: Confirm integration permissions and database schema
+**Webhook Issues**: Validate LINE channel secret and URL accessibility
 
-## 故障排除
-
-### 常見問題
-1. **502 錯誤** - 檢查環境變數
-2. **AI 識別失敗** - 檢查 API Key 和網路
-3. **Notion 錯誤** - 確認權限和 Database ID
-4. **Webhook 失效** - 驗證 LINE 設定
-
-### 日誌查看
-```bash
-# 本地開發
-tail -f app.log
-
-# Zeabur 部署
-# 在 Dashboard 查看 Logs
-```
-
-## 未來規劃
-
-### 短期 (1-2 個月)
-- 重複名片檢測
-- 多語言支援
-- Rich Menu 設計
-
-### 中期 (3-6 個月)
-- CRM 系統整合
-- 進階搜尋功能
-- 資料分析儀表板
-
-### 長期 (6+ 個月)
-- 機器學習優化
-- 企業版功能
-- API 對外開放
-
-## 開發注意事項
-
-### 代碼風格
-- 使用 Black 格式化
-- 遵循 PEP 8
-- 類型提示 (Type Hints)
-
-### 提交訊息格式
-```
-feat: 新功能
-fix: 錯誤修復
-docs: 文檔更新
-test: 測試相關
-refactor: 代碼重構
-```
-
-### 分支策略
-- `main`: 生產分支
-- `develop`: 開發分支
-- `feature/*`: 功能分支
-- `hotfix/*`: 緊急修復
+Repository: https://github.com/chengzehsu/eco_namecard
+Deployment: https://namecard-app.zeabur.app

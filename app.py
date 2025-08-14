@@ -75,5 +75,8 @@ def main():
         logger.error("Application startup failed", error=str(e))
         sys.exit(1)
 
+# 導出 Flask 應用實例供 gunicorn 使用
+application = app
+
 if __name__ == "__main__":
     main()

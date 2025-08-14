@@ -23,7 +23,7 @@
 回到這個終端機，複製貼上這些指令：
 
 ```bash
-git remote add origin https://github.com/chengzehsu/Ecofirst_namecard.git
+git remote add origin https://github.com/chengzehsu/eco_namecard.git
 git branch -M main
 git push -u origin main
 ```
@@ -32,7 +32,7 @@ git push -u origin main
 
 推送完成後：
 
-1. **前往**: https://github.com/chengzehsu/Ecofirst_namecard/settings/secrets/actions
+1. **前往**: https://github.com/chengzehsu/eco_namecard/settings/secrets/actions
 
 2. **點擊 "New repository secret"** 並添加兩個 secret:
 

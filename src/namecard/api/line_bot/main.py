@@ -105,28 +105,53 @@ def callback():
         return jsonify({"status": "request too large"}), 200
     
     try:
-        # 在 development 環境跳過 LINE SDK 的簽名驗證
-        if settings.flask_env == "development":
-            # 手動解析事件而不經過 LINE SDK 的簽名驗證
-            import json
-            webhook_data = json.loads(body)
+        # 在非 production 環境跳過 LINE SDK 的簽名驗證
+        if settings.flask_env != "production":
+            logger.info("Using manual event processing", flask_env=settings.flask_env)
             
-            if 'events' in webhook_data:
-                for event_data in webhook_data['events']:
-                    logger.info("Processing event", event_type=event_data.get('type'))
+            # 檢查 body 是否為空
+            if not body or not body.strip():
+                logger.warning("Empty body received in webhook")
+                return jsonify({"status": "empty body"}), 200
+            
+            # 手動解析事件而不經過 LINE SDK 的簽名驗證
+            try:
+                import json
+                webhook_data = json.loads(body)
+                logger.info("Webhook data parsed", data_keys=list(webhook_data.keys()))
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse webhook JSON", error=str(e), body_preview=body[:100])
+                return jsonify({"status": "invalid json"}), 200
+            
+            if 'events' in webhook_data and webhook_data['events']:
+                logger.info("Processing events", event_count=len(webhook_data['events']))
+                for i, event_data in enumerate(webhook_data['events']):
+                    logger.info("Processing event", 
+                               event_index=i, 
+                               event_type=event_data.get('type'),
+                               event_keys=list(event_data.keys()))
                     # 手動處理事件
                     process_line_event_manually(event_data)
+                logger.info("All events processed successfully")
+            else:
+                logger.info("No events found in webhook data", webhook_data=webhook_data)
         else:
+            # production 環境使用正常的 LINE SDK 處理
+            logger.info("Using LINE SDK processing", flask_env=settings.flask_env)
             # 清理輸入
             body = security_service.sanitize_input(body, max_length=10000)
             handler.handle(body, signature)
     except InvalidSignatureError:
-        logger.error("Invalid LINE signature")
+        logger.error("Invalid LINE signature - this should not happen in non-production", 
+                    flask_env=settings.flask_env)
         return jsonify({"status": "invalid signature error"}), 200
     except Exception as e:
-        logger.error("Webhook processing error", error=str(e))
+        logger.error("Webhook processing error", 
+                    error=str(e), 
+                    error_type=type(e).__name__,
+                    flask_env=settings.flask_env)
         # 不要 abort，返回 200 避免 LINE 重複發送
-        return 'Error processed', 200
+        return jsonify({"status": "processing error", "error": str(e)}), 200
     
     return 'OK'
 
@@ -135,6 +160,7 @@ def process_line_event_manually(event_data):
     """手動處理 LINE 事件（跳過 LINE SDK 簽名驗證）"""
     try:
         event_type = event_data.get('type')
+        logger.info("Starting manual event processing", event_type=event_type)
         
         if event_type == 'message':
             message = event_data.get('message', {})
@@ -143,43 +169,67 @@ def process_line_event_manually(event_data):
             user_id = source.get('userId')
             reply_token = event_data.get('replyToken')
             
+            logger.info("Message event details", 
+                       message_type=message_type,
+                       has_user_id=bool(user_id),
+                       has_reply_token=bool(reply_token))
+            
             if not user_id or not reply_token:
-                logger.warning("Missing user_id or reply_token in event")
+                logger.warning("Missing user_id or reply_token in event", 
+                             user_id=bool(user_id), 
+                             reply_token=bool(reply_token))
                 return
             
-            logger.info("Processing manual event", 
+            logger.info("Processing manual message event", 
                        message_type=message_type, 
-                       user_id=user_id[:10] + "...",
-                       event_type=event_type)
+                       user_id=user_id[:10] + "..." if len(user_id) > 10 else user_id)
             
             if message_type == 'text':
-                text = message.get('text', '').strip().lower()
-                handle_text_message_manual(user_id, text, reply_token)
+                text = message.get('text', '').strip()
+                logger.info("Processing text message", text=text[:50] + "..." if len(text) > 50 else text)
+                handle_text_message_manual(user_id, text.lower(), reply_token)
             elif message_type == 'image':
                 message_id = message.get('id')
+                logger.info("Processing image message", message_id=message_id)
                 handle_image_message_manual(user_id, message_id, reply_token)
+            else:
+                logger.info("Unsupported message type", message_type=message_type)
         else:
             logger.info("Ignoring non-message event", event_type=event_type)
+        
+        logger.info("Manual event processing completed", event_type=event_type)
             
     except Exception as e:
-        logger.error("Manual event processing error", error=str(e))
+        logger.error("Manual event processing error", 
+                    error=str(e), 
+                    error_type=type(e).__name__,
+                    event_data_keys=list(event_data.keys()) if isinstance(event_data, dict) else "not_dict")
 
 
 def handle_text_message_manual(user_id: str, text: str, reply_token: str):
     """手動處理文字訊息"""
     try:
+        logger.info("Starting manual text message processing", 
+                   user_id=user_id[:10] + "...", 
+                   text=text[:30] + "..." if len(text) > 30 else text)
+        
         # 檢查速率限制
         if not user_service.check_rate_limit(user_id, settings.rate_limit_per_user):
+            logger.info("Rate limit exceeded for user", user_id=user_id[:10] + "...")
             reply_message = TextSendMessage(
                 text=f"⚠️ 今日使用量已達上限 ({settings.rate_limit_per_user} 張)\n請明天再試"
             )
             line_bot_api.reply_message(reply_token, reply_message)
+            logger.info("Rate limit message sent")
             return
         
+        # 處理不同的文字指令
         if text in ['help', '說明', '幫助']:
+            logger.info("Processing help command")
             reply_message = create_help_message()
         
         elif text in ['批次', 'batch']:
+            logger.info("Processing batch start command")
             batch_result = user_service.start_batch_mode(user_id)
             reply_message = TextSendMessage(
                 text="📦 批次模式啟動\n請上傳名片，完成後輸入「結束批次」",
@@ -190,6 +240,7 @@ def handle_text_message_manual(user_id: str, text: str, reply_token: str):
             )
         
         elif text in ['結束批次', 'end batch', '結束']:
+            logger.info("Processing batch end command")
             batch_result = user_service.end_batch_mode(user_id)
             if batch_result:
                 reply_message = create_batch_summary_message(batch_result)
@@ -197,6 +248,7 @@ def handle_text_message_manual(user_id: str, text: str, reply_token: str):
                 reply_message = TextSendMessage(text="❌ 目前沒有進行中的批次處理")
         
         elif text in ['狀態', 'status', '進度']:
+            logger.info("Processing status command")
             status_text = user_service.get_batch_status(user_id)
             if status_text:
                 reply_message = TextSendMessage(text=status_text)
@@ -207,32 +259,47 @@ def handle_text_message_manual(user_id: str, text: str, reply_token: str):
                 )
         
         else:
+            logger.info("Processing unknown command", text=text)
             reply_message = TextSendMessage(
                 text="❓ 不理解的指令\n請輸入「help」查看使用說明，或直接上傳名片照片"
             )
         
+        logger.info("Sending reply message", message_type=type(reply_message).__name__)
         line_bot_api.reply_message(reply_token, reply_message)
-        logger.info("Manual text message processed", user_id=user_id[:10] + "...", text=text[:20])
+        logger.info("Manual text message processed successfully", user_id=user_id[:10] + "...")
         
     except Exception as e:
-        logger.error("Manual text message error", user_id=user_id, error=str(e))
+        logger.error("Manual text message error", 
+                    user_id=user_id[:10] + "...", 
+                    error=str(e),
+                    error_type=type(e).__name__)
         try:
             error_message = TextSendMessage(text="⚠️ 系統暫時無法處理，請稍後再試")
             line_bot_api.reply_message(reply_token, error_message)
-        except LineBotApiError:
+            logger.info("Error message sent successfully")
+        except LineBotApiError as api_error:
+            logger.warning("Reply token already used, using push message", api_error=str(api_error))
             # reply_token 已被使用，改用 push_message
             line_bot_api.push_message(user_id, error_message)
+        except Exception as send_error:
+            logger.error("Failed to send error message", send_error=str(send_error))
 
 
 def handle_image_message_manual(user_id: str, message_id: str, reply_token: str):
     """手動處理圖片訊息"""
     try:
+        logger.info("Starting manual image message processing", 
+                   user_id=user_id[:10] + "...", 
+                   message_id=message_id)
+        
         # 檢查速率限制
         if not user_service.check_rate_limit(user_id, settings.rate_limit_per_user):
+            logger.info("Rate limit exceeded for image upload", user_id=user_id[:10] + "...")
             reply_message = TextSendMessage(
                 text=f"⚠️ 今日使用量已達上限 ({settings.rate_limit_per_user} 張)\n請明天再試"
             )
             line_bot_api.reply_message(reply_token, reply_message)
+            logger.info("Rate limit message sent for image")
             return
         
         # 下載圖片
@@ -308,17 +375,29 @@ def handle_image_message_manual(user_id: str, message_id: str, reply_token: str)
         else:
             response_text = "❌ 處理失敗\n" + "\n".join(results[:2])
         
+        logger.info("Sending image processing result", response_length=len(response_text))
         line_bot_api.reply_message(reply_token, TextSendMessage(text=response_text))
-        logger.info("Manual image message processed", user_id=user_id[:10] + "...", cards_count=len(cards))
+        logger.info("Manual image message processed successfully", 
+                   user_id=user_id[:10] + "...", 
+                   cards_count=len(cards),
+                   success_count=success_count)
         
     except Exception as e:
-        logger.error("Manual image processing error", user_id=user_id, error=str(e))
+        logger.error("Manual image processing error", 
+                    user_id=user_id[:10] + "...", 
+                    message_id=message_id,
+                    error=str(e),
+                    error_type=type(e).__name__)
         try:
             error_message = TextSendMessage(text="⚠️ 處理失敗，請重試")
             line_bot_api.reply_message(reply_token, error_message)
-        except LineBotApiError:
+            logger.info("Image error message sent successfully")
+        except LineBotApiError as api_error:
+            logger.warning("Reply token already used for image, using push message", api_error=str(api_error))
             # reply_token 已被使用，改用 push_message
             line_bot_api.push_message(user_id, error_message)
+        except Exception as send_error:
+            logger.error("Failed to send image error message", send_error=str(send_error))
 
 
 @handler.add(MessageEvent, message=TextMessage)

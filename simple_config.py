@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     app_port: int = Field(5002, env="PORT")  # Zeabur 使用 PORT 環境變數
     app_host: str = Field("0.0.0.0", env="APP_HOST")
     flask_env: str = Field("production", env="FLASK_ENV")
-    secret_key: str = Field(..., env="SECRET_KEY")
+    secret_key: str = Field("fallback-secret-key-change-in-production", env="SECRET_KEY")
     
     # Security Configuration
     rate_limit_per_user: int = Field(50, env="RATE_LIMIT_PER_USER")

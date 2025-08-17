@@ -298,8 +298,24 @@ def test_endpoint():
         'config': {
             'rate_limit': settings.rate_limit_per_user,
             'batch_limit': settings.batch_size_limit,
-            'max_image_size': f"{settings.max_image_size // 1024 // 1024}MB"
+            'max_image_size': f"{settings.max_image_size // 1024 // 1024}MB",
+            'flask_env': settings.flask_env,
+            'line_channel_configured': bool(settings.line_channel_access_token),
+            'line_secret_configured': bool(settings.line_channel_secret)
         }
+    })
+
+@app.route('/debug/webhook', methods=['POST'])
+def debug_webhook():
+    """除錯 webhook 端點"""
+    logger.info("Debug webhook called", 
+                headers=dict(request.headers),
+                body_length=len(request.get_data()),
+                method=request.method)
+    return jsonify({
+        'status': 'received',
+        'headers': dict(request.headers),
+        'body_length': len(request.get_data())
     })
 
 

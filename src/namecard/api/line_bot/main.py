@@ -74,41 +74,40 @@ def create_batch_summary_message(batch_result) -> TextSendMessage:
 @app.route("/callback", methods=['POST'])
 def callback():
     """LINE Webhook 回調端點"""
+    signature = request.headers.get('X-Line-Signature', '')
+    body = request.get_data(as_text=True)
+    
+    # 基本輸入驗證
+    if not signature or not body:
+        logger.warning("Missing signature or body in webhook request")
+        abort(400)
+    
+    # 使用 SecurityService 驗證簽名
+    if not security_service.validate_line_signature(body, signature, settings.line_channel_secret):
+        logger.error("LINE webhook signature validation failed")
+        security_service.log_security_event(
+            "invalid_webhook_signature",
+            "unknown",
+            {"signature": signature[:20] + "...", "body_length": len(body)}
+        )
+        abort(400)
+    
+    # 檢查請求大小
+    if len(body) > 1024 * 1024:  # 1MB 限制
+        logger.warning("Webhook request too large", size=len(body))
+        abort(413)
+    
     try:
-        signature = request.headers.get('X-Line-Signature', '')
-        body = request.get_data(as_text=True)
-        
-        # 基本輸入驗證
-        if not signature or not body:
-            logger.warning("Missing signature or body in webhook request")
-            abort(400)
-        
-        # 使用 SecurityService 驗證簽名
-        if not security_service.validate_line_signature(body, signature, settings.line_channel_secret):
-            logger.error("LINE webhook signature validation failed")
-            security_service.log_security_event(
-                "invalid_webhook_signature",
-                "unknown",
-                {"signature": signature[:20] + "...", "body_length": len(body)}
-            )
-            abort(400)
-        
-        # 檢查請求大小
-        if len(body) > 1024 * 1024:  # 1MB 限制
-            logger.warning("Webhook request too large", size=len(body))
-            abort(413)
-        
         # 清理輸入
         body = security_service.sanitize_input(body, max_length=10000)
-        
         handler.handle(body, signature)
-        
     except InvalidSignatureError:
         logger.error("Invalid LINE signature")
         abort(400)
     except Exception as e:
-        logger.error("Webhook error", error=str(e), traceback=traceback.format_exc())
-        abort(500)
+        logger.error("Webhook processing error", error=str(e))
+        # 不要 abort，返回 200 避免 LINE 重複發送
+        return 'Error processed', 200
     
     return 'OK'
 

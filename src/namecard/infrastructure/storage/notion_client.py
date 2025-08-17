@@ -77,8 +77,8 @@ class NotionClient:
         properties = {}
         
         # 根據 /debug/notion 檢查的確切欄位名稱設置
-        # 實際欄位：Email, Name, 備註, 公司名稱, 取得聯絡來源, 地址, 決策影響力, 
-        #         窗口的困擾或 KPI, 聯絡注意事項, 職稱, 負責業務, 部門, 電話
+        # 自動填寫：Email, Name, 備註, 公司名稱, 地址, 決策影響力, 窗口的困擾或 KPI, 職稱, 部門, 電話
+        # 人工輸入：取得聯絡來源, 聯絡注意事項, 負責業務
         
         # 1. Name (title) - 必填
         properties["Name"] = {
@@ -97,20 +97,31 @@ class NotionClient:
                 "email": card.email
             }
         
-        # 3. 備註 (rich_text)
-        notes = f"AI信心度: {card.confidence_score:.1%} | 品質: {card.quality_score:.1%}"
+        # 3. 備註 (rich_text) - 記錄額外資訊
+        notes = []
         if card.line_user_id:
-            notes += f" | LINE: {card.line_user_id[:8]}..."
+            notes.append(f"LINE用戶: {card.line_user_id}")
+        if card.fax:
+            notes.append(f"傳真: {card.fax}")
+        if hasattr(card, 'mobile') and card.mobile:
+            notes.append(f"行動電話: {card.mobile}")
+        if card.website:
+            notes.append(f"網站: {card.website}")
+        if hasattr(card, 'tax_id') and card.tax_id:
+            notes.append(f"統一編號: {card.tax_id}")
+        if card.line_id:
+            notes.append(f"LINE ID: {card.line_id}")
         
-        properties["備註"] = {
-            "rich_text": [
-                {
-                    "text": {
-                        "content": notes
+        if notes:
+            properties["備註"] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": " | ".join(notes)
+                        }
                     }
-                }
-            ]
-        }
+                ]
+            }
         
         # 4. 公司名稱 (rich_text)
         if card.company:
@@ -206,8 +217,10 @@ class NotionClient:
                 "phone_number": card.phone
             }
         
-        # 暫時跳過這些可能有問題的欄位，先讓基本功能運作
-        # 取得聯絡來源, 聯絡注意事項, 負責業務
+        # 以下欄位留空，供人工輸入：
+        # - 取得聯絡來源 (rich_text)
+        # - 聯絡注意事項 (rich_text) 
+        # - 負責業務 (people)
         
         return properties
     

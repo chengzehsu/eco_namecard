@@ -133,6 +133,15 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 - Integration permissions and database sharing
 - User-based data segregation
 
+**Sentry Error Monitoring** ✅ **ACTIVE**
+- Real-time error tracking and notification system integrated via `sentry-sdk[flask]>=1.40.0`
+- Automatic error categorization and stack trace capture with environment context
+- Performance monitoring with 10% sampling rate for production optimization
+- Email notifications for new issues and high error rates
+- Integration initialized in `app.py` with Flask integration and structured logging
+- Debug endpoints: `/debug/sentry` for real-time configuration status verification
+- Debugging tools: `debug-sentry.py` and `force-sentry-test.py` for comprehensive troubleshooting
+
 ## Development Workflow
 
 1. Changes to `main` branch trigger automatic deployment
@@ -147,6 +156,7 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 - `GOOGLE_API_KEY` (with optional `GOOGLE_API_KEY_FALLBACK`)
 - `NOTION_API_KEY`, `NOTION_DATABASE_ID`
 - `SECRET_KEY`
+- `SENTRY_DSN` (error monitoring and alerting)
 
 **Operational**:
 - `RATE_LIMIT_PER_USER=50`, `BATCH_SIZE_LIMIT=10`
@@ -158,6 +168,13 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 **AI Recognition Failures**: Verify Google API quotas and network connectivity
 **Notion Storage Errors**: Confirm integration permissions and database schema
 **Webhook Issues**: Validate LINE channel secret and URL accessibility
+**Sentry Configuration Issues**:
+  - Run `python debug-sentry.py` to diagnose environment variable and SDK configuration
+  - Check `/debug/sentry` endpoint for real-time configuration status
+  - Verify SENTRY_DSN environment variable is correctly set in Zeabur
+  - Use `python force-sentry-test.py` to trigger test errors and verify Dashboard integration
+  - Note: "Sentry monitoring enabled" log message may not appear but integration can still be functional
+  - Confirm errors appear in Sentry Dashboard at https://sentry.io after 3-5 minutes
 
 ## System Maintenance
 
@@ -167,17 +184,47 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 - 系統健康: https://namecard-app.zeabur.app/health
 - Notion 欄位: https://namecard-app.zeabur.app/debug/notion
 - 系統設定: https://namecard-app.zeabur.app/test
+- Sentry 配置: https://namecard-app.zeabur.app/debug/sentry
+- 錯誤監控: https://sentry.io (需登入查看 Issues)
 
 **📋 維護重點**:
 - 每月測試 LINE Bot 和 Notion 功能
+- 定期檢查 Sentry Dashboard 的錯誤趨勢
 - 修改時採用小步驟原則
 - 每次變更都要測試
 - 記錄所有修改內容
+- 監控 Sentry 錯誤率和效能指標
 
 **🆘 緊急修復**:
 - 如果服務異常，先檢查 /health 端點
 - 如果 Notion 無法儲存，檢查 /debug/notion
+- 如果 Sentry 錯誤監控異常，執行 `python debug-sentry.py` 診斷
 - 程式修改出錯可用 `git reset --hard HEAD~1` 回退
+
+## Sentry 錯誤監控系統
+
+**監控 Dashboard 工作流程**:
+1. **日常監控**: 每週檢查 https://sentry.io Dashboard 的 Issues 頁面
+2. **錯誤分析**: 按錯誤頻率、影響用戶數和時間趨勢分析問題優先級
+3. **效能監控**: 檢查 Performance 頁面的 API 回應時間和錯誤率趨勢
+4. **警報設定**: 確保 Email 通知已啟用，收到高頻錯誤或新問題通知
+
+**故障排除工具包**:
+```bash
+# 完整診斷 Sentry 配置
+python debug-sentry.py
+
+# 強制觸發測試錯誤
+python force-sentry-test.py
+
+# 檢查即時配置狀態
+curl https://namecard-app.zeabur.app/debug/sentry
+```
+
+**常見 Sentry 問題**:
+- **配置正確但無錯誤記錄**: 環境變數可能正確但 SDK 初始化失敗，檢查 Zeabur 部署日誌
+- **Debug 端點 404**: 表示程式部署未成功，需重新推送到 GitHub 觸發部署
+- **測試錯誤不出現**: 等待 3-5 分鐘，Sentry 有延遲，或檢查專案設定
 
 Repository: https://github.com/chengzehsu/eco_namecard
 Deployment: https://namecard-app.zeabur.app

@@ -167,8 +167,12 @@ def handle_text_message(event):
         
     except Exception as e:
         logger.error("Text message error", user_id=user_id, error=str(e))
-        error_message = TextSendMessage(text="⚠️ 系統暫時無法處理，請稍後再試")
-        line_bot_api.reply_message(event.reply_token, error_message)
+        try:
+            error_message = TextSendMessage(text="⚠️ 系統暫時無法處理，請稍後再試")
+            line_bot_api.reply_message(event.reply_token, error_message)
+        except LineBotApiError:
+            # reply_token 已被使用，改用 push_message
+            line_bot_api.push_message(user_id, error_message)
 
 
 @handler.add(MessageEvent, message=ImageMessage)
@@ -263,8 +267,12 @@ def handle_image_message(event):
         
     except Exception as e:
         logger.error("Image processing error", user_id=user_id, error=str(e))
-        error_message = TextSendMessage(text="⚠️ 處理失敗，請重試")
-        line_bot_api.reply_message(event.reply_token, error_message)
+        try:
+            error_message = TextSendMessage(text="⚠️ 處理失敗，請重試")
+            line_bot_api.reply_message(event.reply_token, error_message)
+        except LineBotApiError:
+            # reply_token 已被使用，改用 push_message
+            line_bot_api.push_message(user_id, error_message)
 
 
 @app.route('/health', methods=['GET'])

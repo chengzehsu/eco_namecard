@@ -123,13 +123,17 @@ class NotionClient:
                 ]
             }
         
-        # 4. 公司名稱 (rich_text)
+        # 4. 公司名稱 (rich_text) - 提取主公司名稱
         if card.company:
+            # 拆分公司名稱，取第一個部分作為主公司名稱
+            company_parts = card.company.split()
+            main_company = company_parts[0] if company_parts else card.company
+            
             properties["公司名稱"] = {
                 "rich_text": [
                     {
                         "text": {
-                            "content": card.company
+                            "content": main_company
                         }
                     }
                 ]
@@ -199,13 +203,20 @@ class NotionClient:
                 }
             }
         
-        # 9. 部門 (rich_text)
+        # 9. 部門 (rich_text) - 提取部門資訊
         if card.company:
+            # 拆分公司名稱，取第一個部分後的內容作為部門
+            company_parts = card.company.split()
+            if len(company_parts) > 1:
+                department = " ".join(company_parts[1:])
+            else:
+                department = "總公司"  # 如果沒有部門資訊，預設為總公司
+            
             properties["部門"] = {
                 "rich_text": [
                     {
                         "text": {
-                            "content": card.company
+                            "content": department
                         }
                     }
                 ]

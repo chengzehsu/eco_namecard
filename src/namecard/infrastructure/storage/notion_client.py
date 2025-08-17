@@ -73,12 +73,12 @@ class NotionClient:
             return None
     
     def _prepare_card_properties(self, card: BusinessCard) -> Dict[str, Any]:
-        """準備名片屬性用於 Notion"""
+        """準備名片屬性用於 Notion（根據實際資料庫欄位）"""
         properties = {}
         
-        # 姓名 (標題)
+        # Name (標題) - 對應您的 Name 欄位
         if card.name:
-            properties["姓名"] = {
+            properties["Name"] = {
                 "title": [
                     {
                         "text": {
@@ -88,9 +88,9 @@ class NotionClient:
                 ]
             }
         
-        # 公司名稱
+        # 公司名稱 - 對應您的「公司名稱」欄位
         if card.company:
-            properties["公司"] = {
+            properties["公司名稱"] = {
                 "rich_text": [
                     {
                         "text": {
@@ -100,17 +100,21 @@ class NotionClient:
                 ]
             }
         
-        # 職稱
+        # 職稱 - 您的欄位是 select 類型，需要從現有選項中選擇
         if card.title:
-            properties["職稱"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": card.title
-                        }
+            # 檢查職稱是否在預定義選項中，如果不在則使用最接近的或預設值
+            title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]
+            
+            # 如果職稱在選項中，直接使用；否則使用原始值（可能會失敗，但記錄下來）
+            if card.title in title_options:
+                properties["職稱"] = {
+                    "select": {
+                        "name": card.title
                     }
-                ]
-            }
+                }
+            else:
+                # 記錄未知職稱，但暫時不設置此欄位
+                logger.warning("Unknown title not in select options", title=card.title)
         
         # 電話
         if card.phone:
@@ -118,7 +122,7 @@ class NotionClient:
                 "phone_number": card.phone
             }
         
-        # 電子郵件
+        # Email
         if card.email:
             properties["Email"] = {
                 "email": card.email
@@ -136,70 +140,42 @@ class NotionClient:
                 ]
             }
         
-        # 網站
-        if card.website:
-            properties["網站"] = {
-                "url": card.website if card.website.startswith(('http://', 'https://')) 
-                      else f"https://{card.website}"
-            }
-        
-        # 傳真
-        if card.fax:
-            properties["傳真"] = {
+        # 部門 - 如果名片有部門資訊
+        if hasattr(card, 'department') and card.department:
+            properties["部門"] = {
                 "rich_text": [
                     {
                         "text": {
-                            "content": card.fax
+                            "content": card.department
                         }
                     }
                 ]
             }
         
-        # LINE ID
-        if card.line_id:
-            properties["LINE ID"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": card.line_id
-                        }
-                    }
-                ]
-            }
-        
-        # 信心度評分
-        properties["信心度"] = {
-            "number": round(card.confidence_score, 2)
-        }
-        
-        # 品質評分
-        properties["品質評分"] = {
-            "number": round(card.quality_score, 2)
-        }
-        
-        # 提取時間
-        properties["建立時間"] = {
-            "date": {
-                "start": card.extracted_at.isoformat()
-            }
-        }
-        
-        # LINE 用戶 ID (用於追蹤)
-        properties["LINE用戶"] = {
+        # 取得聯絡來源 - 設為 LINE Bot
+        properties["取得聯絡來源"] = {
             "rich_text": [
                 {
                     "text": {
-                        "content": card.line_user_id
+                        "content": "LINE Bot 名片識別"
                     }
                 }
             ]
         }
         
-        # 處理狀態
-        properties["狀態"] = {
-            "select": {
-                "name": "已處理" if card.processed else "待處理"
-            }
+        # 備註 - 包含信心度和品質評分資訊
+        confidence_info = f"AI識別信心度: {card.confidence_score:.2f}, 品質評分: {card.quality_score:.2f}"
+        if card.line_user_id:
+            confidence_info += f", LINE用戶: {card.line_user_id}"
+        
+        properties["備註"] = {
+            "rich_text": [
+                {
+                    "text": {
+                        "content": confidence_info
+                    }
+                }
+            ]
         }
         
         return properties

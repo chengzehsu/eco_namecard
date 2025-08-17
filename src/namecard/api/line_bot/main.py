@@ -611,6 +611,40 @@ def debug_webhook():
         'body_length': len(request.get_data())
     })
 
+@app.route('/debug/notion', methods=['GET'])
+def debug_notion():
+    """檢查 Notion 資料庫結構"""
+    try:
+        # 檢查資料庫結構
+        database_info = notion_client.client.databases.retrieve(database_id=settings.notion_database_id)
+        properties = database_info.get('properties', {})
+        
+        property_info = {}
+        for prop_name, prop_data in properties.items():
+            property_info[prop_name] = {
+                'type': prop_data.get('type'),
+                'id': prop_data.get('id')
+            }
+            # 如果是 select 類型，顯示選項
+            if prop_data.get('type') == 'select' and 'select' in prop_data:
+                options = prop_data['select'].get('options', [])
+                property_info[prop_name]['options'] = [opt.get('name') for opt in options]
+        
+        return jsonify({
+            'status': 'success',
+            'database_id': settings.notion_database_id,
+            'database_title': database_info.get('title', [{}])[0].get('plain_text', 'Unknown'),
+            'properties': property_info,
+            'property_count': len(properties)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'database_id': settings.notion_database_id
+        })
+
 
 if __name__ == "__main__":
     # 設置日誌

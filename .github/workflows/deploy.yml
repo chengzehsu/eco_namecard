@@ -46,19 +46,52 @@ jobs:
         
     - name: Run code quality checks
       run: |
-        # Code formatting check
-        black --check src/ || echo "Code formatting check completed"
+        echo "🔍 執行代碼品質檢查..."
         
-        # Linting
-        flake8 src/ --max-line-length=100 --extend-ignore=E203,W503 || echo "Linting completed"
+        # Code formatting check with better reporting
+        echo "📝 檢查代碼格式..."
+        if black --check src/; then
+          echo "✅ 代碼格式: 符合標準"
+        else
+          echo "⚠️ 代碼格式: 需要調整 (不影響部署)"
+        fi
         
-        # Type checking
-        mypy src/ --ignore-missing-imports || echo "Type checking completed"
+        # Linting with better reporting
+        echo "🔍 執行程式碼分析..."
+        if flake8 src/ --max-line-length=100 --extend-ignore=E203,W503; then
+          echo "✅ 程式碼分析: 沒有發現問題"
+        else
+          echo "⚠️ 程式碼分析: 發現一些建議 (不影響部署)"
+        fi
+        
+        # Type checking with better reporting
+        echo "🎯 執行型別檢查..."
+        if mypy src/ --ignore-missing-imports; then
+          echo "✅ 型別檢查: 通過"
+        else
+          echo "⚠️ 型別檢查: 發現型別問題 (不影響部署)"
+        fi
+        
+        echo "✅ 代碼品質檢查完成"
         
     - name: Run tests
       run: |
-        pytest tests/ -v --cov=src --cov-report=term-missing || echo "Tests completed"
-        echo "✅ Tests completed with coverage report"
+        echo "🧪 執行單元測試和整合測試..."
+        
+        # 統計測試執行狀況
+        if pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=json; then
+          echo "✅ 測試執行: 全部通過"
+          
+          # 嘗試讀取覆蓋率報告
+          if [ -f coverage.json ]; then
+            COVERAGE=$(python3 -c "import json; data=json.load(open('coverage.json')); print(f'{data[\"totals\"][\"percent_covered\"]:.1f}')" 2>/dev/null || echo "N/A")
+            echo "📊 測試覆蓋率: ${COVERAGE}%"
+          fi
+        else
+          echo "⚠️ 測試執行: 部分失敗 (檢查但不阻止部署)"
+        fi
+        
+        echo "✅ 測試階段完成"
         
     # Coverage upload disabled - can be re-enabled by setting up Codecov account
     # - name: Upload coverage to Codecov
@@ -88,11 +121,31 @@ jobs:
         
     - name: Run security checks
       run: |
+        echo "🔒 執行安全性掃描..."
+        
         # Check for known security vulnerabilities
-        safety check || echo "Safety check completed"
+        echo "🔍 檢查已知安全漏洞..."
+        if safety check; then
+          echo "✅ 依賴安全: 沒有發現已知漏洞"
+        else
+          echo "⚠️ 依賴安全: 發現潛在問題 (請檢查報告)"
+        fi
         
         # Static security analysis
-        bandit -r src/ -f json -o bandit-report.json || echo "Bandit scan completed"
+        echo "🔎 執行靜態安全分析..."
+        if bandit -r src/ -f json -o bandit-report.json; then
+          echo "✅ 靜態分析: 沒有發現安全問題"
+        else
+          echo "⚠️ 靜態分析: 發現潛在安全問題 (請檢查報告)"
+        fi
+        
+        # 簡要顯示 bandit 結果
+        if [ -f bandit-report.json ]; then
+          ISSUES=$(python3 -c "import json; data=json.load(open('bandit-report.json')); print(len(data.get('results', [])))" 2>/dev/null || echo "0")
+          echo "📊 發現安全問題數量: $ISSUES"
+        fi
+        
+        echo "✅ 安全掃描完成"
         
     - name: Upload security scan results
       if: always()
@@ -118,33 +171,133 @@ jobs:
         echo "🔗 App URL: https://namecard-app.zeabur.app"
         echo "✅ GitHub Actions completed successfully - Zeabur deployment in progress"
         
-    - name: Verify deployment
+    - name: Initial deployment check
       run: |
-        echo "⏳ Waiting for deployment to complete..."
+        echo "📊 檢查當前服務狀態..."
         
-        # Wait longer for deployment to be ready
+        # 檢查當前狀態作為基準
+        CURRENT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app.zeabur.app/health 2>/dev/null || echo "000")
+        echo "當前狀態碼: $CURRENT_STATUS"
+        
+        if [ "$CURRENT_STATUS" = "200" ]; then
+          echo "✅ 服務已運行，可能是熱更新"
+        elif [ "$CURRENT_STATUS" = "502" ] || [ "$CURRENT_STATUS" = "503" ]; then
+          echo "🔄 服務正在重新部署中 (狀態: $CURRENT_STATUS)"
+        else
+          echo "⚠️ 未知狀態: $CURRENT_STATUS"
+        fi
+        
+    - name: Wait for Zeabur deployment
+      run: |
+        echo "⏳ 等待 Zeabur 部署完成..."
+        echo "📋 預計部署時間: 3-8 分鐘"
+        
+        # 逐步增加等待時間，更符合 Zeabur 部署實際時間
+        echo "🕐 階段 1: 等待容器構建 (2 分鐘)..."
+        sleep 120
+        
+        echo "🕑 階段 2: 等待服務啟動 (2 分鐘)..."
+        sleep 120
+        
+        echo "🕒 階段 3: 等待健康檢查穩定 (1 分鐘)..."
         sleep 60
         
-        # Health check with retry
-        for i in {1..5}; do
-          echo "Health check attempt $i/5..."
-          if curl -f https://namecard-app.zeabur.app/health; then
-            echo "✅ Deployment verified successfully!"
-            exit 0
+        echo "✅ 基本等待期完成，開始健康檢查循環"
+        
+    - name: Verify deployment with smart retry
+      run: |
+        echo "🔍 開始智能健康檢查..."
+        
+        SUCCESS_COUNT=0
+        REQUIRED_SUCCESS=3  # 需要連續 3 次成功才算穩定
+        MAX_ATTEMPTS=15     # 最多嘗試 15 次 (15分鐘)
+        
+        for i in $(seq 1 $MAX_ATTEMPTS); do
+          echo "🔄 健康檢查 $i/$MAX_ATTEMPTS (成功次數: $SUCCESS_COUNT/$REQUIRED_SUCCESS)"
+          
+          # 嘗試健康檢查
+          RESPONSE=$(curl -s https://namecard-app.zeabur.app/health 2>/dev/null)
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app.zeabur.app/health 2>/dev/null)
+          
+          echo "狀態碼: $STATUS_CODE"
+          
+          if [ "$STATUS_CODE" = "200" ] && echo "$RESPONSE" | grep -q "healthy"; then
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            echo "✅ 健康檢查成功! (連續成功: $SUCCESS_COUNT)"
+            
+            if [ $SUCCESS_COUNT -ge $REQUIRED_SUCCESS ]; then
+              echo "🎉 部署驗證成功! 服務穩定運行"
+              echo "📊 最終回應: $RESPONSE"
+              exit 0
+            fi
+          else
+            SUCCESS_COUNT=0  # 重置連續成功計數
+            
+            case $STATUS_CODE in
+              "502"|"503")
+                echo "🔄 服務正在重啟中 (狀態: $STATUS_CODE)"
+                ;;
+              "000")
+                echo "🌐 網路連線問題或服務未回應"
+                ;;
+              *)
+                echo "⚠️ 未預期的狀態: $STATUS_CODE"
+                echo "回應內容: $RESPONSE"
+                ;;
+            esac
           fi
-          sleep 30
+          
+          # 動態等待時間：前期短，後期長
+          if [ $i -le 5 ]; then
+            WAIT_TIME=30
+          elif [ $i -le 10 ]; then
+            WAIT_TIME=60
+          else
+            WAIT_TIME=90
+          fi
+          
+          if [ $i -lt $MAX_ATTEMPTS ]; then
+            echo "⏱️ 等待 ${WAIT_TIME} 秒後重試..."
+            sleep $WAIT_TIME
+          fi
         done
         
-        echo "⚠️ Health check completed (may still be deploying)"
+        echo "⚠️ 健康檢查超時，但不一定表示部署失敗"
+        echo "💡 Zeabur 部署可能仍在進行中，請手動檢查"
+        exit 1
         
-    - name: Notify deployment status
+    - name: Final deployment status
       if: always()
       run: |
-        if [ ${{ job.status }} == 'success' ]; then
-          echo "✅ Deployment successful to Zeabur"
+        echo "📋 部署狀態總結"
+        echo "===================="
+        
+        # 最終狀態檢查
+        FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app.zeabur.app/health 2>/dev/null || echo "000")
+        FINAL_RESPONSE=$(curl -s https://namecard-app.zeabur.app/health 2>/dev/null || echo "無回應")
+        
+        echo "🔗 應用 URL: https://namecard-app.zeabur.app"
+        echo "📊 最終狀態碼: $FINAL_STATUS"
+        echo "📄 最終回應: $FINAL_RESPONSE"
+        
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ GitHub Actions 驗證: 成功"
+          echo "🎉 Zeabur 部署已驗證並穩定運行"
+          echo "📱 LINE Bot 準備就緒，可以開始使用!"
         else
-          echo "❌ Deployment failed"
+          echo "⚠️ GitHub Actions 驗證: 超時"
+          echo "🔄 這通常表示 Zeabur 部署時間較長"
+          echo "💡 建議行動:"
+          echo "   1. 手動檢查 https://namecard-app.zeabur.app/health"
+          echo "   2. 查看 Zeabur Dashboard 部署日誌"
+          echo "   3. 如果服務正常，本次是假警報"
+          echo "   4. 大約 5-10 分鐘後服務應該可用"
         fi
+        
+        echo "===================="
+        echo "📊 部署監控連結:"
+        echo "   🔗 Zeabur Dashboard: https://zeabur.com/dashboard"
+        echo "   🔗 GitHub Actions: https://github.com/chengzehsu/eco_namecard/actions"
 
   performance-test:
     needs: deploy
@@ -152,15 +305,158 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
-    - name: Basic performance test
+    - name: Wait for service stabilization
       run: |
-        # Simple load test
-        for i in {1..10}; do
-          curl -s -o /dev/null -w "%{http_code} %{time_total}\n" https://namecard-app.zeabur.app/health
-          sleep 1
+        echo "⏳ 等待服務完全穩定後開始性能測試..."
+        
+        # 確保服務已穩定運行
+        STABLE_COUNT=0
+        for i in {1..5}; do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app.zeabur.app/health 2>/dev/null || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            STABLE_COUNT=$((STABLE_COUNT + 1))
+            echo "✅ 穩定性檢查 $i/5: 成功 (狀態: $STATUS)"
+          else
+            echo "⚠️ 穩定性檢查 $i/5: 失敗 (狀態: $STATUS)"
+            STABLE_COUNT=0
+          fi
+          sleep 10
         done
         
-    - name: API endpoint tests
+        if [ $STABLE_COUNT -eq 5 ]; then
+          echo "🎯 服務已穩定，開始性能測試"
+        else
+          echo "⚠️ 服務不穩定，跳過性能測試"
+          exit 1
+        fi
+    
+    - name: Enhanced performance test
       run: |
-        # Test main endpoints
-        curl -f https://namecard-app.zeabur.app/test || echo "Test endpoint check completed"
+        echo "🚀 開始綜合性能測試..."
+        echo "=============================="
+        
+        # 性能指標收集
+        TOTAL_REQUESTS=20
+        SUCCESS_COUNT=0
+        TOTAL_TIME=0
+        MAX_TIME=0
+        MIN_TIME=999
+        
+        echo "📊 執行 $TOTAL_REQUESTS 次請求測試..."
+        
+        for i in $(seq 1 $TOTAL_REQUESTS); do
+          RESULT=$(curl -s -o /dev/null -w "%{http_code},%{time_total}" https://namecard-app.zeabur.app/health 2>/dev/null || echo "000,999")
+          STATUS_CODE=$(echo $RESULT | cut -d',' -f1)
+          RESPONSE_TIME=$(echo $RESULT | cut -d',' -f2)
+          
+          if [ "$STATUS_CODE" = "200" ]; then
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            echo "✅ 請求 $i/$TOTAL_REQUESTS: 成功 (${RESPONSE_TIME}s)"
+            
+            # 計算時間統計
+            TOTAL_TIME=$(echo "$TOTAL_TIME + $RESPONSE_TIME" | bc -l 2>/dev/null || echo $TOTAL_TIME)
+            if (( $(echo "$RESPONSE_TIME > $MAX_TIME" | bc -l 2>/dev/null || echo 0) )); then
+              MAX_TIME=$RESPONSE_TIME
+            fi
+            if (( $(echo "$RESPONSE_TIME < $MIN_TIME" | bc -l 2>/dev/null || echo 0) )); then
+              MIN_TIME=$RESPONSE_TIME
+            fi
+          else
+            echo "❌ 請求 $i/$TOTAL_REQUESTS: 失敗 (狀態: $STATUS_CODE)"
+          fi
+          
+          sleep 0.5
+        done
+        
+        # 計算統計
+        SUCCESS_RATE=$(echo "scale=2; $SUCCESS_COUNT * 100 / $TOTAL_REQUESTS" | bc -l 2>/dev/null || echo "N/A")
+        AVG_TIME=$(echo "scale=3; $TOTAL_TIME / $SUCCESS_COUNT" | bc -l 2>/dev/null || echo "N/A")
+        
+        echo "=============================="
+        echo "📈 性能測試結果:"
+        echo "   🎯 成功率: $SUCCESS_RATE% ($SUCCESS_COUNT/$TOTAL_REQUESTS)"
+        echo "   ⚡ 平均回應時間: ${AVG_TIME}s"
+        echo "   🏃 最快回應: ${MIN_TIME}s"
+        echo "   🐌 最慢回應: ${MAX_TIME}s"
+        
+        # 性能評估
+        if [ $SUCCESS_COUNT -ge $((TOTAL_REQUESTS * 90 / 100)) ]; then
+          echo "✅ 性能測試: 優秀 (成功率 ≥ 90%)"
+        elif [ $SUCCESS_COUNT -ge $((TOTAL_REQUESTS * 80 / 100)) ]; then
+          echo "⚠️ 性能測試: 良好 (成功率 ≥ 80%)"
+        else
+          echo "❌ 性能測試: 需要關注 (成功率 < 80%)"
+        fi
+        
+    - name: API endpoint comprehensive test
+      run: |
+        echo "🔍 測試關鍵 API 端點..."
+        echo "=============================="
+        
+        # 測試健康檢查端點
+        echo "1️⃣ 測試健康檢查端點..."
+        HEALTH_RESPONSE=$(curl -s https://namecard-app.zeabur.app/health 2>/dev/null || echo "ERROR")
+        if echo "$HEALTH_RESPONSE" | grep -q "healthy"; then
+          echo "✅ /health 端點: 正常"
+          echo "📄 回應: $HEALTH_RESPONSE"
+        else
+          echo "❌ /health 端點: 異常"
+          echo "📄 回應: $HEALTH_RESPONSE"
+        fi
+        
+        echo ""
+        
+        # 測試測試端點
+        echo "2️⃣ 測試配置端點..."
+        TEST_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app.zeabur.app/test 2>/dev/null || echo "000")
+        if [ "$TEST_STATUS" = "200" ]; then
+          TEST_RESPONSE=$(curl -s https://namecard-app.zeabur.app/test 2>/dev/null || echo "ERROR")
+          echo "✅ /test 端點: 正常 (狀態: $TEST_STATUS)"
+          echo "📄 配置: $TEST_RESPONSE"
+        else
+          echo "❌ /test 端點: 異常 (狀態: $TEST_STATUS)"
+        fi
+        
+        echo ""
+        
+        # 測試 webhook 端點 (應該返回 400，因為沒有正確的簽名)
+        echo "3️⃣ 測試 webhook 端點安全性..."
+        CALLBACK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://namecard-app.zeabur.app/callback 2>/dev/null || echo "000")
+        if [ "$CALLBACK_STATUS" = "400" ]; then
+          echo "✅ /callback 端點: 安全性正常 (正確拒絕無效請求: $CALLBACK_STATUS)"
+        else
+          echo "⚠️ /callback 端點: 意外狀態 ($CALLBACK_STATUS)"
+        fi
+        
+        echo "=============================="
+        echo "🎯 API 測試完成"
+        
+    - name: Final performance summary
+      if: always()
+      run: |
+        echo "📊 完整部署與性能驗證總結"
+        echo "==========================================="
+        
+        # 最終狀態確認
+        FINAL_HEALTH=$(curl -s https://namecard-app.zeabur.app/health 2>/dev/null || echo "ERROR")
+        FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app.zeabur.app/health 2>/dev/null || echo "000")
+        
+        echo "🔗 服務 URL: https://namecard-app.zeabur.app"
+        echo "📊 最終狀態: $FINAL_STATUS"
+        echo "⏱️ 測試時間: $(date)"
+        
+        if [ "$FINAL_STATUS" = "200" ] && echo "$FINAL_HEALTH" | grep -q "healthy"; then
+          echo "🎉 部署驗證: 完全成功"
+          echo "🚀 LINE Bot 已準備就緒，所有系統正常"
+          echo "📱 可以開始使用 LINE Bot 名片識別功能"
+        else
+          echo "⚠️ 部署驗證: 需要注意"
+          echo "🔧 建議檢查 Zeabur Dashboard 日誌"
+        fi
+        
+        echo "==========================================="
+        echo "📋 後續步驟:"
+        echo "   1. 設定 LINE Bot Webhook URL"
+        echo "   2. 配置 Notion 資料庫"
+        echo "   3. 測試 LINE Bot 功能"
+        echo "   4. 監控系統運行狀況"

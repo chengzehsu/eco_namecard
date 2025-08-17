@@ -26,17 +26,39 @@ class SecurityService:
     
     def _get_or_create_encryption_key(self) -> bytes:
         """獲取或建立加密金鑰"""
-        # 在生產環境中，這應該從安全的環境變數或密鑰管理服務獲取
+        # 優先從環境變數獲取
         key_env = os.environ.get('ENCRYPTION_KEY')
         if key_env:
             try:
                 return base64.urlsafe_b64decode(key_env)
-            except Exception:
-                logger.warning("Invalid encryption key in environment, generating new one")
+            except Exception as e:
+                logger.error("Invalid encryption key in environment", error=str(e))
         
-        # 生成新的金鑰
+        # 嘗試從 SECRET_KEY 衍生密鑰
+        secret_key = os.environ.get('SECRET_KEY')
+        if secret_key:
+            try:
+                # 使用 PBKDF2 從 SECRET_KEY 衍生穩定的加密密鑰
+                from cryptography.hazmat.primitives import hashes
+                from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+                
+                salt = b'linebot_namecard_salt_2024'  # 固定鹽值確保一致性
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                )
+                key = kdf.derive(secret_key.encode('utf-8'))
+                logger.info("Derived encryption key from SECRET_KEY")
+                return key
+            except Exception as e:
+                logger.error("Failed to derive key from SECRET_KEY", error=str(e))
+        
+        # 最後選擇：生成新的金鑰（不推薦用於生產環境）
         key = Fernet.generate_key()
-        logger.warning("Generated new encryption key, set ENCRYPTION_KEY environment variable")
+        logger.warning("Generated new encryption key - data encrypted with this key will be lost on restart")
+        logger.warning("Set ENCRYPTION_KEY or SECRET_KEY environment variable for persistent encryption")
         return key
     
     def validate_line_signature(self, body: str, signature: str, channel_secret: str) -> bool:

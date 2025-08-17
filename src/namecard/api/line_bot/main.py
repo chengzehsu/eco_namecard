@@ -10,12 +10,14 @@ import traceback
 from typing import Optional
 import os
 import sys
+from datetime import datetime
 
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
 from simple_config import settings
 from src.namecard.core.services.user_service import user_service
+from src.namecard.core.services.security import security_service
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
 
@@ -93,13 +95,37 @@ def create_batch_summary_message(batch_result) -> TextSendMessage:
 @app.route("/callback", methods=['POST'])
 def callback():
     """LINE Webhook 回調端點"""
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    
     try:
+        signature = request.headers.get('X-Line-Signature', '')
+        body = request.get_data(as_text=True)
+        
+        # 基本輸入驗證
+        if not signature or not body:
+            logger.warning("Missing signature or body in webhook request")
+            abort(400)
+        
+        # 使用 SecurityService 驗證簽名
+        if not security_service.validate_line_signature(body, signature, settings.line_channel_secret):
+            logger.error("LINE webhook signature validation failed")
+            security_service.log_security_event(
+                "invalid_webhook_signature",
+                "unknown",
+                {"signature": signature[:20] + "...", "body_length": len(body)}
+            )
+            abort(400)
+        
+        # 檢查請求大小
+        if len(body) > 1024 * 1024:  # 1MB 限制
+            logger.warning("Webhook request too large", size=len(body))
+            abort(413)
+        
+        # 清理輸入
+        body = security_service.sanitize_input(body, max_length=10000)
+        
         handler.handle(body, signature)
+        
     except InvalidSignatureError:
-        logger.error("Invalid signature")
+        logger.error("Invalid LINE signature")
         abort(400)
     except Exception as e:
         logger.error("Webhook error", error=str(e), traceback=traceback.format_exc())
@@ -185,10 +211,26 @@ def handle_image_message(event):
         message_content = line_bot_api.get_message_content(message_id)
         image_data = b''.join(message_content.iter_content())
         
-        # 檢查圖片大小
-        if len(image_data) > settings.max_image_size:
+        # 使用 SecurityService 驗證圖片
+        if not security_service.validate_image_data(image_data, settings.max_image_size):
+            logger.warning("Invalid image data received", 
+                         user_id=user_id, 
+                         size=len(image_data),
+                         message_id=message_id)
+            
+            # 記錄安全事件
+            security_service.log_security_event(
+                "invalid_image_upload",
+                user_id,
+                {
+                    "image_size": len(image_data),
+                    "max_allowed": settings.max_image_size,
+                    "message_id": message_id
+                }
+            )
+            
             reply_message = TextSendMessage(
-                text=f"⚠️ 圖片檔案過大 (>{settings.max_image_size // 1024 // 1024}MB)\n請壓縮後重新上傳"
+                text=f"⚠️ 圖片檔案無效或過大 (>{settings.max_image_size // 1024 // 1024}MB)\n請使用有效的圖片格式並壓縮後重新上傳"
             )
             line_bot_api.reply_message(event.reply_token, reply_message)
             return

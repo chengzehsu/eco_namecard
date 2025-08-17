@@ -79,7 +79,7 @@
     ]
   },
   "start": {
-    "command": "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:app"
+    "command": "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:application"
   },
   "healthcheck": {
     "path": "/health",

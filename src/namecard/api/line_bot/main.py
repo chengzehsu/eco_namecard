@@ -105,9 +105,21 @@ def callback():
         return jsonify({"status": "request too large"}), 200
     
     try:
-        # 清理輸入
-        body = security_service.sanitize_input(body, max_length=10000)
-        handler.handle(body, signature)
+        # 在 development 環境跳過 LINE SDK 的簽名驗證
+        if settings.flask_env == "development":
+            # 手動解析事件而不經過 LINE SDK 的簽名驗證
+            import json
+            webhook_data = json.loads(body)
+            
+            if 'events' in webhook_data:
+                for event_data in webhook_data['events']:
+                    logger.info("Processing event", event_type=event_data.get('type'))
+                    # 手動處理事件
+                    process_line_event_manually(event_data)
+        else:
+            # 清理輸入
+            body = security_service.sanitize_input(body, max_length=10000)
+            handler.handle(body, signature)
     except InvalidSignatureError:
         logger.error("Invalid LINE signature")
         return jsonify({"status": "invalid signature error"}), 200
@@ -117,6 +129,196 @@ def callback():
         return 'Error processed', 200
     
     return 'OK'
+
+
+def process_line_event_manually(event_data):
+    """手動處理 LINE 事件（跳過 LINE SDK 簽名驗證）"""
+    try:
+        event_type = event_data.get('type')
+        
+        if event_type == 'message':
+            message = event_data.get('message', {})
+            message_type = message.get('type')
+            source = event_data.get('source', {})
+            user_id = source.get('userId')
+            reply_token = event_data.get('replyToken')
+            
+            if not user_id or not reply_token:
+                logger.warning("Missing user_id or reply_token in event")
+                return
+            
+            logger.info("Processing manual event", 
+                       message_type=message_type, 
+                       user_id=user_id[:10] + "...",
+                       event_type=event_type)
+            
+            if message_type == 'text':
+                text = message.get('text', '').strip().lower()
+                handle_text_message_manual(user_id, text, reply_token)
+            elif message_type == 'image':
+                message_id = message.get('id')
+                handle_image_message_manual(user_id, message_id, reply_token)
+        else:
+            logger.info("Ignoring non-message event", event_type=event_type)
+            
+    except Exception as e:
+        logger.error("Manual event processing error", error=str(e))
+
+
+def handle_text_message_manual(user_id: str, text: str, reply_token: str):
+    """手動處理文字訊息"""
+    try:
+        # 檢查速率限制
+        if not user_service.check_rate_limit(user_id, settings.rate_limit_per_user):
+            reply_message = TextSendMessage(
+                text=f"⚠️ 今日使用量已達上限 ({settings.rate_limit_per_user} 張)\n請明天再試"
+            )
+            line_bot_api.reply_message(reply_token, reply_message)
+            return
+        
+        if text in ['help', '說明', '幫助']:
+            reply_message = create_help_message()
+        
+        elif text in ['批次', 'batch']:
+            batch_result = user_service.start_batch_mode(user_id)
+            reply_message = TextSendMessage(
+                text="📦 批次模式啟動\n請上傳名片，完成後輸入「結束批次」",
+                quick_reply=QuickReply(items=[
+                    QuickReplyButton(action=MessageAction(label="結束批次", text="結束批次")),
+                    QuickReplyButton(action=MessageAction(label="查看狀態", text="狀態")),
+                ])
+            )
+        
+        elif text in ['結束批次', 'end batch', '結束']:
+            batch_result = user_service.end_batch_mode(user_id)
+            if batch_result:
+                reply_message = create_batch_summary_message(batch_result)
+            else:
+                reply_message = TextSendMessage(text="❌ 目前沒有進行中的批次處理")
+        
+        elif text in ['狀態', 'status', '進度']:
+            status_text = user_service.get_batch_status(user_id)
+            if status_text:
+                reply_message = TextSendMessage(text=status_text)
+            else:
+                user_status = user_service.get_user_status(user_id)
+                reply_message = TextSendMessage(
+                    text=f"📊 今日：{user_status.daily_usage}/{settings.rate_limit_per_user} 張\n非批次模式"
+                )
+        
+        else:
+            reply_message = TextSendMessage(
+                text="❓ 不理解的指令\n請輸入「help」查看使用說明，或直接上傳名片照片"
+            )
+        
+        line_bot_api.reply_message(reply_token, reply_message)
+        logger.info("Manual text message processed", user_id=user_id[:10] + "...", text=text[:20])
+        
+    except Exception as e:
+        logger.error("Manual text message error", user_id=user_id, error=str(e))
+        try:
+            error_message = TextSendMessage(text="⚠️ 系統暫時無法處理，請稍後再試")
+            line_bot_api.reply_message(reply_token, error_message)
+        except LineBotApiError:
+            # reply_token 已被使用，改用 push_message
+            line_bot_api.push_message(user_id, error_message)
+
+
+def handle_image_message_manual(user_id: str, message_id: str, reply_token: str):
+    """手動處理圖片訊息"""
+    try:
+        # 檢查速率限制
+        if not user_service.check_rate_limit(user_id, settings.rate_limit_per_user):
+            reply_message = TextSendMessage(
+                text=f"⚠️ 今日使用量已達上限 ({settings.rate_limit_per_user} 張)\n請明天再試"
+            )
+            line_bot_api.reply_message(reply_token, reply_message)
+            return
+        
+        # 下載圖片
+        message_content = line_bot_api.get_message_content(message_id)
+        image_data = b''.join(message_content.iter_content())
+        
+        # 使用 SecurityService 驗證圖片
+        if not security_service.validate_image_data(image_data, settings.max_image_size):
+            logger.warning("Invalid image data received", 
+                         user_id=user_id, 
+                         size=len(image_data),
+                         message_id=message_id)
+            
+            # 記錄安全事件
+            security_service.log_security_event(
+                "invalid_image_upload",
+                user_id,
+                {
+                    "image_size": len(image_data),
+                    "max_allowed": settings.max_image_size,
+                    "message_id": message_id
+                }
+            )
+            
+            reply_message = TextSendMessage(
+                text=f"⚠️ 圖片檔案無效或過大 (>{settings.max_image_size // 1024 // 1024}MB)\n請使用有效的圖片格式並壓縮後重新上傳"
+            )
+            line_bot_api.reply_message(reply_token, reply_message)
+            return
+        
+        # 使用 AI 處理名片
+        cards = card_processor.process_image(image_data, user_id)
+        
+        if not cards:
+            line_bot_api.reply_message(
+                reply_token,
+                TextSendMessage(text="❌ 無法識別名片內容\n請確認圖片清晰且包含名片")
+            )
+            return
+        
+        # 增加使用次數
+        user_service.increment_usage(user_id)
+        
+        # 處理識別到的名片
+        success_count = 0
+        results = []
+        
+        for card in cards:
+            try:
+                # 存入 Notion
+                notion_url = notion_client.save_business_card(card)
+                if notion_url:
+                    card.processed = True
+                    success_count += 1
+                    results.append(f"✅ {card.name or '未知姓名'} - {card.company or '未知公司'}")
+                else:
+                    results.append(f"❌ 儲存失敗: {card.name or '未知姓名'}")
+                
+                # 如果在批次模式，加入批次
+                user_service.add_card_to_batch(user_id, card)
+                
+            except Exception as e:
+                logger.error("Card processing error", error=str(e))
+                results.append(f"❌ 處理錯誤: {str(e)[:50]}")
+        
+        # 建立回應訊息
+        if success_count > 0:
+            response_text = f"✅ 成功 {success_count}/{len(cards)} 張\n\n"
+            response_text += "\n".join(results[:3])  # 最多顯示 3 個結果
+            
+            if len(cards) > 1:
+                response_text += f"\n\n📊 共 {len(cards)} 張名片"
+        else:
+            response_text = "❌ 處理失敗\n" + "\n".join(results[:2])
+        
+        line_bot_api.reply_message(reply_token, TextSendMessage(text=response_text))
+        logger.info("Manual image message processed", user_id=user_id[:10] + "...", cards_count=len(cards))
+        
+    except Exception as e:
+        logger.error("Manual image processing error", user_id=user_id, error=str(e))
+        try:
+            error_message = TextSendMessage(text="⚠️ 處理失敗，請重試")
+            line_bot_api.reply_message(reply_token, error_message)
+        except LineBotApiError:
+            # reply_token 已被使用，改用 push_message
+            line_bot_api.push_message(user_id, error_message)
 
 
 @handler.add(MessageEvent, message=TextMessage)

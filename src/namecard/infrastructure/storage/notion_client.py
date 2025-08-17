@@ -73,22 +73,48 @@ class NotionClient:
             return None
     
     def _prepare_card_properties(self, card: BusinessCard) -> Dict[str, Any]:
-        """準備名片屬性用於 Notion（根據實際資料庫欄位）"""
+        """準備名片屬性用於 Notion（完全以實際資料庫欄位為主）"""
         properties = {}
         
-        # Name (標題) - 對應您的 Name 欄位
-        if card.name:
-            properties["Name"] = {
-                "title": [
-                    {
-                        "text": {
-                            "content": card.name
-                        }
+        # 根據您的實際 Notion 資料庫欄位結構準備資料
+        
+        # 1. Name (title) - 必填的標題欄位
+        properties["Name"] = {
+            "title": [
+                {
+                    "text": {
+                        "content": card.name or "未知姓名"
                     }
-                ]
+                }
+            ]
+        }
+        
+        # 2. Email (email) - 如果有效的話
+        if card.email and "@" in card.email:
+            properties["Email"] = {
+                "email": card.email
             }
         
-        # 公司名稱 - 對應您的「公司名稱」欄位
+        # 3. 備註 (rich_text) - AI 相關資訊
+        notes = []
+        notes.append(f"📊 AI識別信心度: {card.confidence_score:.1%}")
+        notes.append(f"⭐ 品質評分: {card.quality_score:.1%}")
+        if card.extracted_at:
+            notes.append(f"🕒 識別時間: {card.extracted_at.strftime('%Y-%m-%d %H:%M')}")
+        if card.line_user_id:
+            notes.append(f"👤 LINE用戶: {card.line_user_id[:10]}...")
+        
+        properties["備註"] = {
+            "rich_text": [
+                {
+                    "text": {
+                        "content": " | ".join(notes)
+                    }
+                }
+            ]
+        }
+        
+        # 4. 公司名稱 (rich_text)
         if card.company:
             properties["公司名稱"] = {
                 "rich_text": [
@@ -100,35 +126,18 @@ class NotionClient:
                 ]
             }
         
-        # 職稱 - 您的欄位是 select 類型，需要從現有選項中選擇
-        if card.title:
-            # 檢查職稱是否在預定義選項中，如果不在則使用最接近的或預設值
-            title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]
-            
-            # 如果職稱在選項中，直接使用；否則使用原始值（可能會失敗，但記錄下來）
-            if card.title in title_options:
-                properties["職稱"] = {
-                    "select": {
-                        "name": card.title
+        # 5. 取得聯絡來源 (rich_text)
+        properties["取得聯絡來源"] = {
+            "rich_text": [
+                {
+                    "text": {
+                        "content": "LINE Bot 自動識別"
                     }
                 }
-            else:
-                # 記錄未知職稱，但暫時不設置此欄位
-                logger.warning("Unknown title not in select options", title=card.title)
+            ]
+        }
         
-        # 電話
-        if card.phone:
-            properties["電話"] = {
-                "phone_number": card.phone
-            }
-        
-        # Email
-        if card.email:
-            properties["Email"] = {
-                "email": card.email
-            }
-        
-        # 地址
+        # 6. 地址 (rich_text)
         if card.address:
             properties["地址"] = {
                 "rich_text": [
@@ -140,43 +149,112 @@ class NotionClient:
                 ]
             }
         
-        # 部門 - 如果名片有部門資訊
-        if hasattr(card, 'department') and card.department:
-            properties["部門"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": card.department
-                        }
-                    }
-                ]
+        # 7. 決策影響力 (select) - 根據職稱推測
+        influence_mapping = {
+            "董事長": "最終決策者", "CEO": "最終決策者", "執行長": "最終決策者",
+            "總經理": "最終決策者", "副總": "關鍵影響者", "經理": "關鍵影響者",
+            "協理": "關鍵影響者", "課長": "技術評估者", "專員": "資訊蒐集者",
+            "工程師": "技術評估者", "業務": "用戶代表（場務總管）"
+        }
+        
+        influence = "中"  # 預設值
+        if card.title:
+            for title_keyword, influence_level in influence_mapping.items():
+                if title_keyword in card.title:
+                    influence = influence_level
+                    break
+        
+        properties["決策影響力"] = {
+            "select": {
+                "name": influence
             }
+        }
         
-        # 取得聯絡來源 - 設為 LINE Bot
-        properties["取得聯絡來源"] = {
+        # 8. 窗口的困擾或 KPI (rich_text) - 根據職稱推測
+        kpi_mapping = {
+            "業務": "業績達成、客戶滿意度",
+            "工程師": "技術問題解決、專案進度",
+            "經理": "團隊績效、成本控制",
+            "總經理": "營收成長、市場競爭力",
+            "CEO": "公司整體績效、股東價值"
+        }
+        
+        kpi = "營運效率、成本最佳化"  # 預設值
+        if card.title:
+            for title_keyword, kpi_desc in kpi_mapping.items():
+                if title_keyword in card.title:
+                    kpi = kpi_desc
+                    break
+        
+        properties["窗口的困擾或 KPI"] = {
             "rich_text": [
                 {
                     "text": {
-                        "content": "LINE Bot 名片識別"
+                        "content": kpi
                     }
                 }
             ]
         }
         
-        # 備註 - 包含信心度和品質評分資訊
-        confidence_info = f"AI識別信心度: {card.confidence_score:.2f}, 品質評分: {card.quality_score:.2f}"
-        if card.line_user_id:
-            confidence_info += f", LINE用戶: {card.line_user_id}"
+        # 9. 聯絡注意事項 (rich_text)
+        contact_notes = "透過 LINE Bot 自動收集，建議確認職稱與聯絡方式"
+        if card.phone:
+            contact_notes += f"，電話: {card.phone}"
         
-        properties["備註"] = {
+        properties["聯絡注意事項"] = {
             "rich_text": [
                 {
                     "text": {
-                        "content": confidence_info
+                        "content": contact_notes
                     }
                 }
             ]
         }
+        
+        # 10. 職稱 (select) - 如果在您的選項中
+        title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]
+        
+        if card.title and card.title in title_options:
+            properties["職稱"] = {
+                "select": {
+                    "name": card.title
+                }
+            }
+        elif card.title:
+            # 如果不在選項中，記錄但不設置（避免錯誤）
+            logger.info("Title not in predefined options, skipping", title=card.title, available_count=len(title_options))
+        
+        # 11. 負責業務 (people) - 暫時不設置，需要具體的用戶 ID
+        
+        # 12. 部門 (rich_text) - 從公司名稱或職稱推測
+        department = "未知部門"
+        if card.company:
+            if any(keyword in card.company for keyword in ["營運", "業務", "銷售"]):
+                department = "業務部"
+            elif any(keyword in card.company for keyword in ["技術", "工程", "IT", "資訊"]):
+                department = "技術部"
+            elif any(keyword in card.company for keyword in ["財務", "會計"]):
+                department = "財務部"
+            elif any(keyword in card.company for keyword in ["人資", "HR"]):
+                department = "人力資源部"
+            else:
+                department = card.company  # 如果是小公司，公司名稱就是部門
+        
+        properties["部門"] = {
+            "rich_text": [
+                {
+                    "text": {
+                        "content": department
+                    }
+                }
+            ]
+        }
+        
+        # 13. 電話 (phone_number)
+        if card.phone:
+            properties["電話"] = {
+                "phone_number": card.phone
+            }
         
         return properties
     

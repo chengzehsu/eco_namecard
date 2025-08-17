@@ -99,8 +99,6 @@ class NotionClient:
         
         # 3. 備註 (rich_text) - 記錄額外資訊
         notes = []
-        if card.line_user_id:
-            notes.append(f"LINE用戶: {card.line_user_id}")
         if card.fax:
             notes.append(f"傳真: {card.fax}")
         if hasattr(card, 'mobile') and card.mobile:
@@ -111,6 +109,8 @@ class NotionClient:
             notes.append(f"統一編號: {card.tax_id}")
         if card.line_id:
             notes.append(f"LINE ID: {card.line_id}")
+        if card.line_user_id:
+            notes.append(f"發送者: {card.line_user_id}")
         
         if notes:
             properties["備註"] = {

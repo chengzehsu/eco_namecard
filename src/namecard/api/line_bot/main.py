@@ -300,8 +300,18 @@ def test_endpoint():
             'batch_limit': settings.batch_size_limit,
             'max_image_size': f"{settings.max_image_size // 1024 // 1024}MB",
             'flask_env': settings.flask_env,
-            'line_channel_configured': bool(settings.line_channel_access_token),
-            'line_secret_configured': bool(settings.line_channel_secret)
+            'line_channel_configured': bool(settings.line_channel_access_token and len(settings.line_channel_access_token) > 10),
+            'line_secret_configured': bool(settings.line_channel_secret and len(settings.line_channel_secret) > 10),
+            'google_api_configured': bool(settings.google_api_key and len(settings.google_api_key) > 10),
+            'notion_api_configured': bool(settings.notion_api_key and len(settings.notion_api_key) > 10),
+            'notion_db_configured': bool(settings.notion_database_id and len(settings.notion_database_id) > 10),
+            'token_lengths': {
+                'line_token': len(settings.line_channel_access_token) if settings.line_channel_access_token else 0,
+                'line_secret': len(settings.line_channel_secret) if settings.line_channel_secret else 0,
+                'google_key': len(settings.google_api_key) if settings.google_api_key else 0,
+                'notion_key': len(settings.notion_api_key) if settings.notion_api_key else 0,
+                'notion_db': len(settings.notion_database_id) if settings.notion_database_id else 0
+            }
         }
     })
 

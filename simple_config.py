@@ -13,16 +13,16 @@ class Settings(BaseSettings):
     )
     
     # LINE Bot Configuration
-    line_channel_access_token: str
-    line_channel_secret: str
+    line_channel_access_token: str = Field(default="", description="LINE Channel Access Token")
+    line_channel_secret: str = Field(default="", description="LINE Channel Secret")
     
     # Google AI Configuration
-    google_api_key: str
-    google_api_key_fallback: Optional[str] = None
+    google_api_key: str = Field(default="", description="Google API Key")
+    google_api_key_fallback: Optional[str] = Field(default=None, description="Fallback Google API Key")
     
     # Notion Configuration
-    notion_api_key: str
-    notion_database_id: str
+    notion_api_key: str = Field(default="", description="Notion API Key")
+    notion_database_id: str = Field(default="", description="Notion Database ID")
     
     # Application Configuration
     app_port: int = Field(default=5002, alias="PORT")  # Zeabur 使用 PORT 環境變數

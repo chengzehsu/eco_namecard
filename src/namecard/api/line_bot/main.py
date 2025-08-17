@@ -36,29 +36,14 @@ notion_client = NotionClient()
 
 def create_help_message() -> TextSendMessage:
     """建立說明訊息"""
-    help_text = """🎯 LINE Bot 名片識別系統使用說明
+    help_text = """🎯 名片識別系統
 
-📱 基本功能：
-• 直接上傳名片照片 → 自動識別並存入資料庫
-• 支援多張名片同時識別
+📱 上傳名片照片 → 自動識別存入資料庫
+📦 輸入「批次」→ 批次處理模式
+📊 輸入「狀態」→ 查看進度
 
-📦 批次處理：
-• 輸入「批次」→ 開始批次模式
-• 連續上傳多張名片
-• 輸入「結束批次」→ 顯示處理統計
-
-📊 查詢功能：
-• 輸入「狀態」→ 查看目前批次進度
-• 輸入「help」→ 顯示此說明
-
-⚡ 智能功能：
-• AI 自動識別名片內容
-• 多名片檢測（一張圖多張名片）
-• 台灣地址自動標準化
-• 品質評估與建議
-
-📋 每日限制：50 張名片
-💡 建議：拍照時光線充足，名片清晰"""
+⚡ 支援多張名片同時識別
+📋 每日限制：50 張"""
 
     return TextSendMessage(
         text=help_text,
@@ -74,20 +59,14 @@ def create_batch_summary_message(batch_result) -> TextSendMessage:
     duration = batch_result.completed_at - batch_result.started_at
     success_rate = batch_result.success_rate * 100
     
-    summary_text = f"""📊 批次處理完成！
+    summary_text = f"""📊 批次完成！
 
-📈 處理統計：
-• 總計：{batch_result.total_cards} 張名片
-• 成功：{batch_result.successful_cards} 張 ({success_rate:.1f}%)
-• 失敗：{batch_result.failed_cards} 張
-• 處理時間：{duration.seconds // 60} 分 {duration.seconds % 60} 秒
-
-{notion_client.database_url if notion_client.database_url else ''}
-
-💡 所有名片已自動存入 Notion 資料庫"""
+總計：{batch_result.total_cards} 張
+成功：{batch_result.successful_cards} 張 ({success_rate:.0f}%)
+時間：{duration.seconds // 60}:{duration.seconds % 60:02d}"""
     
     if batch_result.errors:
-        summary_text += f"\n\n⚠️ 錯誤記錄：\n" + "\n".join(batch_result.errors[:3])
+        summary_text += f"\n\n⚠️ " + batch_result.errors[0][:30] + "..."
     
     return TextSendMessage(text=summary_text)
 
@@ -155,7 +134,7 @@ def handle_text_message(event):
         elif text in ['批次', 'batch']:
             batch_result = user_service.start_batch_mode(user_id)
             reply_message = TextSendMessage(
-                text="📦 批次模式已啟動！\n\n請開始上傳名片照片\n完成後輸入「結束批次」查看統計",
+                text="📦 批次模式啟動\n請上傳名片，完成後輸入「結束批次」",
                 quick_reply=QuickReply(items=[
                     QuickReplyButton(action=MessageAction(label="結束批次", text="結束批次")),
                     QuickReplyButton(action=MessageAction(label="查看狀態", text="狀態")),
@@ -176,7 +155,7 @@ def handle_text_message(event):
             else:
                 user_status = user_service.get_user_status(user_id)
                 reply_message = TextSendMessage(
-                    text=f"📊 用戶狀態：\n今日使用：{user_status.daily_usage}/{settings.rate_limit_per_user} 張\n目前非批次模式"
+                    text=f"📊 今日：{user_status.daily_usage}/{settings.rate_limit_per_user} 張\n非批次模式"
                 )
         
         else:
@@ -235,18 +214,12 @@ def handle_image_message(event):
             line_bot_api.reply_message(event.reply_token, reply_message)
             return
         
-        # 發送處理中訊息
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="🔍 正在分析名片，請稍候...")
-        )
-        
         # 使用 AI 處理名片
         cards = card_processor.process_image(image_data, user_id)
         
         if not cards:
-            line_bot_api.push_message(
-                user_id,
+            line_bot_api.reply_message(
+                event.reply_token,
                 TextSendMessage(text="❌ 無法識別名片內容\n請確認圖片清晰且包含名片")
             )
             return
@@ -278,25 +251,20 @@ def handle_image_message(event):
         
         # 建立回應訊息
         if success_count > 0:
-            response_text = f"🎉 成功識別 {success_count}/{len(cards)} 張名片！\n\n"
-            response_text += "\n".join(results[:5])  # 最多顯示 5 個結果
+            response_text = f"✅ 成功 {success_count}/{len(cards)} 張\n\n"
+            response_text += "\n".join(results[:3])  # 最多顯示 3 個結果
             
             if len(cards) > 1:
-                response_text += f"\n\n📊 檢測到 {len(cards)} 張名片"
-            
-            if notion_client.database_url:
-                response_text += f"\n\n🔗 查看資料庫：\n{notion_client.database_url}"
+                response_text += f"\n\n📊 共 {len(cards)} 張名片"
         else:
-            response_text = "❌ 名片處理失敗\n" + "\n".join(results[:3])
+            response_text = "❌ 處理失敗\n" + "\n".join(results[:2])
         
-        line_bot_api.push_message(user_id, TextSendMessage(text=response_text))
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=response_text))
         
     except Exception as e:
         logger.error("Image processing error", user_id=user_id, error=str(e))
-        error_message = TextSendMessage(
-            text="⚠️ 圖片處理失敗\n請確認圖片格式正確且網路連線正常"
-        )
-        line_bot_api.push_message(user_id, error_message)
+        error_message = TextSendMessage(text="⚠️ 處理失敗，請重試")
+        line_bot_api.reply_message(event.reply_token, error_message)
 
 
 @app.route('/health', methods=['GET'])

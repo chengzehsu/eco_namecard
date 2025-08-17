@@ -576,6 +576,8 @@ def health_check():
 @app.route('/test', methods=['GET'])
 def test_endpoint():
     """測試端點"""
+    import os
+    
     return jsonify({
         'message': 'LINE Bot 服務運行正常',
         'config': {
@@ -588,12 +590,15 @@ def test_endpoint():
             'google_api_configured': bool(settings.google_api_key and len(settings.google_api_key) > 10),
             'notion_api_configured': bool(settings.notion_api_key and len(settings.notion_api_key) > 10),
             'notion_db_configured': bool(settings.notion_database_id and len(settings.notion_database_id) > 10),
+            'sentry_configured': bool(settings.sentry_dsn),
+            'sentry_env_var': bool(os.getenv('SENTRY_DSN')),
             'token_lengths': {
                 'line_token': len(settings.line_channel_access_token) if settings.line_channel_access_token else 0,
                 'line_secret': len(settings.line_channel_secret) if settings.line_channel_secret else 0,
                 'google_key': len(settings.google_api_key) if settings.google_api_key else 0,
                 'notion_key': len(settings.notion_api_key) if settings.notion_api_key else 0,
-                'notion_db': len(settings.notion_database_id) if settings.notion_database_id else 0
+                'notion_db': len(settings.notion_database_id) if settings.notion_database_id else 0,
+                'sentry_dsn': len(settings.sentry_dsn) if settings.sentry_dsn else 0
             }
         }
     })
@@ -616,26 +621,34 @@ def debug_sentry():
     """檢查 Sentry 配置狀態"""
     import os
     
-    result = {
-        "sentry_dsn_env": bool(os.getenv('SENTRY_DSN')),
-        "sentry_dsn_settings": bool(settings.sentry_dsn),
-        "sentry_dsn_length": len(settings.sentry_dsn) if settings.sentry_dsn else 0,
-        "flask_env": settings.flask_env,
-        "all_env_vars": [k for k in os.environ.keys() if 'SENTRY' in k.upper()]
-    }
-    
-    # 測試 Sentry 初始化
-    if settings.sentry_dsn:
+    try:
+        result = {
+            "sentry_dsn_env": bool(os.getenv('SENTRY_DSN')),
+            "sentry_dsn_settings": bool(settings.sentry_dsn),
+            "sentry_dsn_length": len(settings.sentry_dsn) if settings.sentry_dsn else 0,
+            "flask_env": settings.flask_env,
+        }
+        
+        # 安全地檢查環境變數
         try:
-            import sentry_sdk
-            result["sentry_sdk_available"] = True
-            result["sentry_sdk_version"] = sentry_sdk.VERSION
-        except ImportError:
-            result["sentry_sdk_available"] = False
-    else:
-        result["sentry_sdk_available"] = "no_dsn"
-    
-    return jsonify(result)
+            result["all_env_vars"] = [k for k in os.environ.keys() if 'SENTRY' in k.upper()]
+        except:
+            result["all_env_vars"] = ["error_reading_env"]
+        
+        # 測試 Sentry 初始化
+        if settings.sentry_dsn:
+            try:
+                import sentry_sdk
+                result["sentry_sdk_available"] = True
+                result["sentry_sdk_version"] = str(sentry_sdk.VERSION)
+            except ImportError:
+                result["sentry_sdk_available"] = False
+        else:
+            result["sentry_sdk_available"] = "no_dsn"
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "debug_endpoint_error"})
 
 @app.route('/debug/notion', methods=['GET'])
 def debug_notion():

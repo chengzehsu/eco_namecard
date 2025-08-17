@@ -611,6 +611,32 @@ def debug_webhook():
         'body_length': len(request.get_data())
     })
 
+@app.route('/debug/sentry', methods=['GET'])
+def debug_sentry():
+    """檢查 Sentry 配置狀態"""
+    import os
+    
+    result = {
+        "sentry_dsn_env": bool(os.getenv('SENTRY_DSN')),
+        "sentry_dsn_settings": bool(settings.sentry_dsn),
+        "sentry_dsn_length": len(settings.sentry_dsn) if settings.sentry_dsn else 0,
+        "flask_env": settings.flask_env,
+        "all_env_vars": [k for k in os.environ.keys() if 'SENTRY' in k.upper()]
+    }
+    
+    # 測試 Sentry 初始化
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+            result["sentry_sdk_available"] = True
+            result["sentry_sdk_version"] = sentry_sdk.VERSION
+        except ImportError:
+            result["sentry_sdk_available"] = False
+    else:
+        result["sentry_sdk_available"] = "no_dsn"
+    
+    return jsonify(result)
+
 @app.route('/debug/notion', methods=['GET'])
 def debug_notion():
     """檢查 Notion 資料庫結構"""

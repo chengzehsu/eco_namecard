@@ -159,5 +159,25 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 **Notion Storage Errors**: Confirm integration permissions and database schema
 **Webhook Issues**: Validate LINE channel secret and URL accessibility
 
+## System Maintenance
+
+**📖 完整維護指南**: 請參考 `MAINTENANCE.md` 文件，專為初學者設計
+
+**🔧 常用檢查連結**:
+- 系統健康: https://namecard-app.zeabur.app/health
+- Notion 欄位: https://namecard-app.zeabur.app/debug/notion
+- 系統設定: https://namecard-app.zeabur.app/test
+
+**📋 維護重點**:
+- 每月測試 LINE Bot 和 Notion 功能
+- 修改時採用小步驟原則
+- 每次變更都要測試
+- 記錄所有修改內容
+
+**🆘 緊急修復**:
+- 如果服務異常，先檢查 /health 端點
+- 如果 Notion 無法儲存，檢查 /debug/notion
+- 程式修改出錯可用 `git reset --hard HEAD~1` 回退
+
 Repository: https://github.com/chengzehsu/eco_namecard
 Deployment: https://namecard-app.zeabur.app

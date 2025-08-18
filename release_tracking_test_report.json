@@ -1,0 +1,41 @@
+{
+  "test_time": "2025-08-18T12:11:21.233253",
+  "results": {
+    "version_manager": true,
+    "monitoring_service": true,
+    "sentry_integration": true,
+    "api_endpoints": {
+      "/health": {
+        "status": "exception",
+        "error": "HTTPSConnectionPool(host='namecard-app.zeabur.app', port=443): Read timed out. (read timeout=10)"
+      },
+      "/version": {
+        "status": "error",
+        "status_code": 502
+      },
+      "/deployment": {
+        "status": "error",
+        "status_code": 502
+      }
+    }
+  },
+  "summary": {
+    "version_manager": true,
+    "monitoring_service": true,
+    "sentry_integration": true,
+    "api_endpoints": {
+      "/health": {
+        "status": "exception",
+        "error": "HTTPSConnectionPool(host='namecard-app.zeabur.app', port=443): Read timed out. (read timeout=10)"
+      },
+      "/version": {
+        "status": "error",
+        "status_code": 502
+      },
+      "/deployment": {
+        "status": "error",
+        "status_code": 502
+      }
+    }
+  }
+}

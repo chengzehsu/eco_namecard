@@ -12,6 +12,15 @@ from cryptography.fernet import Fernet
 import base64
 import os
 
+# 導入監控服務（延遲導入避免循環依賴）
+try:
+    from .monitoring import (
+        monitoring_service, MonitoringEvent, EventCategory, MonitoringLevel
+    )
+    MONITORING_AVAILABLE = True
+except ImportError:
+    MONITORING_AVAILABLE = False
+
 logger = structlog.get_logger()
 
 
@@ -105,6 +114,22 @@ class SecurityService:
                          user_id=user_id, 
                          requests=len(user_data['requests']),
                          limit=limit)
+            
+            # 記錄速率限制觸發事件
+            if MONITORING_AVAILABLE:
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.SECURITY,
+                    level=MonitoringLevel.WARNING,
+                    message="Rate limit exceeded",
+                    user_id=user_id,
+                    extra_data={
+                        "current_requests": len(user_data['requests']),
+                        "limit": limit,
+                        "window_seconds": window,
+                        "operation": "rate_limiting"
+                    },
+                    tags={"security_issue": "rate_limit_exceeded", "operation": "access_control"}
+                ))
             return False
         
         # 記錄新請求
@@ -141,6 +166,16 @@ class SecurityService:
             return base64.urlsafe_b64encode(encrypted).decode('utf-8')
         except Exception as e:
             logger.error("Encryption failed", error=str(e))
+            
+            # 記錄加密失敗事件
+            if MONITORING_AVAILABLE:
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.SECURITY,
+                    level=MonitoringLevel.ERROR,
+                    message="Data encryption failed",
+                    extra_data={"error": str(e), "operation": "encryption"},
+                    tags={"security_issue": "encryption_failure", "operation": "data_protection"}
+                ))
             raise
     
     def decrypt_sensitive_data(self, encrypted_data: str) -> str:
@@ -151,6 +186,16 @@ class SecurityService:
             return decrypted.decode('utf-8')
         except Exception as e:
             logger.error("Decryption failed", error=str(e))
+            
+            # 記錄解密失敗事件
+            if MONITORING_AVAILABLE:
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.SECURITY,
+                    level=MonitoringLevel.ERROR,
+                    message="Data decryption failed",
+                    extra_data={"error": str(e), "operation": "decryption"},
+                    tags={"security_issue": "decryption_failure", "operation": "data_protection"}
+                ))
             raise
     
     def generate_secure_token(self, length: int = 32) -> str:
@@ -198,6 +243,21 @@ class SecurityService:
                       user_id=user_id,
                       details=details,
                       timestamp=datetime.now().isoformat())
+        
+        # 發送到監控系統
+        if MONITORING_AVAILABLE:
+            monitoring_service.capture_event(MonitoringEvent(
+                category=EventCategory.SECURITY,
+                level=MonitoringLevel.WARNING,
+                message=f"Security event detected: {event_type}",
+                user_id=user_id,
+                extra_data={
+                    "event_type": event_type,
+                    "details": details,
+                    "severity": "medium"
+                },
+                tags={"security_event": event_type, "operation": "security_monitoring"}
+            ))
 
 
 class ErrorHandler:

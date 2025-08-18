@@ -540,6 +540,22 @@ def handle_image_message(event):
                 logger.error("Card processing error", error=str(e))
                 results.append(f"❌ 處理錯誤: {str(e)[:50]}")
         
+        # 記錄圖片處理結果 (標準處理器)
+        monitoring_service.capture_event(MonitoringEvent(
+            category=EventCategory.USER_BEHAVIOR,
+            level=MonitoringLevel.INFO if success_count > 0 else MonitoringLevel.WARNING,
+            message=f"Standard image processing completed: {success_count}/{len(cards)} cards successful",
+            user_id=user_id,
+            extra_data={
+                "total_cards": len(cards),
+                "successful_cards": success_count,
+                "failed_cards": len(cards) - success_count,
+                "success_rate": (success_count / len(cards)) if cards else 0,
+                "handler_type": "standard"
+            },
+            tags={"operation": "image_processing", "status": "completed", "handler": "standard"}
+        ))
+        
         # 建立回應訊息
         if success_count > 0:
             response_text = f"✅ 成功 {success_count}/{len(cards)} 張\n\n"
@@ -649,6 +665,29 @@ def debug_sentry():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "status": "debug_endpoint_error"})
+
+@app.route('/monitoring/dashboard', methods=['GET'])
+def monitoring_dashboard():
+    """監控 Dashboard 端點"""
+    try:
+        # 獲取效能統計
+        performance_summary = monitoring_service.get_performance_summary()
+        
+        return jsonify({
+            'status': 'success',
+            'monitoring': {
+                'service_enabled': monitoring_service.is_enabled,
+                'performance_metrics': performance_summary,
+                'last_updated': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'monitoring_enabled': monitoring_service.is_enabled
+        })
 
 @app.route('/debug/notion', methods=['GET'])
 def debug_notion():

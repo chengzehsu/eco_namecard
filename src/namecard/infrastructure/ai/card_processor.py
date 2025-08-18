@@ -18,6 +18,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
 from simple_config import settings
 from src.namecard.core.models.card import BusinessCard
+from src.namecard.core.services.monitoring import (
+    monitoring_service, monitor_performance, monitor_ai_processing,
+    MonitoringEvent, EventCategory, MonitoringLevel
+)
 
 logger = structlog.get_logger()
 
@@ -201,15 +205,35 @@ class CardProcessor:
                 
                 key_type = "primary" if i == 0 else "fallback"
                 logger.info(f"Gemini API configured successfully using {key_type} key")
+                
+                # 記錄成功的 API 配置
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.AI_PROCESSING,
+                    level=MonitoringLevel.INFO,
+                    message=f"Gemini API configured successfully",
+                    extra_data={"key_type": key_type, "api_index": i},
+                    tags={"operation": "api_setup", "status": "success"}
+                ))
                 return
                 
             except Exception as e:
                 key_type = "primary" if i == 0 else "fallback"
                 logger.warning(f"Failed to configure {key_type} Gemini API", error=str(e))
+                
+                # 記錄 API 配置失敗
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.AI_PROCESSING,
+                    level=MonitoringLevel.WARNING,
+                    message=f"Failed to configure {key_type} Gemini API",
+                    extra_data={"key_type": key_type, "error": str(e), "api_index": i},
+                    tags={"operation": "api_setup", "status": "failed"}
+                ))
                 continue
         
         raise APIError("All Gemini API keys failed to initialize")
     
+    @monitor_performance("card_processing")
+    @monitor_ai_processing
     def process_image(self, image_data: bytes, user_id: str) -> List[BusinessCard]:
         """
         處理名片圖片
@@ -222,6 +246,13 @@ class CardProcessor:
             識別到的名片列表
         """
         try:
+            # 設定用戶上下文
+            monitoring_service.set_user_context(user_id)
+            monitoring_service.add_breadcrumb("Starting card processing", "ai_processing", {
+                "image_size": len(image_data),
+                "user_id": user_id
+            })
+            
             # 轉換圖片格式
             image = Image.open(io.BytesIO(image_data))
             
@@ -234,6 +265,37 @@ class CardProcessor:
             # 解析結果
             cards = self._parse_response(response, user_id)
             
+            # 記錄成功事件和業務指標
+            monitoring_service.capture_event(MonitoringEvent(
+                category=EventCategory.AI_PROCESSING,
+                level=MonitoringLevel.INFO,
+                message=f"Card processing completed successfully",
+                user_id=user_id,
+                extra_data={
+                    "cards_count": len(cards),
+                    "image_size": len(image_data),
+                    "api_calls": self._api_call_count,
+                    "success_rate": len(cards) > 0
+                },
+                tags={"operation": "card_processing", "status": "success"}
+            ))
+            
+            # 檢查識別品質並發出警告
+            low_confidence_cards = [c for c in cards if c.confidence_score < 0.5]
+            if low_confidence_cards:
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.AI_PROCESSING,
+                    level=MonitoringLevel.WARNING,
+                    message=f"Low confidence cards detected",
+                    user_id=user_id,
+                    extra_data={
+                        "low_confidence_count": len(low_confidence_cards),
+                        "total_cards": len(cards),
+                        "avg_confidence": sum(c.confidence_score for c in cards) / len(cards) if cards else 0
+                    },
+                    tags={"operation": "quality_check", "issue": "low_confidence"}
+                ))
+            
             logger.info("Card processing completed", 
                        user_id=user_id, 
                        cards_count=len(cards))
@@ -241,6 +303,18 @@ class CardProcessor:
             return cards
             
         except Exception as e:
+            # 捕獲異常並發送到監控
+            monitoring_service.capture_exception_with_context(
+                e,
+                EventCategory.AI_PROCESSING,
+                user_id=user_id,
+                extra_context={
+                    "image_size": len(image_data),
+                    "api_call_count": self._api_call_count,
+                    "operation": "card_processing"
+                }
+            )
+            
             logger.error("Card processing failed", 
                         user_id=user_id, 
                         error=str(e))
@@ -325,6 +399,11 @@ class CardProcessor:
             time.sleep(0.1 - time_since_last_call)
         
         try:
+            monitoring_service.add_breadcrumb("Calling Gemini API", "ai_processing", {
+                "api_call_count": self._api_call_count,
+                "model": "gemini-1.5-flash"
+            })
+            
             # 生成內容
             response = self.model.generate_content(
                 [self.card_prompt, image],
@@ -336,7 +415,28 @@ class CardProcessor:
             )
             
             if not response.text:
+                # 記錄空回應錯誤
+                monitoring_service.capture_event(MonitoringEvent(
+                    category=EventCategory.AI_PROCESSING,
+                    level=MonitoringLevel.ERROR,
+                    message="Empty response from Gemini API",
+                    extra_data={"api_call_count": self._api_call_count},
+                    tags={"operation": "gemini_api", "error_type": "empty_response"}
+                ))
                 raise APIError("Empty response from Gemini")
+            
+            # 記錄成功的 API 調用
+            monitoring_service.capture_event(MonitoringEvent(
+                category=EventCategory.AI_PROCESSING,
+                level=MonitoringLevel.INFO,
+                message="Gemini API call successful",
+                extra_data={
+                    "api_call_count": self._api_call_count,
+                    "response_length": len(response.text),
+                    "response_preview": response.text[:100] + "..." if len(response.text) > 100 else response.text
+                },
+                tags={"operation": "gemini_api", "status": "success"}
+            ))
             
             logger.info(
                 "Gemini analysis completed",
@@ -347,6 +447,19 @@ class CardProcessor:
             return response.text.strip()
             
         except Exception as e:
+            # 記錄 API 調用失敗
+            monitoring_service.capture_event(MonitoringEvent(
+                category=EventCategory.AI_PROCESSING,
+                level=MonitoringLevel.ERROR,
+                message="Gemini API call failed",
+                extra_data={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "api_call_count": self._api_call_count
+                },
+                tags={"operation": "gemini_api", "error_type": "api_failure"}
+            ))
+            
             logger.error(
                 "Gemini analysis failed",
                 error=str(e),

@@ -3,10 +3,15 @@ from PIL import Image
 import io
 import json
 import structlog
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Tuple
 import base64
 import sys
 import os
+import time
+from dataclasses import dataclass
+from contextlib import contextmanager
+from functools import wraps
+import traceback
 
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
@@ -17,33 +22,139 @@ from src.namecard.core.models.card import BusinessCard
 logger = structlog.get_logger()
 
 
-class CardProcessor:
-    """Google Gemini AI 名片處理器"""
+@dataclass
+class ProcessingConfig:
+    """處理配置類別"""
+    max_image_size: Tuple[int, int] = (1920, 1920)
+    max_file_size: int = 10 * 1024 * 1024  # 10MB
+    min_confidence_threshold: float = 0.3
+    min_quality_threshold: float = 0.2
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    timeout_seconds: int = 30
     
-    def __init__(self):
-        self._setup_gemini()
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+
+class ProcessingError(Exception):
+    """處理錯誤基類"""
+    pass
+
+
+class APIError(ProcessingError):
+    """API 錯誤"""
+    pass
+
+
+class ValidationError(ProcessingError):
+    """驗證錯誤"""
+    pass
+
+
+class ImageProcessingError(ProcessingError):
+    """圖片處理錯誤"""
+    pass
+
+
+def with_error_handling(func):
+    """錯誤處理裝飾器"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Error in {func.__name__}",
+                error=str(e),
+                traceback=traceback.format_exc()
+            )
+            raise
+    return wrapper
+
+
+def with_timing(func):
+    """執行時間監控裝飾器"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.info(
+                f"{func.__name__} completed",
+                execution_time=f"{execution_time:.2f}s"
+            )
+            return result
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(
+                f"{func.__name__} failed",
+                execution_time=f"{execution_time:.2f}s",
+                error=str(e)
+            )
+            raise
+    return wrapper
+
+
+class CardProcessor:
+    """Google Gemini AI 名片處理器
+    
+    提供高效的名片 OCR 識別功能，支援多卡片檢測、品質評估和錯誤恢復。
+    使用 Google Gemini AI 進行圖像理解和文字擷取。
+    """
+    
+    def __init__(self, config: Optional[ProcessingConfig] = None) -> None:
+        """
+        初始化處理器
         
-        # 名片識別 prompt
+        Args:
+            config: 處理配置，預設使用預設配置
+        """
+        self.config = config or ProcessingConfig()
+        self.model = None
+        self._api_call_count = 0
+        self._last_api_call = 0
+        self._setup_gemini()
+        
+        logger.info(
+            "CardProcessor initialized",
+            config={
+                "max_image_size": self.config.max_image_size,
+                "min_confidence_threshold": self.config.min_confidence_threshold,
+                "max_retries": self.config.max_retries
+            }
+        )
+        
+        # 名片識別 prompt 優化版
         self.card_prompt = """
-你是一個專業的名片 OCR 識別系統。請分析這張圖片並提取所有名片資訊。
+你是一個高精度的名片 OCR 識別系統。請仔細分析這張圖片並提取所有名片資訊。
 
-分析要求：
-1. 檢測圖片中所有的名片（可能有多張）
-2. 對每張名片提取完整資訊
-3. 評估每張名片的識別信心度（0-1）
-4. 提供整體品質評分
+分析指南：
+1. 系統性掃描整張圖片，識別所有可能的名片區域
+2. 對每個識別到的名片區域，提取以下資訊：
+   - 個人姓名（中文或英文）
+   - 公司/組織名稱
+   - 職稱/部門
+   - 聯絡電話（手機、室話、分機）
+   - 電子郵件地址
+   - 通訊地址（完整地址）
+   - 網站/網址
+   - 傳真號碼
+   - LINE ID 或其他社交媒體 ID
+   - QR Code 或條碼資訊（如果有）
 
-請以JSON格式回傳，結構如下：
+3. 品質評估標準：
+   - confidence_score (0.0-1.0)：基於文字清晰度、版面設計和資訊完整性
+   - quality_score (0.0-1.0)：基於圖片解析度、光線條件和可讀性
+
+4. 回傳格式（只返回 JSON，無需其他文字）：
 {
   "cards": [
     {
       "name": "姓名",
-      "company": "公司名稱", 
+      "company": "公司名稱",
       "title": "職稱",
       "phone": "電話號碼",
       "email": "電子郵件",
-      "address": "地址",
+      "address": "完整地址",
       "website": "網站",
       "fax": "傳真",
       "line_id": "LINE ID",
@@ -53,35 +164,51 @@ class CardProcessor:
   ],
   "total_cards_detected": 1,
   "overall_quality": 0.9,
-  "processing_notes": "圖片清晰，識別度高"
+  "processing_notes": "詳細說明識別結果和任何問題"
 }
 
 重要規則：
-- 如果某個欄位沒有資訊，請設為 null
-- 電話號碼保留原始格式
-- 地址要完整，包含縣市區
-- confidence_score 是對該名片識別準確度的評估
-- quality_score 是對該名片圖片品質的評估
-- 如果圖片模糊或無法識別名片，請在processing_notes說明
-- 只回傳JSON，不要其他文字
+- 無資訊欄位設為 null
+- 保留電話原始格式（包括分隔符）
+- 地址必須完整（郵遞區號 + 縣市 + 區域 + 詳細地址）
+- Email 必須包含 @ 和域名
+- confidence_score 考量文字清晰度和資訊完整性
+- quality_score 考量圖片品質和排版設計
+- processing_notes 描述識別過程中的發現和問題
+- 絕對只返回 JSON 格式，不要任何額外文字或說明
 """
     
-    def _setup_gemini(self):
-        """設置 Gemini API"""
-        try:
-            genai.configure(api_key=settings.google_api_key)
-            logger.info("Gemini API configured successfully")
-        except Exception as e:
-            logger.error("Failed to configure Gemini API", error=str(e))
-            if settings.google_api_key_fallback:
-                try:
-                    genai.configure(api_key=settings.google_api_key_fallback)
-                    logger.info("Using fallback Gemini API key")
-                except Exception as e2:
-                    logger.error("Fallback API key also failed", error=str(e2))
-                    raise
-            else:
-                raise
+    def _setup_gemini(self) -> None:
+        """設置 Gemini API 並初始化模型
+        
+        Raises:
+            APIError: 當主要和備用 API 金鑰都失敗時
+        """
+        api_keys = [settings.google_api_key]
+        if settings.google_api_key_fallback:
+            api_keys.append(settings.google_api_key_fallback)
+        
+        for i, api_key in enumerate(api_keys):
+            if not api_key:
+                continue
+                
+            try:
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+                
+                # 測試 API 連接
+                _ = self.model.generate_content("test")
+                
+                key_type = "primary" if i == 0 else "fallback"
+                logger.info(f"Gemini API configured successfully using {key_type} key")
+                return
+                
+            except Exception as e:
+                key_type = "primary" if i == 0 else "fallback"
+                logger.warning(f"Failed to configure {key_type} Gemini API", error=str(e))
+                continue
+        
+        raise APIError("All Gemini API keys failed to initialize")
     
     def process_image(self, image_data: bytes, user_id: str) -> List[BusinessCard]:
         """
@@ -120,55 +247,112 @@ class CardProcessor:
             return []
     
     def _preprocess_image(self, image: Image.Image) -> Image.Image:
-        """圖片預處理"""
-        try:
-            # 轉換為 RGB 格式
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
+        """圖片預處理和優化
+        
+        Args:
+            image: 原始圖片物件
             
-            # 限制圖片大小以節省 API 配額
-            max_size = (1920, 1920)
+        Returns:
+            優化後的圖片物件
+            
+        Raises:
+            ImageProcessingError: 當圖片處理失敗時
+        """
+        try:
+            original_size = image.size
+            
+            # 轉換為 RGB 格式
+            if image.mode not in ('RGB', 'L'):
+                image = image.convert('RGB')
+                logger.debug("Image converted to RGB")
+            
+            # 智能尺寸調整
+            max_size = self.config.max_image_size
             if image.size[0] > max_size[0] or image.size[1] > max_size[1]:
-                image.thumbnail(max_size, Image.Resampling.LANCZOS)
-                logger.info("Image resized", original_size=image.size, new_size=image.size)
+                # 計算縮放比例，保持長寬比
+                ratio = min(max_size[0] / image.size[0], max_size[1] / image.size[1])
+                new_size = (
+                    int(image.size[0] * ratio),
+                    int(image.size[1] * ratio)
+                )
+                
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
+                
+                logger.info(
+                    "Image resized for optimization",
+                    original_size=original_size,
+                    new_size=new_size,
+                    compression_ratio=f"{ratio:.2f}"
+                )
+            
+            # 簡單的品質評估
+            if image.size[0] < 300 or image.size[1] < 300:
+                logger.warning(
+                    "Image resolution may be too low for optimal OCR",
+                    size=image.size
+                )
             
             return image
             
         except Exception as e:
             logger.error("Image preprocessing failed", error=str(e))
-            raise
+            raise ImageProcessingError(f"Failed to preprocess image: {str(e)}")
     
+    @with_timing
+    @with_error_handling
     def _analyze_with_gemini(self, image: Image.Image) -> str:
-        """使用 Gemini 分析圖片"""
+        """使用 Gemini 分析圖片
+        
+        Args:
+            image: 預處理後的圖片物件
+            
+        Returns:
+            Gemini 回應的 JSON 字串
+            
+        Raises:
+            APIError: 當 API 呼叫失敗時
+        """
+        if not self.model:
+            raise APIError("Gemini model not initialized")
+        
+        # 記錄 API 呼叫
+        self._api_call_count += 1
+        self._last_api_call = time.time()
+        
+        # 實施簡單的 rate limiting
+        time_since_last_call = time.time() - self._last_api_call
+        if time_since_last_call < 0.1:  # 限制每秒最多 10 次請求
+            time.sleep(0.1 - time_since_last_call)
+        
         try:
             # 生成內容
-            response = self.model.generate_content([
-                self.card_prompt,
-                image
-            ])
+            response = self.model.generate_content(
+                [self.card_prompt, image],
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.1,  # 低溫度確保一致性
+                    max_output_tokens=2048,
+                    response_mime_type="application/json"
+                )
+            )
             
             if not response.text:
-                raise Exception("Empty response from Gemini")
+                raise APIError("Empty response from Gemini")
+            
+            logger.info(
+                "Gemini analysis completed",
+                api_call_count=self._api_call_count,
+                response_length=len(response.text)
+            )
             
             return response.text.strip()
             
         except Exception as e:
-            logger.error("Gemini analysis failed", error=str(e))
-            
-            # 嘗試使用備用 API Key
-            if settings.google_api_key_fallback:
-                try:
-                    genai.configure(api_key=settings.google_api_key_fallback)
-                    response = self.model.generate_content([
-                        self.card_prompt,
-                        image
-                    ])
-                    logger.info("Used fallback API key successfully")
-                    return response.text.strip()
-                except Exception as e2:
-                    logger.error("Fallback API also failed", error=str(e2))
-            
-            raise
+            logger.error(
+                "Gemini analysis failed",
+                error=str(e),
+                api_call_count=self._api_call_count
+            )
+            raise APIError(f"Gemini API call failed: {str(e)}")
     
     def _parse_response(self, response_text: str, user_id: str) -> List[BusinessCard]:
         """解析 Gemini 回應"""
@@ -239,17 +423,46 @@ class CardProcessor:
             return []
     
     def _validate_card_quality(self, card: BusinessCard) -> bool:
-        """驗證名片品質"""
-        # 基本信心度檢查
-        if card.confidence_score < 0.3:
+        """驗證名片品質和完整性
+        
+        Args:
+            card: 待驗證的名片物件
+            
+        Returns:
+            是否通過品質檢查
+        """
+        # 信心度閾值檢查
+        if card.confidence_score < self.config.min_confidence_threshold:
+            logger.debug(
+                "Card rejected due to low confidence",
+                confidence=card.confidence_score,
+                threshold=self.config.min_confidence_threshold
+            )
             return False
         
-        # 至少要有姓名或公司名稱其中一個
-        if not card.name and not card.company:
+        # 品質分數檢查
+        if card.quality_score < self.config.min_quality_threshold:
+            logger.debug(
+                "Card rejected due to low quality",
+                quality=card.quality_score,
+                threshold=self.config.min_quality_threshold
+            )
             return False
         
-        # 至少要有一個聯絡方式
-        if not any([card.phone, card.email, card.address]):
+        # 核心資訊檢查：至少要有姓名或公司名稱
+        if not (card.name and card.name.strip()) and not (card.company and card.company.strip()):
+            logger.debug("Card rejected due to missing name and company")
+            return False
+        
+        # 聯絡方式檢查：至少要有一種有效的聯絡方式
+        contact_methods = [
+            card.phone and card.phone.strip(),
+            card.email and card.email.strip() and '@' in card.email,
+            card.address and card.address.strip()
+        ]
+        
+        if not any(contact_methods):
+            logger.debug("Card rejected due to missing valid contact information")
             return False
         
         return True

@@ -1,0 +1,320 @@
+{
+  "cloudflare_security_config": {
+    "version": "1.0",
+    "description": "LINE Bot 名片管理系統的 Cloudflare 安全配置",
+    "updated": "2024-01-01",
+    
+    "firewall_rules": [
+      {
+        "name": "Block requests without LINE signature to webhook",
+        "description": "阻擋沒有 LINE 簽章的 webhook 請求",
+        "expression": "(http.request.uri.path eq \"/callback\") and (not http.request.headers[\"x-line-signature\"])",
+        "action": "block",
+        "priority": 1,
+        "enabled": true
+      },
+      {
+        "name": "Block oversized requests",
+        "description": "阻擋過大的請求 (>1MB)",
+        "expression": "(http.request.body.size gt 1048576)",
+        "action": "block",
+        "priority": 2,
+        "enabled": true
+      },
+      {
+        "name": "Block invalid HTTP methods",
+        "description": "只允許 GET 和 POST 方法",
+        "expression": "(http.request.method ne \"GET\") and (http.request.method ne \"POST\")",
+        "action": "block",
+        "priority": 3,
+        "enabled": true
+      },
+      {
+        "name": "Challenge suspicious user agents",
+        "description": "對可疑的 User-Agent 進行質詢",
+        "expression": "(http.user_agent contains \"bot\") or (http.user_agent contains \"crawler\") or (http.user_agent contains \"scanner\") and (not http.request.uri.path in {\"/health\" \"/test\"})",
+        "action": "challenge",
+        "priority": 4,
+        "enabled": true
+      },
+      {
+        "name": "Geographic restriction for webhook",
+        "description": "webhook 端點的地理限制 (可選)",
+        "expression": "(http.request.uri.path eq \"/callback\") and (ip.geoip.country ne \"TW\")",
+        "action": "challenge",
+        "priority": 5,
+        "enabled": false,
+        "note": "根據需求啟用地理限制"
+      },
+      {
+        "name": "Block known malicious IPs",
+        "description": "阻擋已知惡意 IP",
+        "expression": "(ip.src in {1.2.3.4 5.6.7.8})",
+        "action": "block",
+        "priority": 6,
+        "enabled": true,
+        "note": "需要定期更新惡意 IP 清單"
+      }
+    ],
+    
+    "rate_limiting_rules": [
+      {
+        "name": "Webhook endpoint rate limit",
+        "description": "限制 webhook 端點的請求頻率",
+        "match": {
+          "request": {
+            "methods": ["POST"],
+            "schemes": ["https"],
+            "url": "*/callback"
+          }
+        },
+        "threshold": 100,
+        "period": 60,
+        "action": {
+          "mode": "ban",
+          "timeout": 600,
+          "response": {
+            "content_type": "application/json",
+            "body": "{\"error\": \"Rate limit exceeded for webhook endpoint\"}"
+          }
+        }
+      },
+      {
+        "name": "API endpoints rate limit",
+        "description": "限制 API 端點的請求頻率",
+        "match": {
+          "request": {
+            "methods": ["GET", "POST"],
+            "schemes": ["https"],
+            "url": "*/health|*/test|*/debug/*"
+          }
+        },
+        "threshold": 60,
+        "period": 60,
+        "action": {
+          "mode": "simulate",
+          "timeout": 300
+        }
+      },
+      {
+        "name": "Global rate limit",
+        "description": "全站請求頻率限制",
+        "match": {
+          "request": {
+            "methods": ["GET", "POST"],
+            "schemes": ["https"],
+            "url": "*"
+          }
+        },
+        "threshold": 1000,
+        "period": 3600,
+        "action": {
+          "mode": "ban",
+          "timeout": 3600
+        }
+      }
+    ],
+    
+    "page_rules": [
+      {
+        "id": "cache_health_check",
+        "url": "*/health",
+        "settings": {
+          "cache_level": "cache_everything",
+          "edge_cache_ttl": 300,
+          "browser_cache_ttl": 300
+        },
+        "priority": 1,
+        "status": "active"
+      },
+      {
+        "id": "cache_test_endpoint",
+        "url": "*/test",
+        "settings": {
+          "cache_level": "cache_everything",
+          "edge_cache_ttl": 1800,
+          "browser_cache_ttl": 300
+        },
+        "priority": 2,
+        "status": "active"
+      },
+      {
+        "id": "bypass_webhook_cache",
+        "url": "*/callback",
+        "settings": {
+          "cache_level": "bypass",
+          "disable_performance": false,
+          "disable_security": false
+        },
+        "priority": 3,
+        "status": "active"
+      }
+    ],
+    
+    "ssl_tls_config": {
+      "ssl_mode": "full_strict",
+      "min_tls_version": "1.2",
+      "tls_1_3": "on",
+      "automatic_https_rewrites": true,
+      "always_use_https": true,
+      "hsts": {
+        "enabled": true,
+        "max_age": 31536000,
+        "include_subdomains": true,
+        "preload": false
+      }
+    },
+    
+    "security_settings": {
+      "security_level": "medium",
+      "challenge_passage": 3600,
+      "browser_integrity_check": true,
+      "hotlink_protection": false,
+      "server_side_exclude": true,
+      "waf": {
+        "enabled": true,
+        "mode": "on"
+      },
+      "bot_management": {
+        "enabled": true,
+        "fight_mode": false,
+        "session_score": true,
+        "javascript_detections": true,
+        "static_resource_protection": false
+      }
+    },
+    
+    "speed_optimization": {
+      "minify": {
+        "css": true,
+        "html": true,
+        "js": true
+      },
+      "compression": {
+        "brotli": true,
+        "gzip": true
+      },
+      "auto_minify": true,
+      "rocket_loader": false,
+      "mirage": false,
+      "polish": "off",
+      "image_resizing": false,
+      "early_hints": true
+    },
+    
+    "dns_settings": {
+      "records": [
+        {
+          "type": "A",
+          "name": "@",
+          "content": "zeabur-ip-address",
+          "proxied": true,
+          "ttl": 1
+        },
+        {
+          "type": "CNAME",
+          "name": "namecard",
+          "content": "namecard-app.zeabur.app",
+          "proxied": true,
+          "ttl": 1
+        },
+        {
+          "type": "CNAME",
+          "name": "www",
+          "content": "@",
+          "proxied": true,
+          "ttl": 1
+        }
+      ]
+    },
+    
+    "monitoring_alerts": [
+      {
+        "name": "Health Check Failure",
+        "description": "當健康檢查失敗時發送通知",
+        "type": "health_check_failure",
+        "enabled": true,
+        "delivery_method": ["email"]
+      },
+      {
+        "name": "High Error Rate",
+        "description": "當錯誤率過高時發送通知",
+        "type": "traffic_anomalies",
+        "filters": {
+          "status": [500, 502, 503, 504],
+          "threshold": 10
+        },
+        "enabled": true,
+        "delivery_method": ["email"]
+      },
+      {
+        "name": "DDoS Attack",
+        "description": "當偵測到 DDoS 攻擊時發送通知",
+        "type": "dos_attack_l7",
+        "enabled": true,
+        "delivery_method": ["email"]
+      },
+      {
+        "name": "SSL Certificate Expiry",
+        "description": "SSL 憑證即將到期通知",
+        "type": "universal_ssl_event",
+        "enabled": true,
+        "delivery_method": ["email"]
+      }
+    ],
+    
+    "analytics_settings": {
+      "web_analytics": {
+        "enabled": true,
+        "automatic_setup": true
+      },
+      "bot_analytics": {
+        "enabled": true
+      },
+      "security_analytics": {
+        "enabled": true
+      }
+    },
+    
+    "custom_error_pages": {
+      "403": {
+        "enabled": true,
+        "content": "<!DOCTYPE html><html><head><title>Access Denied</title></head><body><h1>Access Denied</h1><p>Your request has been blocked for security reasons.</p><p>If you believe this is an error, please contact support.</p></body></html>"
+      },
+      "429": {
+        "enabled": true,
+        "content": "<!DOCTYPE html><html><head><title>Rate Limited</title></head><body><h1>Too Many Requests</h1><p>You have exceeded the rate limit. Please try again later.</p></body></html>"
+      },
+      "503": {
+        "enabled": true,
+        "content": "<!DOCTYPE html><html><head><title>Service Unavailable</title></head><body><h1>Service Temporarily Unavailable</h1><p>The service is currently undergoing maintenance. Please try again in a few minutes.</p></body></html>"
+      }
+    },
+    
+    "implementation_notes": {
+      "setup_order": [
+        "1. 設定 DNS 記錄",
+        "2. 配置 SSL/TLS 設定", 
+        "3. 建立防火牆規則",
+        "4. 設定 Rate Limiting",
+        "5. 配置頁面規則",
+        "6. 啟用監控和通知",
+        "7. 測試所有端點"
+      ],
+      "testing_checklist": [
+        "健康檢查端點回應正常",
+        "Webhook 端點安全性測試",
+        "Rate limiting 功能驗證",
+        "SSL 憑證正確安裝",
+        "防火牆規則有效運作",
+        "快取規則正確執行"
+      ],
+      "maintenance": [
+        "定期檢查安全規則效果",
+        "更新惡意 IP 清單",
+        "監控流量模式變化",
+        "調整 Rate limiting 參數"
+      ]
+    }
+  }
+}

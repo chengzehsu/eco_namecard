@@ -6,9 +6,16 @@ from unittest.mock import Mock, patch
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from src.namecard.api.line_bot.main import app
-from src.namecard.core.models.card import BusinessCard
-from datetime import datetime
+# Mock genai before importing anything else to prevent initialization errors
+with patch('src.namecard.infrastructure.ai.card_processor.genai') as mock_genai:
+    mock_genai.configure.return_value = None
+    mock_model = Mock()
+    mock_model.generate_content.return_value = Mock(text='{"cards": []}')
+    mock_genai.GenerativeModel.return_value = mock_model
+    
+    from src.namecard.api.line_bot.main import app
+    from src.namecard.core.models.card import BusinessCard
+    from datetime import datetime
 
 
 @pytest.fixture

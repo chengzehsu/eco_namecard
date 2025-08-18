@@ -163,10 +163,11 @@ class NotionClient:
                 "email": card.email
             }
         
-        # 3. 備註 (rich_text) - 記錄額外資訊（移除發送者資訊）
+        # 3. 備註 (rich_text) - 記錄額外資訊（移除發送者和傳真資訊）
         notes = []
-        if card.fax:
-            notes.append(f"傳真: {card.fax}")
+        # 移除傳真號碼，不放入備註
+        # if card.fax:
+        #     notes.append(f"傳真: {card.fax}")
         if hasattr(card, 'mobile') and card.mobile:
             notes.append(f"行動電話: {card.mobile}")
         if card.website:

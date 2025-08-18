@@ -31,8 +31,8 @@ class ProcessingConfig:
     """處理配置類別"""
     max_image_size: Tuple[int, int] = (1920, 1920)
     max_file_size: int = 10 * 1024 * 1024  # 10MB
-    min_confidence_threshold: float = 0.3
-    min_quality_threshold: float = 0.2
+    min_confidence_threshold: float = 0.2  # 降低閾值提高識別率
+    min_quality_threshold: float = 0.15   # 降低闾值提高識別率
     max_retries: int = 3
     retry_delay: float = 1.0
     timeout_seconds: int = 30
@@ -138,6 +138,7 @@ class CardProcessor:
    - 公司/組織名稱
    - 職稱/部門
    - 主要電話（手機、室話、分機）- 放入 phone 欄位
+   - 注意：電話號碼可能格式為 (02) XXXX-XXXX, 02-XXXX-XXXX, 09XX-XXX-XXX 等
    - 電子郵件地址
    - 通訊地址（完整地址）
    - 網站/網址
@@ -149,6 +150,8 @@ class CardProcessor:
 - 主要電話（不含 Fax/傳真 標示）放入 "phone" 欄位
 - 有 "Fax"/"傳真" 標示的電話放入 "fax" 欄位
 - 如果有多個電話，優先選擇手機或主要辦公室電話作為 phone
+- 特別注意：即使沒有 "Tel" 或 "電話" 標籤，數字組合也可能是電話
+- 寬鬆識別：任何看起來像電話的數字都要嘗試識別
 
 3. 品質評估標準：
    - confidence_score (0.0-1.0)：基於文字清晰度、版面設計和資訊完整性
@@ -185,6 +188,8 @@ class CardProcessor:
 - quality_score 考量圖片品質和排版設計
 - processing_notes 描述識別過程中的發現和問題
 - 特別注意：電話和傳真要正確分類，不要放錯欄位
+- 電話識別優先級：寬鬆識別，寧可多識別也不要漏掉
+- 常見電話格式：(02) 1234-5678, 02-1234-5678, 0912-345-678, +886-2-1234-5678
 - 絕對只返回 JSON 格式，不要任何額外文字或說明
 """
     

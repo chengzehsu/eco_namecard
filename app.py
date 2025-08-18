@@ -14,6 +14,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # 導入配置和主應用
 from simple_config import settings
+from src.namecard.core.version import version_manager
 
 # 設置日誌
 structlog.configure(
@@ -40,14 +41,43 @@ if settings.sentry_dsn:
     try:
         import sentry_sdk
         from sentry_sdk.integrations.flask import FlaskIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
+        
+        # 獲取版本資訊
+        sentry_release_info = version_manager.get_sentry_release_info()
         
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
-            integrations=[FlaskIntegration()],
+            integrations=[
+                FlaskIntegration(transaction_style='endpoint'),
+                LoggingIntegration(
+                    level=structlog.stdlib.LoggingAdapter.info,
+                    event_level=structlog.stdlib.LoggingAdapter.error
+                )
+            ],
             traces_sample_rate=0.1,
-            environment=settings.flask_env
+            profiles_sample_rate=0.1,
+            environment=sentry_release_info["environment"],
+            release=sentry_release_info["release"],
+            dist=sentry_release_info["dist"],
+            before_send_transaction=lambda event, hint: event,
+            send_default_pii=False,
+            max_breadcrumbs=50,
+            attach_stacktrace=True
         )
-        logger.info("Sentry monitoring enabled")
+        
+        # 設定全域標籤
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("component", "linebot-namecard")
+            scope.set_tag("version", version_manager.version)
+            scope.set_tag("git_commit", version_manager.git_commit)
+            scope.set_tag("git_branch", version_manager.git_branch)
+            scope.set_context("version_info", version_manager.get_version_info())
+        
+        logger.info("Sentry monitoring enabled", 
+                   release=sentry_release_info["release"],
+                   environment=sentry_release_info["environment"],
+                   git_commit=version_manager.git_commit)
     except ImportError:
         logger.warning("Sentry SDK not installed, monitoring disabled")
 
@@ -56,8 +86,9 @@ from src.namecard.api.line_bot.main import app
 
 def main():
     """主函數"""
+    version_info = version_manager.get_version_info()
     logger.info("Starting LINE Bot Namecard System", 
-                version="1.0.0",
+                **version_info,
                 port=settings.app_port,
                 environment=settings.flask_env)
     

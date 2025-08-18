@@ -18,6 +18,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 from simple_config import settings
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service
+from src.namecard.core.services.monitoring import monitoring_service
+from src.namecard.core.version import version_manager
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
 
@@ -32,6 +34,15 @@ handler = WebhookHandler(settings.line_channel_secret)
 # 初始化服務
 card_processor = CardProcessor()
 notion_client = NotionClient()
+
+# 標記應用程式啟動/部署
+@app.before_first_request
+def mark_deployment():
+    """在首次請求時標記部署"""
+    monitoring_service.mark_deployment(
+        environment=settings.flask_env,
+        url=f"https://namecard-app.zeabur.app"
+    )
 
 
 def create_help_message() -> TextSendMessage:
@@ -581,10 +592,15 @@ def handle_image_message(event):
 @app.route('/health', methods=['GET'])
 def health_check():
     """健康檢查端點"""
+    version_info = version_manager.get_version_info()
     return jsonify({
         'status': 'healthy',
         'service': 'LINE Bot 名片識別系統',
-        'version': '1.0.0',
+        'version': version_info['version'],
+        'release': version_manager.release_name,
+        'git_commit': version_info['git_commit'],
+        'git_branch': version_info['git_branch'],
+        'build_time': version_info['build_time'],
         'timestamp': str(datetime.now())
     })
 
@@ -721,6 +737,66 @@ def debug_notion():
             'status': 'error',
             'error': str(e),
             'database_id': settings.notion_database_id
+        })
+
+
+@app.route('/version', methods=['GET'])
+def version_info():
+    """版本資訊端點"""
+    try:
+        version_info = version_manager.get_version_info()
+        sentry_info = version_manager.get_sentry_release_info()
+        
+        return jsonify({
+            'status': 'success',
+            'application': {
+                'name': 'LINE Bot 名片識別系統',
+                'service': 'namecard-processing'
+            },
+            'version': version_info,
+            'sentry': sentry_info,
+            'deployment': {
+                'environment': settings.flask_env,
+                'deployed_at': version_info['build_time'],
+                'platform': version_info['platform']
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'version': version_manager.version,
+            'git_commit': version_manager.git_commit
+        })
+
+
+@app.route('/deployment', methods=['GET'])
+def deployment_info():
+    """部署資訊端點"""
+    try:
+        version_info = version_manager.get_version_info()
+        deployment_info = monitoring_service.get_deployment_info()
+        
+        return jsonify({
+            'status': 'success',
+            'deployment': deployment_info or {},
+            'monitoring': {
+                'enabled': monitoring_service.is_enabled,
+                'version_tracking': VERSION_AVAILABLE if 'VERSION_AVAILABLE' in globals() else False
+            },
+            'system': {
+                'uptime': str(datetime.now() - datetime.fromisoformat(version_info['build_time'].replace('Z', '+00:00'))),
+                'environment': settings.flask_env,
+                'platform': version_info['platform']
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'deployment': monitoring_service.get_deployment_info()
         })
 
 

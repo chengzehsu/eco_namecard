@@ -20,6 +20,13 @@ except ImportError:
 
 logger = structlog.get_logger()
 
+# 匯入版本管理
+try:
+    from src.namecard.core.version import version_manager
+    VERSION_AVAILABLE = True
+except ImportError:
+    VERSION_AVAILABLE = False
+
 
 class MonitoringLevel(Enum):
     """監控級別"""
@@ -79,11 +86,115 @@ class SentryMonitoringService:
         self.is_enabled = SENTRY_AVAILABLE
         self._performance_cache: List[PerformanceMetric] = []
         self._event_counters: Dict[str, int] = {}
+        self._deployment_info: Optional[Dict[str, Any]] = None
         
         if not self.is_enabled:
             logger.warning("Sentry SDK not available, monitoring disabled")
         else:
             logger.info("Sentry monitoring service initialized")
+            
+        # 設定版本和部署資訊
+        self._setup_deployment_context()
+    
+    def _setup_deployment_context(self) -> None:
+        """設定部署和版本上下文"""
+        try:
+            if VERSION_AVAILABLE and self.is_enabled:
+                version_info = version_manager.get_version_info()
+                sentry_info = version_manager.get_sentry_release_info()
+                
+                # 設定全域標籤和上下文
+                with sentry_sdk.configure_scope() as scope:
+                    # 版本相關標籤
+                    scope.set_tag("version", version_info['version'])
+                    scope.set_tag("git_commit", version_info['git_commit'])
+                    scope.set_tag("git_branch", version_info['git_branch'])
+                    scope.set_tag("release", sentry_info['release'])
+                    scope.set_tag("environment", sentry_info['environment'])
+                    
+                    # 部署資訊上下文
+                    scope.set_context("deployment", {
+                        "version": version_info['version'],
+                        "release_name": sentry_info['release'],
+                        "git_commit": version_info['git_commit'],
+                        "git_branch": version_info['git_branch'],
+                        "build_time": version_info['build_time'],
+                        "platform": version_info['platform'],
+                        "python_version": version_info['python_version']
+                    })
+                    
+                    # 應用程式上下文
+                    scope.set_context("application", {
+                        "name": "LINE Bot 名片識別系統",
+                        "service": "namecard-processing",
+                        "component": "monitoring"
+                    })
+                
+                # 儲存部署資訊供其他方法使用
+                self._deployment_info = {
+                    "version": version_info['version'],
+                    "release": sentry_info['release'],
+                    "git_commit": version_info['git_commit'],
+                    "git_branch": version_info['git_branch'],
+                    "build_time": version_info['build_time']
+                }
+                
+                logger.info("Deployment context configured", 
+                           release=sentry_info['release'],
+                           git_commit=version_info['git_commit'])
+                           
+        except Exception as e:
+            logger.warning("Failed to setup deployment context", error=str(e))
+    
+    def mark_deployment(self, environment: str = "production", url: str = None) -> None:
+        """
+        標記新的部署
+        
+        Args:
+            environment: 部署環境
+            url: 應用程式 URL
+        """
+        try:
+            if self.is_enabled and self._deployment_info:
+                with sentry_sdk.configure_scope() as scope:
+                    scope.set_tag("deployment_event", "true")
+                    scope.set_context("deployment_event", {
+                        "environment": environment,
+                        "url": url,
+                        "deployed_at": datetime.now().isoformat(),
+                        "release": self._deployment_info['release'],
+                        "git_commit": self._deployment_info['git_commit']
+                    })
+                
+                # 發送部署事件
+                self.capture_event(MonitoringEvent(
+                    category=EventCategory.SYSTEM_PERFORMANCE,
+                    level=MonitoringLevel.INFO,
+                    message=f"New deployment to {environment}",
+                    extra_data={
+                        "environment": environment,
+                        "url": url,
+                        "release": self._deployment_info['release'],
+                        "git_commit": self._deployment_info['git_commit'],
+                        "deployment_time": datetime.now().isoformat()
+                    },
+                    tags={
+                        "event_type": "deployment",
+                        "environment": environment,
+                        "release": self._deployment_info['release']
+                    }
+                ))
+                
+                logger.info("Deployment marked in monitoring", 
+                           environment=environment,
+                           release=self._deployment_info['release'])
+                           
+        except Exception as e:
+            logger.error("Failed to mark deployment", error=str(e))
+    
+    def get_deployment_info(self) -> Optional[Dict[str, Any]]:
+        """獲取當前部署資訊"""
+        return self._deployment_info.copy() if self._deployment_info else None
     
     def capture_event(self, event: MonitoringEvent) -> None:
         """

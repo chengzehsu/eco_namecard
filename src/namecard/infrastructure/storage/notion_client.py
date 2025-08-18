@@ -163,7 +163,7 @@ class NotionClient:
                 "email": card.email
             }
         
-        # 3. 備註 (rich_text) - 記錄額外資訊
+        # 3. 備註 (rich_text) - 記錄額外資訊（移除發送者資訊）
         notes = []
         if card.fax:
             notes.append(f"傳真: {card.fax}")
@@ -175,8 +175,7 @@ class NotionClient:
             notes.append(f"統一編號: {card.tax_id}")
         if card.line_id:
             notes.append(f"LINE ID: {card.line_id}")
-        if card.line_user_id:
-            notes.append(f"發送者: {card.line_user_id}")
+        # 移除 line_user_id，這是內部系統資訊，不應出現在用戶可見的備註中
         
         if notes:
             properties["備註"] = {

@@ -133,14 +133,18 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 - Integration permissions and database sharing
 - User-based data segregation
 
-**Sentry Error Monitoring** ✅ **ACTIVE**
+**Sentry Error Monitoring** ✅ **ACTIVE + RELEASE TRACKING**
 - Real-time error tracking and notification system integrated via `sentry-sdk[flask]>=1.40.0`
-- Automatic error categorization and stack trace capture with environment context
+- **🏷️ Release Tracking**: 每個錯誤自動關聯到 Git commit hash 和版本號 (format: 1.0.0+abc123)
+- **📤 Source Context**: GitHub Actions 自動上傳 Python 原始碼到 Sentry，提供完整錯誤上下文
+- **🚀 Deployment Monitoring**: 自動標記部署事件和環境變化，追蹤版本影響
+- **📊 Version Management**: 自動生成和追蹤 release，支援版本回歸分析
 - Performance monitoring with 10% sampling rate for production optimization
 - Email notifications for new issues and high error rates
 - Integration initialized in `app.py` with Flask integration and structured logging
-- Debug endpoints: `/debug/sentry` for real-time configuration status verification
-- Debugging tools: `debug-sentry.py` and `force-sentry-test.py` for comprehensive troubleshooting
+- Debug endpoints: `/debug/sentry`, `/version`, `/deployment` for monitoring verification
+- Debugging tools: `debug-sentry.py`, `test_release_tracking.py` for comprehensive troubleshooting
+- **🔧 MCP Integration**: Sentry MCP server 支援在 Claude Code 中直接查詢錯誤和分析趨勢
 
 ## Development Workflow
 
@@ -182,6 +186,8 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 
 **🔧 常用檢查連結**:
 - 系統健康: https://namecard-app.zeabur.app/health
+- 版本資訊: https://namecard-app.zeabur.app/version
+- 部署狀態: https://namecard-app.zeabur.app/deployment
 - Notion 欄位: https://namecard-app.zeabur.app/debug/notion
 - 系統設定: https://namecard-app.zeabur.app/test
 - Sentry 配置: https://namecard-app.zeabur.app/debug/sentry
@@ -217,8 +223,15 @@ python debug-sentry.py
 # 強制觸發測試錯誤
 python force-sentry-test.py
 
+# 測試 Release Tracking 功能
+python test_release_tracking.py
+
 # 檢查即時配置狀態
 curl https://namecard-app.zeabur.app/debug/sentry
+
+# 檢查版本和部署資訊
+curl https://namecard-app.zeabur.app/version
+curl https://namecard-app.zeabur.app/deployment
 ```
 
 **常見 Sentry 問題**:

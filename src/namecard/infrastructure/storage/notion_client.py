@@ -239,25 +239,17 @@ class NotionClient:
             }
         }
         
-        # 7. 窗口的困擾或 KPI (rich_text)
-        kpi = "營運效率最佳化"
-        if card.title:
-            if "業務" in card.title:
-                kpi = "業績達成、客戶滿意度"
-            elif "工程" in card.title:
-                kpi = "技術問題解決、專案進度"
-            elif "經理" in card.title:
-                kpi = "團隊績效、成本控制"
-        
-        properties["窗口的困擾或 KPI"] = {
-            "rich_text": [
-                {
-                    "text": {
-                        "content": kpi
-                    }
-                }
-            ]
-        }
+        # 7. 窗口的困擾或 KPI (rich_text) - 留空供人工輸入，不亂編內容
+        # 不自動填入 KPI 內容，由使用者手動輸入更準確的資訊
+        # properties["窗口的困擾或 KPI"] = {
+        #     "rich_text": [
+        #         {
+        #             "text": {
+        #                 "content": ""
+        #             }
+        #         }
+        #     ]
+        # }
         
         # 8. 職稱 (select) - 只使用確定存在的選項
         title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]
@@ -295,6 +287,7 @@ class NotionClient:
             }
         
         # 以下欄位留空，供人工輸入：
+        # - 窗口的困擾或 KPI (rich_text) - 需要根據實際情況手動輸入
         # - 取得聯絡來源 (rich_text)
         # - 聯絡注意事項 (rich_text) 
         # - 負責業務 (people)

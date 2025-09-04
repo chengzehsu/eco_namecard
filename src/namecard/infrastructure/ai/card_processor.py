@@ -279,6 +279,10 @@ class CardProcessor:
             # 解析結果
             cards = self._parse_response(response, user_id)
             
+            # 將原始圖片數據附加到每張名片
+            for card in cards:
+                card.original_image_data = image_data
+            
             # 記錄成功事件和業務指標
             monitoring_service.capture_event(MonitoringEvent(
                 category=EventCategory.AI_PROCESSING,

@@ -26,6 +26,10 @@ class BusinessCard(BaseModel):
     line_user_id: str = Field(..., description="LINE 用戶 ID")
     processed: bool = Field(False, description="是否已處理")
     
+    # 圖片相關欄位
+    original_image_data: Optional[bytes] = Field(None, description="原始圖片數據", exclude=True)
+    image_url: Optional[str] = Field(None, description="圖片 URL")
+    
     @validator('email')
     def validate_email(cls, v):
         if v and not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):

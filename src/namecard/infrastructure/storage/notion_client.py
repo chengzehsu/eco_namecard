@@ -14,6 +14,7 @@ from src.namecard.core.services.monitoring import (
     monitoring_service, monitor_performance,
     MonitoringEvent, EventCategory, MonitoringLevel
 )
+from src.namecard.infrastructure.storage.image_hosting import ImageHostingService
 
 logger = structlog.get_logger()
 
@@ -25,6 +26,7 @@ class NotionClient:
         self.client = Client(auth=settings.notion_api_key)
         self.database_id = settings.notion_database_id
         self.database_url = f"https://notion.so/{settings.notion_database_id.replace('-', '')}"
+        self.image_hosting = ImageHostingService()
         
         # 測試連接
         self._test_connection()
@@ -84,11 +86,101 @@ class NotionClient:
             # 準備名片資料
             properties = self._prepare_card_properties(card)
             
+            # 建立 Notion 頁面內容（包含圖片）
+            page_children = []
+            
+            # 如果有圖片數據，上傳並添加圖片區塊
+            if card.original_image_data and self.image_hosting.is_available():
+                try:
+                    image_url = self.image_hosting.upload_image(
+                        card.original_image_data,
+                        f"namecard_{card.name or 'unknown'}"
+                    )
+                    if image_url:
+                        card.image_url = image_url
+                        page_children.append({
+                            "object": "block",
+                            "type": "image",
+                            "image": {
+                                "type": "external",
+                                "external": {
+                                    "url": image_url
+                                }
+                            }
+                        })
+                        logger.info("Image uploaded and added to Notion page", 
+                                   image_url=image_url,
+                                   card_name=card.name)
+                    else:
+                        logger.warning("Image upload failed, adding text note")
+                        page_children.append({
+                            "object": "block",
+                            "type": "paragraph",
+                            "paragraph": {
+                                "rich_text": [
+                                    {
+                                        "type": "text",
+                                        "text": {
+                                            "content": f"📷 名片圖片無法上傳 ({len(card.original_image_data)} bytes)"
+                                        },
+                                        "annotations": {
+                                            "color": "orange"
+                                        }
+                                    }
+                                ]
+                            }
+                        })
+                except Exception as e:
+                    logger.error("Image upload error", error=str(e))
+                    page_children.append({
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [
+                                {
+                                    "type": "text",
+                                    "text": {
+                                        "content": f"📷 圖片處理失敗: {str(e)[:50]}"
+                                    },
+                                    "annotations": {
+                                        "color": "red"
+                                    }
+                                }
+                            ]
+                        }
+                    })
+            elif card.original_image_data:
+                # 有圖片但沒有託管服務
+                page_children.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": f"📷 名片圖片已接收 ({len(card.original_image_data)} bytes) - 請設定 IMAGEBB_API_KEY"
+                                },
+                                "annotations": {
+                                    "italic": True,
+                                    "color": "gray"
+                                }
+                            }
+                        ]
+                    }
+                })
+            
             # 建立 Notion 頁面
-            response = self.client.pages.create(
-                parent={"database_id": self.database_id},
-                properties=properties
-            )
+            page_data = {
+                "parent": {"database_id": self.database_id},
+                "properties": properties
+            }
+            
+            # 如果有子內容，添加到頁面
+            if page_children:
+                page_data["children"] = page_children
+            
+            response = self.client.pages.create(**page_data)
             
             page_url = response.get("url", "")
             page_id = response.get("id", "")

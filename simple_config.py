@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Monitoring Configuration
     sentry_dsn: Optional[str] = None
     
+    # Image hosting Configuration
+    imagebb_api_key: str = Field(default="", description="ImageBB API Key for image hosting")
+    
     # Development
     debug: bool = Field(default=False)
 

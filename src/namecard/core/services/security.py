@@ -39,7 +39,8 @@ class SecurityService:
         key_env = os.environ.get('ENCRYPTION_KEY')
         if key_env:
             try:
-                return base64.urlsafe_b64decode(key_env)
+                # 環境變數應該已經是 base64 編碼的，直接使用
+                return key_env.encode('utf-8')
             except Exception as e:
                 logger.error("Invalid encryption key in environment", error=str(e))
         
@@ -59,8 +60,10 @@ class SecurityService:
                     iterations=100000,
                 )
                 key = kdf.derive(secret_key.encode('utf-8'))
+                # 將衍生的密鑰編碼為 base64 字串供 Fernet 使用
+                encoded_key = base64.urlsafe_b64encode(key)
                 logger.info("Derived encryption key from SECRET_KEY")
-                return key
+                return encoded_key
             except Exception as e:
                 logger.error("Failed to derive key from SECRET_KEY", error=str(e))
         

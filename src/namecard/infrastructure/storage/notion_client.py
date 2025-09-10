@@ -163,7 +163,7 @@ class NotionClient:
                 "email": card.email
             }
         
-        # 3. 備註 (rich_text) - 記錄額外資訊（移除發送者和傳真資訊）
+        # 3. 備註 (rich_text) - 記錄額外資訊及系統推測
         notes = []
         # 移除傳真號碼，不放入備註
         # if card.fax:
@@ -177,6 +177,32 @@ class NotionClient:
         if card.line_id:
             notes.append(f"LINE ID: {card.line_id}")
         # 移除 line_user_id，這是內部系統資訊，不應出現在用戶可見的備註中
+        
+        # 加入系統推測的決策影響力和 KPI（供參考）
+        if card.title:
+            # 決策影響力推測
+            influence = "中"
+            if any(title in card.title for title in ["董事長", "CEO", "執行長", "總經理"]):
+                influence = "最終決策者"
+            elif any(title in card.title for title in ["副總", "經理", "協理"]):
+                influence = "關鍵影響者"
+            elif any(title in card.title for title in ["工程師", "技術"]):
+                influence = "技術評估者"
+            elif "業務" in card.title:
+                influence = "用戶代表（場務總管）"
+            elif "專員" in card.title:
+                influence = "資訊蒐集者"
+            notes.append(f"系統推測決策影響力: {influence}")
+            
+            # KPI 推測
+            kpi = "營運效率最佳化"
+            if "業務" in card.title:
+                kpi = "業績達成、客戶滿意度"
+            elif "工程" in card.title:
+                kpi = "技術問題解決、專案進度"
+            elif "經理" in card.title:
+                kpi = "團隊績效、成本控制"
+            notes.append(f"系統推測窗口困擾/KPI: {kpi}")
         
         if notes:
             properties["備註"] = {
@@ -217,47 +243,23 @@ class NotionClient:
                 ]
             }
         
-        # 6. 決策影響力 (select) - 使用確切的選項值
-        available_influence = ["最終決策者","關鍵影響者","技術評估者","用戶代表（場務總管）","資訊蒐集者","高","低","中"]
+        # 6. 決策影響力 (select) - 留空，人工填寫
+        # properties["決策影響力"] = {
+        #     "select": {
+        #         "name": "待評估"
+        #     }
+        # }
         
-        influence = "中"  # 預設值
-        if card.title:
-            if any(title in card.title for title in ["董事長", "CEO", "執行長", "總經理"]):
-                influence = "最終決策者"
-            elif any(title in card.title for title in ["副總", "經理", "協理"]):
-                influence = "關鍵影響者"
-            elif any(title in card.title for title in ["工程師", "技術"]):
-                influence = "技術評估者"
-            elif "業務" in card.title:
-                influence = "用戶代表（場務總管）"
-            elif "專員" in card.title:
-                influence = "資訊蒐集者"
-        
-        properties["決策影響力"] = {
-            "select": {
-                "name": influence
-            }
-        }
-        
-        # 7. 窗口的困擾或 KPI (rich_text)
-        kpi = "營運效率最佳化"
-        if card.title:
-            if "業務" in card.title:
-                kpi = "業績達成、客戶滿意度"
-            elif "工程" in card.title:
-                kpi = "技術問題解決、專案進度"
-            elif "經理" in card.title:
-                kpi = "團隊績效、成本控制"
-        
-        properties["窗口的困擾或 KPI"] = {
-            "rich_text": [
-                {
-                    "text": {
-                        "content": kpi
-                    }
-                }
-            ]
-        }
+        # 7. 窗口的困擾或 KPI (rich_text) - 留空，人工填寫
+        # properties["窗口的困擾或 KPI"] = {
+        #     "rich_text": [
+        #         {
+        #             "text": {
+        #                 "content": "待評估"
+        #             }
+        #         }
+        #     ]
+        # }
         
         # 8. 職稱 (select) - 只使用確定存在的選項
         title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]

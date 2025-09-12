@@ -1,0 +1,127 @@
+[config]
+# 🤖 Qodo PR Agent Configuration for LINE Bot Namecard Project
+model = "google/gemini-1.5-flash"
+# Respond in Traditional Chinese for Taiwan users
+response_language = "Traditional Chinese"
+# Show relevant config options in reviews
+output_relevant_configurations = true
+
+[pr_description]
+# Generate AI-powered PR descriptions
+generate_ai_title = true
+# Include AI-generated summary for complex changes
+add_original_user_description = true
+# Focus on business impact for namecard features
+extra_instructions = """
+描述 PR 時請重點關注：
+- 對 LINE Bot 使用者體驗的影響
+- 名片識別準確度的改善
+- Notion 資料庫操作的效率
+- 安全性和隱私保護措施
+- 錯誤處理和用戶反饋改進
+"""
+
+[pr_reviewer]
+# Enable comprehensive review with security focus
+require_score_review = true
+require_tests_review = true
+require_security_review = true
+require_focused_review = true
+# Remove file extensions to review to avoid binary files
+file_extensions = [".py", ".yml", ".yaml", ".toml", ".md", ".txt", ".json"]
+
+# Project-specific review instructions
+extra_instructions = """
+請特別關注以下 LINE Bot 名片系統的重要面向：
+
+🔒 **安全性檢查**：
+- Webhook 簽名驗證 (LINE Bot 安全)
+- API 金鑰管理和環境變數使用
+- 用戶輸入驗證和清理
+- 個人資料保護 (姓名、電話、Email)
+- SQL injection 和其他注入攻擊防護
+
+🤖 **AI 與外部服務整合**：
+- Google Gemini API 呼叫錯誤處理
+- Notion API 限制和重試機制
+- 圖片大小和格式驗證
+- API 配額和速率限制管理
+
+📱 **LINE Bot 使用者體驗**：
+- 批次模式狀態管理
+- 錯誤訊息的使用者友善性
+- Quick Reply 按鈕功能
+- 回應時間優化
+
+🎯 **商業邏輯正確性**：
+- 名片資料結構化和驗證
+- 台灣地址格式正規化
+- 電話號碼格式識別
+- 公司和職稱資訊處理
+
+✅ **測試覆蓋率**：
+- 新功能需要對應的單元測試
+- 整合測試覆蓋外部 API 互動
+- Mock 設定的正確性
+- 邊界條件和錯誤情況測試
+"""
+
+# Specific focus areas for this project
+require_focused_review = true
+num_code_suggestions = 4
+
+[pr_code_suggestions]
+# Enable code improvement suggestions
+num_code_suggestions = 4
+# Focus on performance and security for namecard processing
+extra_instructions = """
+程式碼建議請重點關注：
+- 效能優化：圖片處理、API 呼叫效率
+- 安全加固：輸入驗證、錯誤處理
+- 可讀性：變數命名、註解品質 (僅在必要時)
+- 可維護性：模組化、重構機會
+- Taiwan localization：中文錯誤訊息、地址格式
+"""
+
+[pr_questions]
+# Enable interactive Q&A capability
+ask_and_answer_questions = true
+extra_instructions = """
+回答問題時請考慮：
+- LINE Bot 開發的技術複雜度
+- AI 名片識別的準確性要求  
+- Notion 資料庫設計的最佳實務
+- 台灣本地化需求 (地址、電話格式)
+- 使用者隱私和資料安全法規
+"""
+
+[pr_improve]
+# Enable code improvement suggestions
+auto_improve = false  # Manual trigger only
+extra_instructions = """
+改進建議請著重：
+- 提升名片識別準確度
+- 優化 API 呼叫效能
+- 強化錯誤處理機制
+- 改善使用者互動體驗
+- 增加程式碼可測試性
+"""
+
+# GitHub-specific settings for better integration
+[github]
+# Publish review as PR comment instead of review
+publish_output_as_comment = false
+# Enable interactive commands in comments
+enable_help_text = true
+
+# Custom labels for PR categorization (optional)
+[pr_classification]
+enable_pr_classification = true
+
+# Google Gemini API Configuration
+[litellm]
+# Don't store sensitive data in logs
+drop_params = true
+# Use Google Gemini with vertex_ai provider
+vertex_project = "your-project-id"  # Optional: can be set via environment variable
+vertex_location = "us-central1"     # Optional: default location

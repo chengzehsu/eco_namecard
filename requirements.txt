@@ -20,9 +20,8 @@ pydantic-settings>=2.1.0
 Pillow==10.1.0
 requests==2.31.0
 
-# Logging & Monitoring
+# Logging
 structlog>=23.2.0
-sentry-sdk[flask]>=1.40.0
 
 # Security
 cryptography>=41.0.7

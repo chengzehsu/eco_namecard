@@ -617,40 +617,6 @@ def debug_webhook():
         'body_length': len(request.get_data())
     })
 
-@app.route('/debug/sentry', methods=['GET'])
-def debug_sentry():
-    """檢查 Sentry 配置狀態"""
-    import os
-    
-    try:
-        result = {
-            "sentry_dsn_env": bool(os.getenv('SENTRY_DSN')),
-            "sentry_dsn_settings": bool(settings.sentry_dsn),
-            "sentry_dsn_length": len(settings.sentry_dsn) if settings.sentry_dsn else 0,
-            "flask_env": settings.flask_env,
-        }
-        
-        # 安全地檢查環境變數
-        try:
-            result["all_env_vars"] = [k for k in os.environ.keys() if 'SENTRY' in k.upper()]
-        except:
-            result["all_env_vars"] = ["error_reading_env"]
-        
-        # 測試 Sentry 初始化
-        if settings.sentry_dsn:
-            try:
-                import sentry_sdk
-                result["sentry_sdk_available"] = True
-                result["sentry_sdk_version"] = str(sentry_sdk.VERSION)
-            except ImportError:
-                result["sentry_sdk_available"] = False
-        else:
-            result["sentry_sdk_available"] = "no_dsn"
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e), "status": "debug_endpoint_error"})
-
 
 @app.route('/debug/notion', methods=['GET'])
 def debug_notion():

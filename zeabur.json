@@ -63,10 +63,6 @@
       "required": false,
       "default": "10485760"
     },
-    "SENTRY_DSN": {
-      "description": "Sentry DSN for error monitoring (optional)",
-      "required": false
-    },
     "DEBUG": {
       "description": "Enable debug mode",
       "required": false,

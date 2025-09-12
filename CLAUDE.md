@@ -133,14 +133,6 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 - Integration permissions and database sharing
 - User-based data segregation
 
-**Sentry Error Monitoring** ✅ **ACTIVE**
-- Real-time error tracking and notification system integrated via `sentry-sdk[flask]>=1.40.0`
-- Automatic error categorization and stack trace capture with environment context
-- Performance monitoring with 10% sampling rate for production optimization
-- Email notifications for new issues and high error rates
-- Integration initialized in `app.py` with Flask integration and structured logging
-- Debug endpoints: `/debug/sentry` for real-time configuration status verification
-- Debugging tools: `debug-sentry.py` and `force-sentry-test.py` for comprehensive troubleshooting
 
 ## Development Workflow
 
@@ -149,14 +141,60 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 3. Successful builds deploy to Zeabur automatically
 4. Health checks validate deployment success
 
+## Qodo PR Review Agent ✅ **ACTIVE** (Google Gemini Powered)
+
+**AI-Powered Code Review System** integrated via qodo-ai/pr-agent using Google Gemini 1.5 Flash model
+- Leverages existing Google Gemini API key for seamless integration with project AI infrastructure
+- Comprehensive security-focused review for LINE Bot webhook handling and API integrations
+- Traditional Chinese responses tailored for Taiwan-focused namecard processing system
+- Automated code suggestions for performance optimization and security hardening
+- Interactive Q&A capability for technical questions about AI integration and Notion operations
+
+**設定檔案**:
+- **GitHub Workflow**: `.github/workflows/pr_agent.yml` - 自動觸發 PR 審查
+- **配置檔案**: `.pr_agent.toml` - 專案特定審查規則和中文回應設定
+
+**觸發方式**:
+```bash
+# 自動觸發 (PR 開啟/更新時)
+git push origin feature-branch
+
+# 手動觸發命令 (在 PR 留言中)
+/review          # 完整程式碼審查  
+/describe        # 生成 PR 描述
+/improve         # 改進建議
+/ask "問題內容"   # 技術問答
+```
+
+**審查重點領域**:
+- **🔒 安全性**: Webhook 驗證、API 金鑰管理、個資保護
+- **🤖 AI 整合**: Google Gemini API 錯誤處理、圖片驗證
+- **📱 LINE Bot**: 批次處理、使用者體驗優化  
+- **🏪 Notion 整合**: 資料庫操作效率、搜尋功能
+- **✅ 測試覆蓋**: 新功能測試需求、Mock 設定驗證
+
+**設定管理**:
+```bash
+# 測試 PR Agent 配置
+curl -s "https://api.github.com/repos/chengzehsu/eco_namecard/contents/.pr_agent.toml"
+
+# 檢查 GitHub Actions 狀態
+gh run list --workflow="pr_agent.yml"
+```
+
+**故障排除**:
+- **PR Agent 無回應**: 檢查現有的 `GOOGLE_API_KEY` 權限是否包含 Gemini API 存取
+- **API 配額問題**: 與名片識別功能共用 Google API 配額，監控使用量
+- **中文回應異常**: 確認 `.pr_agent.toml` 中 `response_language = "Traditional Chinese"` 設定
+- **審查內容不符需求**: 更新 `.pr_agent.toml` 中的 `extra_instructions` 客製化指令
+
 ## Critical Environment Variables
 
 **Required**:
 - `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`
-- `GOOGLE_API_KEY` (with optional `GOOGLE_API_KEY_FALLBACK`)
+- `GOOGLE_API_KEY` (with optional `GOOGLE_API_KEY_FALLBACK`) - 同時用於名片識別和 PR 審查
 - `NOTION_API_KEY`, `NOTION_DATABASE_ID`
 - `SECRET_KEY`
-- `SENTRY_DSN` (error monitoring and alerting)
 
 **Operational**:
 - `RATE_LIMIT_PER_USER=50`, `BATCH_SIZE_LIMIT=10`
@@ -184,47 +222,21 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 - 系統健康: https://namecard-app.zeabur.app/health
 - Notion 欄位: https://namecard-app.zeabur.app/debug/notion
 - 系統設定: https://namecard-app.zeabur.app/test
-- Sentry 配置: https://namecard-app.zeabur.app/debug/sentry
-- 錯誤監控: https://sentry.io (需登入查看 Issues)
+- GitHub Actions: https://github.com/chengzehsu/eco_namecard/actions (CI/CD 和 PR 審查)
 
 **📋 維護重點**:
 - 每月測試 LINE Bot 和 Notion 功能
-- 定期檢查 Sentry Dashboard 的錯誤趨勢
+- 監控 GitHub Actions 中 qodo PR 審查功能運作
 - 修改時採用小步驟原則
 - 每次變更都要測試
 - 記錄所有修改內容
-- 監控 Sentry 錯誤率和效能指標
+- 檢查應用程式 logs 中的錯誤和警告訊息
 
 **🆘 緊急修復**:
 - 如果服務異常，先檢查 /health 端點
 - 如果 Notion 無法儲存，檢查 /debug/notion
-- 如果 Sentry 錯誤監控異常，執行 `python debug-sentry.py` 診斷
+- 檢查 Zeabur 部署日誌中的錯誤訊息
 - 程式修改出錯可用 `git reset --hard HEAD~1` 回退
-
-## Sentry 錯誤監控系統
-
-**監控 Dashboard 工作流程**:
-1. **日常監控**: 每週檢查 https://sentry.io Dashboard 的 Issues 頁面
-2. **錯誤分析**: 按錯誤頻率、影響用戶數和時間趨勢分析問題優先級
-3. **效能監控**: 檢查 Performance 頁面的 API 回應時間和錯誤率趨勢
-4. **警報設定**: 確保 Email 通知已啟用，收到高頻錯誤或新問題通知
-
-**故障排除工具包**:
-```bash
-# 完整診斷 Sentry 配置
-python debug-sentry.py
-
-# 強制觸發測試錯誤
-python force-sentry-test.py
-
-# 檢查即時配置狀態
-curl https://namecard-app.zeabur.app/debug/sentry
-```
-
-**常見 Sentry 問題**:
-- **配置正確但無錯誤記錄**: 環境變數可能正確但 SDK 初始化失敗，檢查 Zeabur 部署日誌
-- **Debug 端點 404**: 表示程式部署未成功，需重新推送到 GitHub 觸發部署
-- **測試錯誤不出現**: 等待 3-5 分鐘，Sentry 有延遲，或檢查專案設定
 
 Repository: https://github.com/chengzehsu/eco_namecard
 Deployment: https://namecard-app.zeabur.app

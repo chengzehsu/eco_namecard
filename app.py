@@ -35,21 +35,6 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
-# 初始化 Sentry (如果配置了)
-if settings.sentry_dsn:
-    try:
-        import sentry_sdk
-        from sentry_sdk.integrations.flask import FlaskIntegration
-        
-        sentry_sdk.init(
-            dsn=settings.sentry_dsn,
-            integrations=[FlaskIntegration()],
-            traces_sample_rate=0.1,
-            environment=settings.flask_env
-        )
-        logger.info("Sentry monitoring enabled")
-    except ImportError:
-        logger.warning("Sentry SDK not installed, monitoring disabled")
 
 # 導入主應用
 from src.namecard.api.line_bot.main import app

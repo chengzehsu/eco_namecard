@@ -35,8 +35,6 @@ class Settings(BaseSettings):
     batch_size_limit: int = Field(default=10)
     max_image_size: int = Field(default=10485760)  # 10MB
     
-    # Monitoring Configuration
-    sentry_dsn: Optional[str] = None
     
     # Development
     debug: bool = Field(default=False)

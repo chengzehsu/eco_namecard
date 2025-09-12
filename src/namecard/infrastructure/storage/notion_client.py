@@ -10,10 +10,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
 from simple_config import settings
 from src.namecard.core.models.card import BusinessCard
-from src.namecard.core.services.monitoring import (
-    monitoring_service, monitor_performance,
-    MonitoringEvent, EventCategory, MonitoringLevel
-)
 
 logger = structlog.get_logger()
 
@@ -36,33 +32,22 @@ class NotionClient:
             self.client.databases.retrieve(database_id=self.database_id)
             logger.info("Notion connection established successfully")
             
-            # 記錄成功的連接
-            monitoring_service.capture_event(MonitoringEvent(
-                category=EventCategory.DATA_STORAGE,
-                level=MonitoringLevel.INFO,
-                message="Notion database connection established",
-                extra_data={"database_id": self.database_id[:10] + "..."},
-                tags={"operation": "connection_test", "status": "success"}
-            ))
+            logger.info("Notion database connection established", 
+                       database_id=self.database_id[:10] + "...",
+                       operation="connection_test",
+                       status="success")
             
         except Exception as e:
             logger.error("Failed to connect to Notion", error=str(e))
             
-            # 記錄連接失敗
-            monitoring_service.capture_event(MonitoringEvent(
-                category=EventCategory.DATA_STORAGE,
-                level=MonitoringLevel.ERROR,
-                message="Failed to connect to Notion database",
-                extra_data={
-                    "error": str(e),
-                    "database_id": self.database_id[:10] + "...",
-                    "error_type": type(e).__name__
-                },
-                tags={"operation": "connection_test", "status": "failed"}
-            ))
+            logger.error("Failed to connect to Notion database",
+                        error=str(e),
+                        database_id=self.database_id[:10] + "...",
+                        error_type=type(e).__name__,
+                        operation="connection_test",
+                        status="failed")
             # 不拋出異常，允許應用程式繼續運行
     
-    @monitor_performance("notion_save_card")
     def save_business_card(self, card: BusinessCard) -> Optional[str]:
         """
         儲存名片到 Notion 資料庫
@@ -74,12 +59,10 @@ class NotionClient:
             Notion 頁面 URL，失敗時返回 None
         """
         try:
-            # 設定用戶上下文
-            monitoring_service.set_user_context(card.line_user_id)
-            monitoring_service.add_breadcrumb("Starting Notion save operation", "data_storage", {
-                "card_name": card.name,
-                "card_company": card.company
-            })
+            logger.info("Starting Notion save operation",
+                       user_id=card.line_user_id,
+                       card_name=card.name,
+                       card_company=card.company)
             
             # 準備名片資料
             properties = self._prepare_card_properties(card)
@@ -93,23 +76,17 @@ class NotionClient:
             page_url = response.get("url", "")
             page_id = response.get("id", "")
             
-            # 記錄成功的儲存事件
-            monitoring_service.capture_event(MonitoringEvent(
-                category=EventCategory.DATA_STORAGE,
-                level=MonitoringLevel.INFO,
-                message="Business card saved to Notion successfully",
-                user_id=card.line_user_id,
-                extra_data={
-                    "page_id": page_id,
-                    "card_name": card.name,
-                    "card_company": card.company,
-                    "confidence_score": card.confidence_score,
-                    "quality_score": card.quality_score,
-                    "has_contact_info": bool(card.phone or card.email),
-                    "properties_count": len(properties)
-                },
-                tags={"operation": "save_card", "status": "success"}
-            ))
+            logger.info("Business card saved to Notion successfully",
+                       user_id=card.line_user_id,
+                       page_id=page_id,
+                       card_name=card.name,
+                       card_company=card.company,
+                       confidence_score=card.confidence_score,
+                       quality_score=card.quality_score,
+                       has_contact_info=bool(card.phone or card.email),
+                       properties_count=len(properties),
+                       operation="save_card",
+                       status="success")
             
             logger.info("Business card saved to Notion", 
                        page_id=page_id,
@@ -119,18 +96,14 @@ class NotionClient:
             return page_url
             
         except Exception as e:
-            # 記錄儲存失敗事件
-            monitoring_service.capture_exception_with_context(
-                e,
-                EventCategory.DATA_STORAGE,
-                user_id=card.line_user_id,
-                extra_context={
-                    "operation": "save_business_card",
-                    "card_name": card.name,
-                    "card_company": card.company,
-                    "database_id": self.database_id
-                }
-            )
+            logger.error("Exception occurred while saving business card",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        user_id=card.line_user_id,
+                        operation="save_business_card",
+                        card_name=card.name,
+                        card_company=card.company,
+                        database_id=self.database_id)
             
             logger.error("Failed to save business card to Notion", 
                         error=str(e),
@@ -325,14 +298,12 @@ class NotionClient:
             logger.error("Failed to get database schema", error=str(e))
             return {}
     
-    @monitor_performance("notion_search_by_name")
     def search_cards_by_name(self, name: str, limit: int = 10) -> list:
         """根據姓名搜尋名片"""
         try:
-            monitoring_service.add_breadcrumb("Searching cards by name", "data_storage", {
-                "search_name": name,
-                "limit": limit
-            })
+            logger.info("Searching cards by name",
+                       search_name=name,
+                       limit=limit)
             
             response = self.client.databases.query(
                 database_id=self.database_id,
@@ -347,34 +318,22 @@ class NotionClient:
             
             results = response.get("results", [])
             
-            # 記錄搜尋結果
-            monitoring_service.capture_event(MonitoringEvent(
-                category=EventCategory.DATA_STORAGE,
-                level=MonitoringLevel.INFO,
-                message="Card search by name completed",
-                extra_data={
-                    "search_term": name,
-                    "results_count": len(results),
-                    "limit": limit
-                },
-                tags={"operation": "search_by_name", "status": "success"}
-            ))
+            logger.info("Card search by name completed",
+                       search_term=name,
+                       results_count=len(results),
+                       limit=limit,
+                       operation="search_by_name",
+                       status="success")
             
             return results
             
         except Exception as e:
-            # 記錄搜尋失敗
-            monitoring_service.capture_event(MonitoringEvent(
-                category=EventCategory.DATA_STORAGE,
-                level=MonitoringLevel.ERROR,
-                message="Failed to search cards by name",
-                extra_data={
-                    "search_term": name,
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                },
-                tags={"operation": "search_by_name", "status": "failed"}
-            ))
+            logger.error("Failed to search cards by name",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        search_term=name,
+                        operation="search_by_name",
+                        status="failed")
             
             logger.error("Failed to search cards", error=str(e), name=name)
             return []

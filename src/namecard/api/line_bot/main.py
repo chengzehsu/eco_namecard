@@ -591,15 +591,12 @@ def test_endpoint():
             'google_api_configured': bool(settings.google_api_key and len(settings.google_api_key) > 10),
             'notion_api_configured': bool(settings.notion_api_key and len(settings.notion_api_key) > 10),
             'notion_db_configured': bool(settings.notion_database_id and len(settings.notion_database_id) > 10),
-            'sentry_configured': bool(settings.sentry_dsn),
-            'sentry_env_var': bool(os.getenv('SENTRY_DSN')),
             'token_lengths': {
                 'line_token': len(settings.line_channel_access_token) if settings.line_channel_access_token else 0,
                 'line_secret': len(settings.line_channel_secret) if settings.line_channel_secret else 0,
                 'google_key': len(settings.google_api_key) if settings.google_api_key else 0,
                 'notion_key': len(settings.notion_api_key) if settings.notion_api_key else 0,
-                'notion_db': len(settings.notion_database_id) if settings.notion_database_id else 0,
-                'sentry_dsn': len(settings.sentry_dsn) if settings.sentry_dsn else 0
+                'notion_db': len(settings.notion_database_id) if settings.notion_database_id else 0
             }
         }
     })

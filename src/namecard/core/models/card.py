@@ -10,6 +10,7 @@ class BusinessCard(BaseModel):
     name: Optional[str] = Field(None, description="姓名")
     company: Optional[str] = Field(None, description="公司名稱")
     title: Optional[str] = Field(None, description="職稱")
+    department: Optional[str] = Field(None, description="部門")
     phone: Optional[str] = Field(None, description="電話號碼")
     email: Optional[str] = Field(None, description="電子郵件")
     address: Optional[str] = Field(None, description="地址")

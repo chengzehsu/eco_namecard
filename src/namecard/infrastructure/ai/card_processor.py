@@ -206,7 +206,7 @@ class CardProcessor:
                 
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-2.5-pro')
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
                 
                 # 測試 API 連接
                 _ = self.model.generate_content("test")
@@ -417,7 +417,16 @@ class CardProcessor:
                     response_mime_type="application/json"
                 )
             )
-            
+
+            # 檢查 finish_reason
+            if response.candidates and response.candidates[0].finish_reason == 2:
+                logger.warning(
+                    "Gemini response blocked by safety filter",
+                    api_call_count=self._api_call_count,
+                    finish_reason=response.candidates[0].finish_reason
+                )
+                raise APIError("圖片內容被安全過濾器阻擋,請確認圖片是否為名片")
+
             if not response.text:
                 # 記錄空回應錯誤
                 logger.error(

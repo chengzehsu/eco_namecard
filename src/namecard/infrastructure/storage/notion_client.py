@@ -116,7 +116,8 @@ class NotionClient:
         properties = {}
         
         # 根據 /debug/notion 檢查的確切欄位名稱設置
-        # 自動填寫：Email, Name, 備註, 公司名稱, 地址, 決策影響力, 窗口的困擾或 KPI, 職稱, 部門, 電話
+        # 自動填寫：Email, Name, 公司名稱, 地址, 決策影響力, 窗口的困擾或 KPI, 職稱, 電話, 備註
+        # 已移除：部門 (資料庫中不存在這個屬性)
         # 人工輸入：取得聯絡來源, 聯絡注意事項, 負責業務
         
         # 1. Name (title) - 必填
@@ -136,53 +137,26 @@ class NotionClient:
                 "email": card.email
             }
         
-        # 3. 備註 (rich_text) - 記錄額外資訊及系統推測
-        notes = []
-        # 移除傳真號碼，不放入備註
-        # if card.fax:
-        #     notes.append(f"傳真: {card.fax}")
+        # 3. 備註 (rich_text) - 收集額外資訊
+        additional_info = []
+
+        # 收集額外資訊
         if hasattr(card, 'mobile') and card.mobile:
-            notes.append(f"行動電話: {card.mobile}")
+            additional_info.append(f"行動電話: {card.mobile}")
         if card.website:
-            notes.append(f"網站: {card.website}")
+            additional_info.append(f"網站: {card.website}")
         if hasattr(card, 'tax_id') and card.tax_id:
-            notes.append(f"統一編號: {card.tax_id}")
+            additional_info.append(f"統一編號: {card.tax_id}")
         if card.line_id:
-            notes.append(f"LINE ID: {card.line_id}")
-        # 移除 line_user_id，這是內部系統資訊，不應出現在用戶可見的備註中
-        
-        # 加入系統推測的決策影響力和 KPI（供參考）
-        if card.title:
-            # 決策影響力推測
-            influence = "中"
-            if any(title in card.title for title in ["董事長", "CEO", "執行長", "總經理"]):
-                influence = "最終決策者"
-            elif any(title in card.title for title in ["副總", "經理", "協理"]):
-                influence = "關鍵影響者"
-            elif any(title in card.title for title in ["工程師", "技術"]):
-                influence = "技術評估者"
-            elif "業務" in card.title:
-                influence = "用戶代表（場務總管）"
-            elif "專員" in card.title:
-                influence = "資訊蒐集者"
-            notes.append(f"系統推測決策影響力: {influence}")
-            
-            # KPI 推測
-            kpi = "營運效率最佳化"
-            if "業務" in card.title:
-                kpi = "業績達成、客戶滿意度"
-            elif "工程" in card.title:
-                kpi = "技術問題解決、專案進度"
-            elif "經理" in card.title:
-                kpi = "團隊績效、成本控制"
-            notes.append(f"系統推測窗口困擾/KPI: {kpi}")
-        
-        if notes:
+            additional_info.append(f"LINE ID: {card.line_id}")
+
+        # 如果有額外資訊，放入備註欄位
+        if additional_info:
             properties["備註"] = {
                 "rich_text": [
                     {
                         "text": {
-                            "content": " | ".join(notes)
+                            "content": " | ".join(additional_info)
                         }
                     }
                 ]
@@ -236,32 +210,19 @@ class NotionClient:
         
         # 8. 職稱 (select) - 只使用確定存在的選項
         title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]
-        
+
         if card.title and card.title in title_options:
             properties["職稱"] = {
                 "select": {
                     "name": card.title
                 }
             }
+            logger.info("Title matched in Notion options", card_name=card.name, title=card.title)
+        elif card.title:
+            logger.warning("Title not in Notion options", card_name=card.name, title=card.title, title_stripped=card.title.strip())
         
-        # 9. 部門 (rich_text) - 提取部門資訊
-        if card.company:
-            # 拆分公司名稱，取第一個部分後的內容作為部門
-            company_parts = card.company.split()
-            if len(company_parts) > 1:
-                department = " ".join(company_parts[1:])
-            else:
-                department = "總公司"  # 如果沒有部門資訊，預設為總公司
-            
-            properties["部門"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": department
-                        }
-                    }
-                ]
-            }
+        # 9. 部門欄位已移除 - 資料庫中不存在此屬性
+        # 部門資訊可以從公司名稱中推斷，或由人工輸入
         
         # 10. 電話 (phone_number)
         if card.phone:

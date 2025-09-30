@@ -496,9 +496,10 @@ class CardProcessor:
                     # 品質檢查
                     if self._validate_card_quality(card):
                         cards.append(card)
-                        logger.info("Card extracted successfully", 
-                                   name=card.name, 
+                        logger.info("Card extracted successfully",
+                                   name=card.name,
                                    company=card.company,
+                                   title=card.title,
                                    confidence=card.confidence_score)
                     else:
                         logger.warning("Card quality too low, skipped", 

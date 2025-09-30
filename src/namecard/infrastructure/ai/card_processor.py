@@ -205,7 +205,7 @@ class CardProcessor:
                 
             try:
                 genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-flash')
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
                 
                 # 測試 API 連接
                 _ = self.model.generate_content("test")

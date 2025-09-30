@@ -149,18 +149,8 @@ class NotionClient:
             additional_info.append(f"統一編號: {card.tax_id}")
         if card.line_id:
             additional_info.append(f"LINE ID: {card.line_id}")
-
-        # 如果有額外資訊，放入備註欄位
-        if additional_info:
-            properties["備註"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": " | ".join(additional_info)
-                        }
-                    }
-                ]
-            }
+        if card.fax:
+            additional_info.append(f"傳真: {card.fax}")
         
         # 4. 公司名稱 (rich_text) - 提取主公司名稱
         if card.company:
@@ -211,6 +201,7 @@ class NotionClient:
         # 8. 職稱 (select) - 只使用確定存在的選項
         title_options = ["CEO","COO","總經理","場務經理","廠長","副理","主任","廠務課長","專案協理","副總","特助","總務副理","技術科專員","總務課長","董事長 CEO","Chairman","CEO / Executive Manager","高級工程師","分析師","產品經理","資深部經理","董事長特助","業務經理","專利師／顧問","資深專利師／資深顧問","專員","副總經理","Presales Consultant","工程師","生管經理","副院長","院長","特助 / 主管","資深協理","資深經理","廠務專員","課長","業務工程師","執行長 / CEO & Co-founder","副社長","經理","業務專員","專案經理","冷凍空調技師","總監","總經理 GM","資深專案經理","客戶經理","顧問師","業務","處長","グループリーダー","アシスタントマネージャ","Director","Advanced Senior Professional","Sales Manager","SENIOR FAB DIRECTOR","Manager","Section Manager","業務專員 Sales Specialist","執行長","副總執行長 (顧問)","產品專員","監事","工程部經理","股長","業務主任","協理","資深企業發展經理","資深顧問","專案主持人","業務經理 (Business Manager)"]
 
+        # 處理職稱 - 匹配時放入職稱欄位，不匹配時記錄到備註
         if card.title and card.title in title_options:
             properties["職稱"] = {
                 "select": {
@@ -219,7 +210,20 @@ class NotionClient:
             }
             logger.info("Title matched in Notion options", card_name=card.name, title=card.title)
         elif card.title:
+            additional_info.append(f"職稱: {card.title}")
             logger.warning("Title not in Notion options", card_name=card.name, title=card.title, title_stripped=card.title.strip())
+
+        # 如果有額外資訊，放入備註欄位
+        if additional_info:
+            properties["備註"] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": " | ".join(additional_info)
+                        }
+                    }
+                ]
+            }
         
         # 9. 部門欄位已移除 - 資料庫中不存在此屬性
         # 部門資訊可以從公司名稱中推斷，或由人工輸入

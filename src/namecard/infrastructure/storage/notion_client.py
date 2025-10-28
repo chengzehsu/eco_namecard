@@ -105,12 +105,60 @@ class NotionClient:
                         card_company=card.company,
                         database_id=self.database_id)
             
-            logger.error("Failed to save business card to Notion", 
+            logger.error("Failed to save business card to Notion",
                         error=str(e),
                         name=card.name,
                         company=card.company)
             return None
-    
+
+    def _clean_title_or_department(self, text: Optional[str]) -> Optional[str]:
+        """
+        清理職稱或部門欄位，優先保留中文
+
+        Args:
+            text: 原始職稱或部門文字
+
+        Returns:
+            清理後的文字，移除逗號和英文（如果有中文的話）
+        """
+        if not text:
+            return None
+
+        # 移除首尾空白
+        text = text.strip()
+
+        # 如果包含逗號，只保留逗號前的部分
+        if ',' in text:
+            text = text.split(',')[0].strip()
+            logger.info("Removed content after comma in title/department",
+                       original=text,
+                       cleaned=text)
+
+        # 檢查是否包含中文字元
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+
+        if has_chinese:
+            # 如果包含中文，優先保留中文部分
+            # 移除純英文單詞（保留中文和標點）
+            words = text.split()
+            chinese_words = []
+
+            for word in words:
+                # 如果單詞包含中文字元，保留
+                if any('\u4e00' <= char <= '\u9fff' for char in word):
+                    chinese_words.append(word)
+
+            if chinese_words:
+                cleaned_text = ' '.join(chinese_words).strip()
+                if cleaned_text != text:
+                    logger.info("Prioritized Chinese in title/department",
+                               original=text,
+                               cleaned=cleaned_text)
+                return cleaned_text
+
+        # 如果沒有中文或無法提取中文，返回原文
+        return text
+
     def _prepare_card_properties(self, card: BusinessCard) -> Dict[str, Any]:
         """準備名片屬性用於 Notion（嚴格對應實際資料庫欄位）"""
         properties = {}
@@ -198,14 +246,19 @@ class NotionClient:
         #     ]
         # }
         
-        # 8. 職稱 (select) - 直接存入，讓 Notion 自動創建新選項
+        # 8. 職稱 (select) - 清理後存入，讓 Notion 自動創建新選項
         if card.title:
-            properties["職稱"] = {
-                "select": {
-                    "name": card.title
+            cleaned_title = self._clean_title_or_department(card.title)
+            if cleaned_title:
+                properties["職稱"] = {
+                    "select": {
+                        "name": cleaned_title
+                    }
                 }
-            }
-            logger.info("Title saved to Notion", card_name=card.name, title=card.title)
+                logger.info("Title saved to Notion",
+                           card_name=card.name,
+                           original_title=card.title,
+                           cleaned_title=cleaned_title)
 
         # 如果有額外資訊，放入備註欄位
         if additional_info:
@@ -219,17 +272,23 @@ class NotionClient:
                 ]
             }
         
-        # 9. 部門 (rich_text)
+        # 9. 部門 (rich_text) - 清理後存入
         if card.department:
-            properties["部門"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": card.department
+            cleaned_department = self._clean_title_or_department(card.department)
+            if cleaned_department:
+                properties["部門"] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": cleaned_department
+                            }
                         }
-                    }
-                ]
-            }
+                    ]
+                }
+                logger.info("Department saved to Notion",
+                           card_name=card.name,
+                           original_department=card.department,
+                           cleaned_department=cleaned_department)
 
         # 10. 電話 (phone_number)
         if card.phone:

@@ -110,6 +110,7 @@ class CardProcessor:
         """
         self.config = config or ProcessingConfig()
         self.model = None
+        self.fallback_model = None
         self._api_call_count = 0
         self._last_api_call = 0
         self._setup_gemini()
@@ -215,19 +216,26 @@ class CardProcessor:
                 
             try:
                 genai.configure(api_key=api_key)
+
+                # 主要模型：gemini-2.5-flash（速度快，成本低）
                 self.model = genai.GenerativeModel('gemini-2.5-flash')
-                
+
+                # Fallback 模型：gemini-1.5-flash（當 2.5 被安全過濾器阻擋時使用）
+                self.fallback_model = genai.GenerativeModel('gemini-1.5-flash')
+
                 # 測試 API 連接
                 _ = self.model.generate_content("test")
-                
+
                 key_type = "primary" if i == 0 else "fallback"
                 logger.info(f"Gemini API configured successfully using {key_type} key")
-                
+
                 # 記錄成功的 API 配置
                 logger.info(
                     "Gemini API configured successfully",
                     key_type=key_type,
                     api_index=i,
+                    primary_model="gemini-2.5-flash",
+                    fallback_model="gemini-1.5-flash",
                     operation="api_setup",
                     status="success"
                 )
@@ -413,7 +421,7 @@ class CardProcessor:
             logger.debug(
                 "Calling Gemini API",
                 api_call_count=self._api_call_count,
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 operation="ai_processing"
             )
 
@@ -453,15 +461,58 @@ class CardProcessor:
                 # 記錄詳細的安全過濾資訊
                 safety_ratings = response.candidates[0].safety_ratings if hasattr(response.candidates[0], 'safety_ratings') else []
                 logger.warning(
-                    "Gemini response blocked by safety filter despite BLOCK_NONE settings",
+                    "Gemini 2.5-flash blocked by safety filter, triggering fallback to 1.5-flash",
                     api_call_count=self._api_call_count,
                     finish_reason=response.candidates[0].finish_reason,
                     safety_ratings=[{
                         "category": rating.category,
                         "probability": rating.probability
-                    } for rating in safety_ratings] if safety_ratings else "unavailable"
+                    } for rating in safety_ratings] if safety_ratings else "unavailable",
+                    operation="fallback_trigger"
                 )
-                raise APIError("圖片處理被阻擋，請確認圖片清晰且完整包含名片內容")
+
+                # 使用 fallback 模型重試
+                if self.fallback_model:
+                    try:
+                        logger.info(
+                            "Retrying with fallback model gemini-1.5-flash",
+                            api_call_count=self._api_call_count,
+                            operation="fallback_retry"
+                        )
+
+                        fallback_response = self.fallback_model.generate_content(
+                            [self.card_prompt, image],
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=0.1,
+                                max_output_tokens=2048,
+                                response_mime_type="application/json"
+                            ),
+                            safety_settings=safety_settings
+                        )
+
+                        if not fallback_response.text:
+                            raise APIError("Fallback model returned empty response")
+
+                        logger.info(
+                            "Fallback model succeeded",
+                            api_call_count=self._api_call_count,
+                            model="gemini-1.5-flash",
+                            response_length=len(fallback_response.text),
+                            operation="fallback_success"
+                        )
+
+                        return fallback_response.text.strip()
+
+                    except Exception as fallback_error:
+                        logger.error(
+                            "Fallback model also failed",
+                            api_call_count=self._api_call_count,
+                            error=str(fallback_error),
+                            operation="fallback_failure"
+                        )
+                        raise APIError(f"兩個模型都無法處理此圖片：{str(fallback_error)}")
+                else:
+                    raise APIError("圖片處理被阻擋且無 fallback 模型可用")
 
             if not response.text:
                 # 記錄空回應錯誤

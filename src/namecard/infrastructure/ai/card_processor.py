@@ -275,8 +275,8 @@ class CardProcessor:
                 # 主要模型：gemini-2.5-flash（速度快，成本低）
                 self.model = genai.GenerativeModel('gemini-2.5-flash')
 
-                # Fallback 模型：gemini-1.5-flash（當 2.5 被安全過濾器阻擋時使用）
-                self.fallback_model = genai.GenerativeModel('gemini-1.5-flash')
+                # Fallback 模型：gemini-2.0-flash（當 2.5 被安全過濾器阻擋時使用）
+                self.fallback_model = genai.GenerativeModel('gemini-2.0-flash')
 
                 # 測試 API 連接
                 _ = self.model.generate_content("test")
@@ -290,7 +290,7 @@ class CardProcessor:
                     key_type=key_type,
                     api_index=i,
                     primary_model="gemini-2.5-flash",
-                    fallback_model="gemini-1.5-flash",
+                    fallback_model="gemini-2.0-flash",
                     operation="api_setup",
                     status="success"
                 )
@@ -516,7 +516,7 @@ class CardProcessor:
                 # 記錄詳細的安全過濾資訊
                 safety_ratings = response.candidates[0].safety_ratings if hasattr(response.candidates[0], 'safety_ratings') else []
                 logger.warning(
-                    "Gemini 2.5-flash blocked by safety filter, triggering fallback to 1.5-flash",
+                    "Gemini 2.5-flash blocked by safety filter, triggering fallback to 2.0-flash",
                     api_call_count=self._api_call_count,
                     finish_reason=response.candidates[0].finish_reason,
                     safety_ratings=[{
@@ -530,7 +530,7 @@ class CardProcessor:
                 if self.fallback_model:
                     try:
                         logger.info(
-                            "Retrying with fallback model gemini-1.5-flash",
+                            "Retrying with fallback model gemini-2.0-flash",
                             api_call_count=self._api_call_count,
                             operation="fallback_retry"
                         )
@@ -551,7 +551,7 @@ class CardProcessor:
                         logger.info(
                             "Fallback model succeeded",
                             api_call_count=self._api_call_count,
-                            model="gemini-1.5-flash",
+                            model="gemini-2.0-flash",
                             response_length=len(fallback_response.text),
                             operation="fallback_success"
                         )

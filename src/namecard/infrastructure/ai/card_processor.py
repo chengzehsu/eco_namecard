@@ -407,7 +407,27 @@ class CardProcessor:
                 model="gemini-1.5-flash",
                 operation="ai_processing"
             )
-            
+
+            # 配置安全設定：名片是專業文件，需要寬鬆的安全過濾設定
+            safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_NONE"
+                }
+            ]
+
             # 生成內容
             response = self.model.generate_content(
                 [self.card_prompt, image],
@@ -415,17 +435,24 @@ class CardProcessor:
                     temperature=0.1,  # 低溫度確保一致性
                     max_output_tokens=2048,
                     response_mime_type="application/json"
-                )
+                ),
+                safety_settings=safety_settings
             )
 
             # 檢查 finish_reason
             if response.candidates and response.candidates[0].finish_reason == 2:
+                # 記錄詳細的安全過濾資訊
+                safety_ratings = response.candidates[0].safety_ratings if hasattr(response.candidates[0], 'safety_ratings') else []
                 logger.warning(
-                    "Gemini response blocked by safety filter",
+                    "Gemini response blocked by safety filter despite BLOCK_NONE settings",
                     api_call_count=self._api_call_count,
-                    finish_reason=response.candidates[0].finish_reason
+                    finish_reason=response.candidates[0].finish_reason,
+                    safety_ratings=[{
+                        "category": rating.category,
+                        "probability": rating.probability
+                    } for rating in safety_ratings] if safety_ratings else "unavailable"
                 )
-                raise APIError("圖片內容被安全過濾器阻擋,請確認圖片是否為名片")
+                raise APIError("圖片處理被阻擋，請確認圖片清晰且完整包含名片內容")
 
             if not response.text:
                 # 記錄空回應錯誤

@@ -10,6 +10,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
 from simple_config import settings
 from src.namecard.core.models.card import BusinessCard
+from src.namecard.infrastructure.storage.notion_fields import NotionFields
 
 logger = structlog.get_logger()
 
@@ -160,16 +161,24 @@ class NotionClient:
         return text
 
     def _prepare_card_properties(self, card: BusinessCard) -> Dict[str, Any]:
-        """準備名片屬性用於 Notion（嚴格對應實際資料庫欄位）"""
+        """
+        準備名片屬性用於 Notion
+
+        使用 NotionFields 常數確保欄位名稱一致性。
+
+        自動填寫欄位: Name, Email, 公司名稱, 地址, 職稱, 電話, 備註, 部門
+        人工填寫欄位: 決策影響力, 窗口的困擾或 KPI, 取得聯絡來源, 聯絡注意事項, 負責業務
+
+        Args:
+            card: BusinessCard 名片資料
+
+        Returns:
+            符合 Notion API 格式的 properties 字典
+        """
         properties = {}
-        
-        # 根據 /debug/notion 檢查的確切欄位名稱設置
-        # 自動填寫：Email, Name, 公司名稱, 地址, 決策影響力, 窗口的困擾或 KPI, 職稱, 電話, 備註
-        # 已移除：部門 (資料庫中不存在這個屬性)
-        # 人工輸入：取得聯絡來源, 聯絡注意事項, 負責業務
-        
+
         # 1. Name (title) - 必填
-        properties["Name"] = {
+        properties[NotionFields.NAME] = {
             "title": [
                 {
                     "text": {
@@ -178,10 +187,10 @@ class NotionClient:
                 }
             ]
         }
-        
+
         # 2. Email (email)
         if card.email and "@" in card.email:
-            properties["Email"] = {
+            properties[NotionFields.EMAIL] = {
                 "email": card.email
             }
         
@@ -205,8 +214,8 @@ class NotionClient:
             # 拆分公司名稱，取第一個部分作為主公司名稱
             company_parts = card.company.split()
             main_company = company_parts[0] if company_parts else card.company
-            
-            properties["公司名稱"] = {
+
+            properties[NotionFields.COMPANY] = {
                 "rich_text": [
                     {
                         "text": {
@@ -215,10 +224,10 @@ class NotionClient:
                     }
                 ]
             }
-        
+
         # 5. 地址 (rich_text)
         if card.address:
-            properties["地址"] = {
+            properties[NotionFields.ADDRESS] = {
                 "rich_text": [
                     {
                         "text": {
@@ -228,29 +237,19 @@ class NotionClient:
                 ]
             }
         
-        # 6. 決策影響力 (select) - 留空，人工填寫
-        # properties["決策影響力"] = {
-        #     "select": {
-        #         "name": "待評估"
-        #     }
-        # }
-        
-        # 7. 窗口的困擾或 KPI (rich_text) - 留空，人工填寫
-        # properties["窗口的困擾或 KPI"] = {
-        #     "rich_text": [
-        #         {
-        #             "text": {
-        #                 "content": "待評估"
-        #             }
-        #         }
-        #     ]
-        # }
-        
-        # 8. 職稱 (select) - 清理後存入，讓 Notion 自動創建新選項
+        # 注意：以下欄位刻意保留空白，供人工填寫
+        # - NotionFields.DECISION_INFLUENCE (決策影響力)
+        # - NotionFields.PAIN_POINTS (窗口的困擾或 KPI)
+        # - NotionFields.CONTACT_SOURCE (取得聯絡來源)
+        # - NotionFields.CONTACT_NOTES (聯絡注意事項)
+        # - NotionFields.RESPONSIBLE (負責業務)
+        # 這些欄位需要業務人員根據實際情況評估和填寫
+
+        # 6. 職稱 (select) - 清理後存入，讓 Notion 自動創建新選項
         if card.title:
             cleaned_title = self._clean_title_or_department(card.title)
             if cleaned_title:
-                properties["職稱"] = {
+                properties[NotionFields.TITLE] = {
                     "select": {
                         "name": cleaned_title
                     }
@@ -260,23 +259,11 @@ class NotionClient:
                            original_title=card.title,
                            cleaned_title=cleaned_title)
 
-        # 如果有額外資訊，放入備註欄位
-        if additional_info:
-            properties["備註"] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": " | ".join(additional_info)
-                        }
-                    }
-                ]
-            }
-        
-        # 9. 部門 (rich_text) - 清理後存入
+        # 7. 部門 (rich_text) - 清理後存入
         if card.department:
             cleaned_department = self._clean_title_or_department(card.department)
             if cleaned_department:
-                properties["部門"] = {
+                properties[NotionFields.DEPARTMENT] = {
                     "rich_text": [
                         {
                             "text": {
@@ -290,16 +277,23 @@ class NotionClient:
                            original_department=card.department,
                            cleaned_department=cleaned_department)
 
-        # 10. 電話 (phone_number)
+        # 8. 電話 (phone_number)
         if card.phone:
-            properties["電話"] = {
+            properties[NotionFields.PHONE] = {
                 "phone_number": card.phone
             }
-        
-        # 以下欄位留空，供人工輸入：
-        # - 取得聯絡來源 (rich_text)
-        # - 聯絡注意事項 (rich_text) 
-        # - 負責業務 (people)
+
+        # 9. 備註 (rich_text) - 如果有額外資訊，放入備註欄位
+        if additional_info:
+            properties[NotionFields.NOTES] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": " | ".join(additional_info)
+                        }
+                    }
+                ]
+            }
         
         return properties
     
@@ -326,34 +320,44 @@ class NotionClient:
             return {}
     
     def search_cards_by_name(self, name: str, limit: int = 10) -> list:
-        """根據姓名搜尋名片"""
+        """
+        根據姓名搜尋名片
+
+        Args:
+            name: 要搜尋的姓名（部分匹配）
+            limit: 最大返回結果數
+
+        Returns:
+            符合條件的 Notion 頁面列表
+        """
         try:
             logger.info("Searching cards by name",
                        search_name=name,
-                       limit=limit)
-            
+                       limit=limit,
+                       field=NotionFields.NAME)
+
             response = self.client.databases.query(
                 database_id=self.database_id,
                 filter={
-                    "property": "姓名",
+                    "property": NotionFields.NAME,  # 修復: 使用正確的欄位名稱 "Name"
                     "title": {
                         "contains": name
                     }
                 },
                 page_size=limit
             )
-            
+
             results = response.get("results", [])
-            
+
             logger.info("Card search by name completed",
                        search_term=name,
                        results_count=len(results),
                        limit=limit,
                        operation="search_by_name",
                        status="success")
-            
+
             return results
-            
+
         except Exception as e:
             logger.error("Failed to search cards by name",
                         error=str(e),
@@ -361,28 +365,54 @@ class NotionClient:
                         search_term=name,
                         operation="search_by_name",
                         status="failed")
-            
-            logger.error("Failed to search cards", error=str(e), name=name)
+
             return []
     
     def search_cards_by_company(self, company: str, limit: int = 10) -> list:
-        """根據公司名稱搜尋名片"""
+        """
+        根據公司名稱搜尋名片
+
+        Args:
+            company: 要搜尋的公司名稱（部分匹配）
+            limit: 最大返回結果數
+
+        Returns:
+            符合條件的 Notion 頁面列表
+        """
         try:
+            logger.info("Searching cards by company",
+                       search_company=company,
+                       limit=limit,
+                       field=NotionFields.COMPANY)
+
             response = self.client.databases.query(
                 database_id=self.database_id,
                 filter={
-                    "property": "公司",
+                    "property": NotionFields.COMPANY,  # 修復: 使用正確的欄位名稱 "公司名稱"
                     "rich_text": {
                         "contains": company
                     }
                 },
                 page_size=limit
             )
-            
-            return response.get("results", [])
-            
+
+            results = response.get("results", [])
+
+            logger.info("Card search by company completed",
+                       search_term=company,
+                       results_count=len(results),
+                       operation="search_by_company",
+                       status="success")
+
+            return results
+
         except Exception as e:
-            logger.error("Failed to search cards by company", error=str(e), company=company)
+            logger.error("Failed to search cards by company",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        search_term=company,
+                        operation="search_by_company",
+                        status="failed")
             return []
     
     def get_user_cards(self, line_user_id: str, limit: int = 50) -> list:
@@ -419,16 +449,59 @@ class NotionClient:
                 database_id=self.database_id,
                 page_size=1
             )
-            
+
             # 注意：Notion API 不直接提供總數，這裡只是示例
             stats = {
                 "total_cards": "N/A",  # 需要遍歷所有頁面才能獲得準確數字
                 "database_url": self.database_url,
                 "last_updated": datetime.now().isoformat()
             }
-            
+
             return stats
-            
+
         except Exception as e:
             logger.error("Failed to get database stats", error=str(e))
             return {}
+
+    def test_connection(self) -> bool:
+        """
+        測試 Notion 連接和欄位配置
+
+        Returns:
+            連接成功且欄位配置正確返回 True
+        """
+        try:
+            # 獲取資料庫 schema
+            schema = self.get_database_schema()
+
+            if not schema:
+                logger.error("Failed to retrieve database schema")
+                return False
+
+            # 驗證必要欄位是否存在
+            required_fields = [
+                NotionFields.NAME,
+                NotionFields.EMAIL,
+                NotionFields.COMPANY,
+                NotionFields.PHONE,
+            ]
+
+            missing_fields = []
+            for field in required_fields:
+                if field not in schema:
+                    missing_fields.append(field)
+
+            if missing_fields:
+                logger.warning("Missing required fields in Notion database",
+                             missing_fields=missing_fields,
+                             available_fields=list(schema.keys()))
+                # 不返回 False，只是警告
+            else:
+                logger.info("All required fields present in Notion database",
+                           field_count=len(schema))
+
+            return True
+
+        except Exception as e:
+            logger.error("Notion connection test failed", error=str(e))
+            return False

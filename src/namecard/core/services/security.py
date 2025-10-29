@@ -17,13 +17,29 @@ logger = structlog.get_logger()
 
 
 class SecurityService:
-    """安全性服務"""
-    
-    def __init__(self):
+    """安全性服務 (支援 Redis 持久化)"""
+
+    def __init__(self, redis_client=None, use_redis: bool = True):
+        """
+        初始化安全性服務
+
+        Args:
+            redis_client: Redis 客戶端實例，如果為 None 則使用記憶體存儲
+            use_redis: 是否使用 Redis
+        """
+        self.redis_client = redis_client if use_redis else None
+        self.use_redis = use_redis and redis_client is not None
+
+        # Fallback to in-memory storage
         self._rate_limits: Dict[str, Dict[str, Any]] = defaultdict(dict)
         self._blocked_users: Dict[str, datetime] = {}
+
         self._encryption_key = self._get_or_create_encryption_key()
         self._cipher = Fernet(self._encryption_key)
+
+        logger.info("SecurityService initialized",
+                   use_redis=self.use_redis,
+                   storage_backend="Redis" if self.use_redis else "Memory")
     
     def _get_or_create_encryption_key(self) -> bytes:
         """獲取或建立加密金鑰"""
@@ -78,45 +94,114 @@ class SecurityService:
             logger.error("Signature validation failed", error=str(e))
             return False
     
+    def _get_rate_limit_key(self, user_id: str) -> str:
+        """生成速率限制的 Redis key"""
+        return f"namecard:ratelimit:{user_id}"
+
     def check_rate_limit(self, user_id: str, limit: int = 10, window: int = 60) -> bool:
         """
-        檢查速率限制
-        
+        檢查速率限制（支援 Redis）
+
         Args:
             user_id: 用戶 ID
             limit: 限制次數
             window: 時間窗口（秒）
         """
         now = time.time()
+
+        if self.use_redis:
+            # 使用 Redis 的 Sorted Set 實作滑動窗口
+            try:
+                key = self._get_rate_limit_key(user_id)
+
+                # 移除過期的請求記錄
+                self.redis_client.zremrangebyscore(key, 0, now - window)
+
+                # 獲取當前請求數
+                request_count = self.redis_client.zcard(key)
+
+                # 檢查是否超過限制
+                if request_count >= limit:
+                    logger.warning("Rate limit exceeded (Redis)",
+                                 user_id=user_id,
+                                 requests=request_count,
+                                 limit=limit,
+                                 window_seconds=window,
+                                 operation="rate_limiting",
+                                 security_issue="rate_limit_exceeded")
+                    return False
+
+                # 記錄新請求（使用當前時間作為 score 和 member）
+                self.redis_client.zadd(key, {str(now): now})
+
+                # 設定 key 過期時間（window + 1秒）
+                self.redis_client.expire(key, window + 1)
+
+                return True
+
+            except Exception as e:
+                logger.error("Redis rate limit check failed, falling back to memory",
+                           error=str(e))
+                # Fallback to memory-based rate limiting
+                return self._check_rate_limit_memory(user_id, limit, window)
+        else:
+            return self._check_rate_limit_memory(user_id, limit, window)
+
+    def _check_rate_limit_memory(self, user_id: str, limit: int, window: int) -> bool:
+        """記憶體版本的速率限制檢查"""
+        now = time.time()
         user_data = self._rate_limits[user_id]
-        
+
         # 清理過期記錄
         if 'requests' not in user_data:
             user_data['requests'] = []
-        
+
         # 移除過期的請求記錄
         user_data['requests'] = [
             req_time for req_time in user_data['requests']
             if now - req_time < window
         ]
-        
+
         # 檢查是否超過限制
         if len(user_data['requests']) >= limit:
-            logger.warning("Rate limit exceeded", 
-                         user_id=user_id, 
+            logger.warning("Rate limit exceeded (Memory)",
+                         user_id=user_id,
                          requests=len(user_data['requests']),
                          limit=limit,
                          window_seconds=window,
                          operation="rate_limiting",
                          security_issue="rate_limit_exceeded")
             return False
-        
+
         # 記錄新請求
         user_data['requests'].append(now)
         return True
     
+    def _get_blocked_user_key(self, user_id: str) -> str:
+        """生成被封鎖用戶的 Redis key"""
+        return f"namecard:blocked:{user_id}"
+
     def is_user_blocked(self, user_id: str) -> bool:
-        """檢查用戶是否被封鎖"""
+        """檢查用戶是否被封鎖（支援 Redis）"""
+        if self.use_redis:
+            try:
+                key = self._get_blocked_user_key(user_id)
+                # Redis 中如果 key 存在且未過期，代表用戶被封鎖
+                blocked_until = self.redis_client.get(key)
+                if blocked_until:
+                    # TTL 會自動處理過期，所以如果 key 存在就是被封鎖
+                    return True
+                return False
+            except Exception as e:
+                logger.error("Redis blocked user check failed, falling back to memory",
+                           error=str(e))
+                # Fallback to memory
+                return self._is_user_blocked_memory(user_id)
+        else:
+            return self._is_user_blocked_memory(user_id)
+
+    def _is_user_blocked_memory(self, user_id: str) -> bool:
+        """記憶體版本的封鎖檢查"""
         if user_id in self._blocked_users:
             unblock_time = self._blocked_users[user_id]
             if datetime.now() < unblock_time:
@@ -124,17 +209,41 @@ class SecurityService:
             else:
                 # 解除封鎖
                 del self._blocked_users[user_id]
-                logger.info("User unblocked", user_id=user_id)
-        
+                logger.info("User unblocked (Memory)", user_id=user_id)
         return False
-    
+
     def block_user(self, user_id: str, duration_minutes: int = 60) -> None:
-        """封鎖用戶"""
+        """封鎖用戶（支援 Redis）"""
         unblock_time = datetime.now() + timedelta(minutes=duration_minutes)
+
+        if self.use_redis:
+            try:
+                key = self._get_blocked_user_key(user_id)
+                # 儲存封鎖資訊，並設定 TTL 自動過期
+                self.redis_client.setex(
+                    key,
+                    duration_minutes * 60,
+                    unblock_time.isoformat()
+                )
+                logger.warning("User blocked (Redis)",
+                             user_id=user_id,
+                             duration_minutes=duration_minutes,
+                             unblock_time=unblock_time)
+            except Exception as e:
+                logger.error("Redis block user failed, using memory fallback",
+                           error=str(e))
+                # Fallback to memory
+                self._block_user_memory(user_id, unblock_time)
+        else:
+            self._block_user_memory(user_id, unblock_time)
+
+    def _block_user_memory(self, user_id: str, unblock_time: datetime) -> None:
+        """記憶體版本的用戶封鎖"""
         self._blocked_users[user_id] = unblock_time
-        
-        logger.warning("User blocked", 
-                      user_id=user_id, 
+        duration_minutes = int((unblock_time - datetime.now()).total_seconds() / 60)
+
+        logger.warning("User blocked (Memory)",
+                      user_id=user_id,
                       duration_minutes=duration_minutes,
                       unblock_time=unblock_time)
     
@@ -281,6 +390,20 @@ class ErrorHandler:
         }
 
 
-# 全域實例
-security_service = SecurityService()
+def create_security_service(redis_client=None, use_redis: bool = True) -> SecurityService:
+    """
+    工廠函數：創建 SecurityService 實例
+
+    Args:
+        redis_client: Redis 客戶端（可選）
+        use_redis: 是否使用 Redis
+
+    Returns:
+        SecurityService 實例
+    """
+    return SecurityService(redis_client=redis_client, use_redis=use_redis)
+
+
+# 全域實例（默認使用記憶體存儲，需要手動初始化 Redis）
+security_service = SecurityService(redis_client=None, use_redis=False)
 error_handler = ErrorHandler()

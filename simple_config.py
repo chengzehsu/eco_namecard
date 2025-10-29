@@ -34,8 +34,18 @@ class Settings(BaseSettings):
     rate_limit_per_user: int = Field(default=50)
     batch_size_limit: int = Field(default=10)
     max_image_size: int = Field(default=10485760)  # 10MB
-    
-    
+
+    # Redis Configuration (for session persistence and rate limiting)
+    redis_enabled: bool = Field(default=True, description="Enable Redis for persistence")
+    redis_url: Optional[str] = Field(default=None, description="Redis connection URL (redis://host:port/db)")
+    redis_host: str = Field(default="localhost", description="Redis host")
+    redis_port: int = Field(default=6379, description="Redis port")
+    redis_password: Optional[str] = Field(default=None, description="Redis password")
+    redis_db: int = Field(default=0, description="Redis database number")
+    redis_decode_responses: bool = Field(default=True, description="Decode Redis responses to strings")
+    redis_socket_timeout: int = Field(default=5, description="Redis socket timeout in seconds")
+    redis_max_connections: int = Field(default=50, description="Max Redis connection pool size")
+
     # Development
     debug: bool = Field(default=False)
 

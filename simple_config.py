@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # Development
     debug: bool = Field(default=False)
+    verbose_errors: bool = Field(default=False, description="Show detailed technical errors (for debugging)")
 
 
 # 全域設定實例

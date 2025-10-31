@@ -125,6 +125,7 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 
 **Google Gemini AI**
 - Primary + fallback API key configuration
+- **Automatic quota fallback**: 當主要 API key quota exceeded 時自動切換到 fallback key（透明且無縫）
 - Structured JSON response parsing
 - Image preprocessing and size optimization
 
@@ -199,6 +200,51 @@ gh run list --workflow="pr_agent.yml"
 **Operational**:
 - `RATE_LIMIT_PER_USER=50`, `BATCH_SIZE_LIMIT=10`
 - `MAX_IMAGE_SIZE=10485760` (10MB)
+- `VERBOSE_ERRORS=false` (開發模式設為 true 可顯示完整技術錯誤訊息)
+
+## Error Message System 🆕
+
+**User-Friendly Error Messages** - 專為內部使用優化，方便業務回報和 IT debug
+
+**14 種詳細錯誤類型**：
+
+**AI 識別階段 (9 種)**：
+- 🔑 API 金鑰無效 - 提示檢查 `GOOGLE_API_KEY`
+- ⚠️ API 配額用完 - **自動切換到 fallback key**（透明無縫），兩個都用完才顯示錯誤
+- 🛡️ 安全機制阻擋 - Gemini 安全過濾器
+- 📊 名片品質過低 - 顯示信心度和品質分數
+- 📝 資訊不完整 - 列出已識別和缺失的欄位
+- 🖼️ 解析度過低 - 顯示目前/最低要求像素
+- 📄 JSON 格式錯誤 - 提示檢查 API 回應
+- 🤖 AI 未能分析 - 區分「沒名片」vs「無法識別」
+- ⏱️ 處理超時 - 顯示等待時間
+
+**Notion 儲存階段 (5 種)**：
+- 🔐 權限不足 - 提示檢查 `NOTION_API_KEY` 和 Integration
+- 📁 資料庫不存在 - 顯示 Database ID
+- 🔧 Schema 錯誤 - 列出缺少的欄位名稱
+- ⏱️ Rate Limiting - Notion API 速率限制
+- 🌐 網路連線問題 - 區分 Google 和 Notion
+
+**開發者除錯模式**：
+```bash
+# 在 Zeabur 環境變數中設定
+VERBOSE_ERRORS=true
+
+# 效果：顯示完整的技術錯誤訊息、異常類型、堆疊追蹤
+```
+
+**使用方式**：
+- 業務人員：遇到錯誤直接截圖給 IT，訊息已包含需檢查的環境變數和設定
+- IT 人員：根據錯誤訊息立即定位問題（無需查 logs）
+- 開發人員：啟用 VERBOSE_ERRORS 查看完整技術細節
+
+**Quota Fallback 機制** 🆕：
+- 主要 API key quota exceeded 時，**自動且透明地**切換到 fallback key
+- 用戶無感：切換過程完全透明，請求直接成功
+- IT 可監控：切換事件記錄在日誌中
+- 自動恢復：配額重置後（每日 00:00 UTC）自動恢復使用主要 key
+- 配置方式：設定 `GOOGLE_API_KEY_FALLBACK` 環境變數即可啟用
 
 ## Troubleshooting Common Issues
 

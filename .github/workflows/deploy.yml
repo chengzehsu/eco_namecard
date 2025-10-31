@@ -43,6 +43,7 @@ jobs:
         echo "NOTION_API_KEY=test_notion_key" >> .env
         echo "NOTION_DATABASE_ID=test_database_id" >> .env
         echo "SECRET_KEY=test_secret_key" >> .env
+        echo "VERBOSE_ERRORS=false" >> .env
         
     - name: Run code quality checks
       run: |

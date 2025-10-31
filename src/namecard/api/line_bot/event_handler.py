@@ -131,16 +131,9 @@ class UnifiedEventHandler:
                 )
                 return
 
-            # 處理圖片
+            # 處理圖片（現在會拋出具體異常而非返回空列表）
             logger.info("Starting image processing", user_id=user_id)
             cards = self.card_processor.process_image(image_data, user_id)
-
-            if not cards:
-                self._send_reply(
-                    reply_token,
-                    "❌ 無法識別名片內容\n請確保圖片清晰完整"
-                )
-                return
 
             # 儲存名片
             success_count = 0

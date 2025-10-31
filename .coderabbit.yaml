@@ -1,0 +1,86 @@
+# CodeRabbit Configuration for LINE Bot Namecard System
+# Project: AI-powered business card recognition with Google Gemini & Notion integration
+
+language: "zh-TW"  # Traditional Chinese for Taiwan market
+
+reviews:
+  # Request changes workflow
+  request_changes_workflow: true
+
+  # High-level summary
+  high_level_summary: true
+
+  # Review depth
+  poem: false
+  review_status: true
+
+  # Detailed review settings
+  auto_review:
+    enabled: true
+    drafts: false  # Skip draft PRs
+    base_branches:
+      - main
+      - master
+      - develop
+
+  # Path-based instructions for specialized review focus
+  path_instructions:
+    - path: "src/namecard/api/line_bot/**"
+      instructions: |
+        重點審查：
+        - LINE webhook signature 驗證安全性
+        - 批次處理狀態管理
+        - 錯誤訊息的使用者友善度
+
+    - path: "src/namecard/infrastructure/ai/**"
+      instructions: |
+        重點審查：
+        - Google Gemini API 配額處理和 fallback 機制
+        - 名片識別準確度和錯誤處理
+        - 圖片預處理效率
+
+    - path: "src/namecard/infrastructure/storage/**"
+      instructions: |
+        重點審查：
+        - Notion API rate limiting 處理
+        - 資料驗證和 schema 一致性
+        - 查詢效率和錯誤恢復
+
+    - path: "tests/**"
+      instructions: |
+        重點審查：
+        - 測試覆蓋率（目標 70%+）
+        - Mock 物件設定正確性
+        - 邊界條件測試完整性
+
+# Focus areas for code review
+knowledge_base:
+  learnings:
+    scope: "auto"  # Automatically learn from codebase
+
+  # Domain-specific review focus
+  key_focus_areas:
+    - "Security vulnerabilities (OWASP Top 10)"
+    - "API error handling and retry logic"
+    - "Rate limiting and quota management"
+    - "Data validation and sanitization"
+    - "Performance optimization"
+    - "Test coverage for new features"
+
+# Issue settings
+chat:
+  auto_reply: true  # Auto-reply to questions in PR comments
+
+# Exclude patterns
+ignore:
+  - "**/*.md"  # Skip markdown files (documentation)
+  - "**/*.txt"
+  - "**/node_modules/**"
+  - "**/__pycache__/**"
+  - "**/*.pyc"
+  - ".venv/**"
+  - "venv/**"
+  - ".pytest_cache/**"
+  - "*.log"
+  - ".env*"
+  - "*.json.example"

@@ -142,58 +142,11 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 3. Successful builds deploy to Zeabur automatically
 4. Health checks validate deployment success
 
-## Qodo PR Review Agent ✅ **ACTIVE** (Google Gemini Powered)
-
-**AI-Powered Code Review System** integrated via qodo-ai/pr-agent using Google Gemini 1.5 Flash model
-- Leverages existing Google Gemini API key for seamless integration with project AI infrastructure
-- Comprehensive security-focused review for LINE Bot webhook handling and API integrations
-- Traditional Chinese responses tailored for Taiwan-focused namecard processing system
-- Automated code suggestions for performance optimization and security hardening
-- Interactive Q&A capability for technical questions about AI integration and Notion operations
-
-**設定檔案**:
-- **GitHub Workflow**: `.github/workflows/pr_agent.yml` - 自動觸發 PR 審查
-- **配置檔案**: `.pr_agent.toml` - 專案特定審查規則和中文回應設定
-
-**觸發方式**:
-```bash
-# 自動觸發 (PR 開啟/更新時)
-git push origin feature-branch
-
-# 手動觸發命令 (在 PR 留言中)
-/review          # 完整程式碼審查  
-/describe        # 生成 PR 描述
-/improve         # 改進建議
-/ask "問題內容"   # 技術問答
-```
-
-**審查重點領域**:
-- **🔒 安全性**: Webhook 驗證、API 金鑰管理、個資保護
-- **🤖 AI 整合**: Google Gemini API 錯誤處理、圖片驗證
-- **📱 LINE Bot**: 批次處理、使用者體驗優化  
-- **🏪 Notion 整合**: 資料庫操作效率、搜尋功能
-- **✅ 測試覆蓋**: 新功能測試需求、Mock 設定驗證
-
-**設定管理**:
-```bash
-# 測試 PR Agent 配置
-curl -s "https://api.github.com/repos/chengzehsu/eco_namecard/contents/.pr_agent.toml"
-
-# 檢查 GitHub Actions 狀態
-gh run list --workflow="pr_agent.yml"
-```
-
-**故障排除**:
-- **PR Agent 無回應**: 檢查現有的 `GOOGLE_API_KEY` 權限是否包含 Gemini API 存取
-- **API 配額問題**: 與名片識別功能共用 Google API 配額，監控使用量
-- **中文回應異常**: 確認 `.pr_agent.toml` 中 `response_language = "Traditional Chinese"` 設定
-- **審查內容不符需求**: 更新 `.pr_agent.toml` 中的 `extra_instructions` 客製化指令
-
 ## Critical Environment Variables
 
 **Required**:
 - `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET`
-- `GOOGLE_API_KEY` (with optional `GOOGLE_API_KEY_FALLBACK`) - 同時用於名片識別和 PR 審查
+- `GOOGLE_API_KEY` (with optional `GOOGLE_API_KEY_FALLBACK`) - 用於名片識別
 - `NOTION_API_KEY`, `NOTION_DATABASE_ID`
 - `SECRET_KEY`
 
@@ -268,11 +221,11 @@ VERBOSE_ERRORS=true
 - 系統健康: https://namecard-app.zeabur.app/health
 - Notion 欄位: https://namecard-app.zeabur.app/debug/notion
 - 系統設定: https://namecard-app.zeabur.app/test
-- GitHub Actions: https://github.com/chengzehsu/eco_namecard/actions (CI/CD 和 PR 審查)
+- GitHub Actions: https://github.com/chengzehsu/eco_namecard/actions
 
 **📋 維護重點**:
 - 每月測試 LINE Bot 和 Notion 功能
-- 監控 GitHub Actions 中 qodo PR 審查功能運作
+- 監控 GitHub Actions 中的 CI/CD 流程
 - 修改時採用小步驟原則
 - 每次變更都要測試
 - 記錄所有修改內容

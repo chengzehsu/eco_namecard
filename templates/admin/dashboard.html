@@ -64,7 +64,7 @@
         </thead>
         <tbody>
             {% for tenant in tenants %}
-            {% set t_stats = tenant_stats.get(tenant.id, {'cards_processed': 0, 'cards_saved': 0, 'errors': 0}) %}
+            {% set t_stats = (tenant_stats or {}).get(tenant.id, {'cards_processed': 0, 'cards_saved': 0, 'errors': 0}) %}
             <tr>
                 <td>
                     <strong style="color: var(--text-primary);">{{ tenant.name }}</strong>

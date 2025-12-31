@@ -69,10 +69,17 @@ def dashboard():
     stats = tenant_service.get_overall_stats()
     tenants = tenant_service.list_tenants(include_inactive=True)
 
+    try:
+        tenant_stats = tenant_service.get_today_stats_by_tenant() or {}
+    except Exception as e:
+        logger.warning("Failed to get tenant stats", error=str(e))
+        tenant_stats = {}
+
     return render_template(
         "dashboard.html",
         stats=stats,
         tenants=tenants,
+        tenant_stats=tenant_stats,
         admin_username=session.get("admin_username")
     )
 

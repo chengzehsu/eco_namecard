@@ -63,6 +63,33 @@ class TenantDatabase:
                 else:
                     # Inline schema if file not found
                     self._create_inline_schema(conn)
+            else:
+                # Run migrations for existing databases
+                self._run_migrations(conn)
+
+    def _run_migrations(self, conn: sqlite3.Connection):
+        """Run schema migrations for existing databases"""
+        # Check if user_stats table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_stats'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS user_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id TEXT NOT NULL,
+                    line_user_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    cards_processed INTEGER DEFAULT 0,
+                    cards_saved INTEGER DEFAULT 0,
+                    errors INTEGER DEFAULT 0,
+                    UNIQUE(tenant_id, line_user_id, date)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_user_stats_tenant ON user_stats(tenant_id);
+                CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
+            """)
+            logger.info("Migration: user_stats table created")
 
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""

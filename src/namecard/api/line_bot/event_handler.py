@@ -175,18 +175,30 @@ class UnifiedEventHandler:
             # 增加使用計數
             user_service.increment_usage(user_id)
 
-            # 記錄租戶使用統計（多租戶模式）
+            # 記錄租戶和用戶使用統計（多租戶模式）
             if self.tenant_id:
                 try:
                     from src.namecard.core.services.tenant_service import get_tenant_service
                     tenant_service = get_tenant_service()
+
+                    # 記錄租戶級別統計
                     tenant_service.record_usage(
                         self.tenant_id,
                         cards_processed=len(cards),
-                        cards_saved=success_count
+                        cards_saved=success_count,
+                        errors=failed_count
+                    )
+
+                    # 記錄用戶級別統計
+                    tenant_service.record_user_usage(
+                        tenant_id=self.tenant_id,
+                        line_user_id=user_id,
+                        cards_processed=len(cards),
+                        cards_saved=success_count,
+                        errors=failed_count
                     )
                 except Exception as e:
-                    logger.warning("Failed to record tenant usage stats", error=str(e))
+                    logger.warning("Failed to record usage stats", error=str(e))
 
             # 生成回應訊息
             self._send_processing_result(

@@ -65,9 +65,17 @@ def logout():
 @login_required
 def dashboard():
     """Admin dashboard with overview statistics"""
+    # Get time period from query parameters
+    period = request.args.get("period", "day")  # day, week, month
+    days_map = {"day": 1, "week": 7, "month": 30}
+    days = days_map.get(period, 1)
+
     tenant_service = get_tenant_service()
     stats = tenant_service.get_overall_stats()
     tenants = tenant_service.list_tenants(include_inactive=True)
+
+    # Get extended stats for the period
+    all_tenants_summary = tenant_service.get_all_tenants_summary(days=days)
 
     try:
         tenant_stats = tenant_service.get_today_stats_by_tenant() or {}
@@ -80,6 +88,8 @@ def dashboard():
         stats=stats,
         tenants=tenants,
         tenant_stats=tenant_stats,
+        all_tenants_summary=all_tenants_summary,
+        current_period=period,
         admin_username=session.get("admin_username")
     )
 
@@ -259,6 +269,11 @@ def activate_tenant(tenant_id: str):
 @login_required
 def tenant_stats(tenant_id: str):
     """View tenant statistics"""
+    # Get time range from query parameters
+    period = request.args.get("period", "month")  # day, week, month, year
+    days_map = {"day": 1, "week": 7, "month": 30, "year": 365}
+    days = days_map.get(period, 30)
+
     tenant_service = get_tenant_service()
     tenant = tenant_service.get_tenant_by_id(tenant_id)
 
@@ -266,12 +281,22 @@ def tenant_stats(tenant_id: str):
         flash("找不到此租戶", "error")
         return redirect(url_for("admin.list_tenants"))
 
-    stats = tenant_service.get_tenant_stats(tenant_id, days=30)
+    # Get comprehensive stats
+    stats = tenant_service.get_tenant_stats(tenant_id, days=days)
+    summary = tenant_service.get_tenant_stats_summary(tenant_id, days=days)
+    monthly_stats = tenant_service.get_tenant_monthly_stats(tenant_id, months=12)
+    user_count = tenant_service.get_user_count(tenant_id, days=days)
+    top_users = tenant_service.get_top_users(tenant_id, limit=10, days=days)
 
     return render_template(
         "tenants/stats.html",
         tenant=tenant,
         stats=stats,
+        summary=summary,
+        monthly_stats=monthly_stats,
+        user_count=user_count,
+        top_users=top_users,
+        current_period=period,
         admin_username=session.get("admin_username")
     )
 
@@ -342,3 +367,86 @@ def api_stats():
     tenant_service = get_tenant_service()
     stats = tenant_service.get_overall_stats()
     return jsonify(stats)
+
+
+# ==================== Extended Statistics API ====================
+
+@admin_bp.route("/api/tenants/<tenant_id>/stats/summary")
+@login_required
+def api_tenant_stats_summary(tenant_id: str):
+    """Get tenant statistics summary with calculated metrics"""
+    days = request.args.get("days", 30, type=int)
+    tenant_service = get_tenant_service()
+
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+
+    summary = tenant_service.get_tenant_stats_summary(tenant_id, days)
+    return jsonify(summary)
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/stats/daily")
+@login_required
+def api_tenant_stats_daily(tenant_id: str):
+    """Get daily statistics for a tenant (for charts)"""
+    days = request.args.get("days", 30, type=int)
+    tenant_service = get_tenant_service()
+
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+
+    stats = tenant_service.get_tenant_stats(tenant_id, days)
+    return jsonify(stats)
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/stats/monthly")
+@login_required
+def api_tenant_stats_monthly(tenant_id: str):
+    """Get monthly aggregated statistics for a tenant"""
+    months = request.args.get("months", 12, type=int)
+    tenant_service = get_tenant_service()
+
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+
+    stats = tenant_service.get_tenant_monthly_stats(tenant_id, months)
+    return jsonify(stats)
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/stats/yearly")
+@login_required
+def api_tenant_stats_yearly(tenant_id: str):
+    """Get yearly aggregated statistics for a tenant"""
+    years = request.args.get("years", 3, type=int)
+    tenant_service = get_tenant_service()
+
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+
+    stats = tenant_service.get_tenant_yearly_stats(tenant_id, years)
+    return jsonify(stats)
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/users")
+@login_required
+def api_tenant_users(tenant_id: str):
+    """Get user statistics for a tenant"""
+    days = request.args.get("days", 30, type=int)
+    limit = request.args.get("limit", 20, type=int)
+    tenant_service = get_tenant_service()
+
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+
+    users = tenant_service.get_top_users(tenant_id, limit, days)
+    user_count = tenant_service.get_user_count(tenant_id, days)
+
+    return jsonify({
+        "users": users,
+        "total_users": user_count
+    })

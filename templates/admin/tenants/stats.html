@@ -14,118 +14,300 @@
     </a>
 </div>
 
-<!-- Tenant Info -->
-<div class="card">
-    <h2>
-        <i data-lucide="building-2" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
-        租戶資訊
-    </h2>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
-        <div>
-            <strong style="color: var(--text-muted);">名稱</strong>
-            <div style="color: var(--text-primary); margin-top: 4px;">{{ tenant.name }}</div>
+<!-- Time Period Selector -->
+<div class="period-selector">
+    <a href="?period=day" class="period-btn {% if current_period == 'day' %}active{% endif %}">
+        <i data-lucide="calendar" style="width: 14px; height: 14px;"></i>
+        今日
+    </a>
+    <a href="?period=week" class="period-btn {% if current_period == 'week' %}active{% endif %}">
+        <i data-lucide="calendar-days" style="width: 14px; height: 14px;"></i>
+        本週
+    </a>
+    <a href="?period=month" class="period-btn {% if current_period == 'month' %}active{% endif %}">
+        <i data-lucide="calendar-range" style="width: 14px; height: 14px;"></i>
+        本月
+    </a>
+    <a href="?period=year" class="period-btn {% if current_period == 'year' %}active{% endif %}">
+        <i data-lucide="calendar-clock" style="width: 14px; height: 14px;"></i>
+        本年
+    </a>
+</div>
+
+<!-- Summary Cards -->
+<div class="stats-grid" style="margin-top: 20px;">
+    <div class="stat-card">
+        <div class="stat-icon">
+            <i data-lucide="scan" style="width: 24px; height: 24px;"></i>
         </div>
-        <div>
-            <strong style="color: var(--text-muted);">識別碼</strong>
-            <div style="color: var(--text-primary); margin-top: 4px;"><code>{{ tenant.slug }}</code></div>
+        <div class="number">{{ summary.total_processed }}</div>
+        <div class="label">總處理量</div>
+        <div class="stat-detail">
+            平均 {{ summary.avg_daily_processed }} / 日
         </div>
-        <div>
-            <strong style="color: var(--text-muted);">狀態</strong>
-            <div style="margin-top: 4px;">
-                {% if tenant.is_active %}
-                <span class="badge badge-success">
-                    <i data-lucide="check-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
-                    啟用
-                </span>
-                {% else %}
-                <span class="badge badge-danger">
-                    <i data-lucide="x-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
-                    停用
-                </span>
-                {% endif %}
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="color: var(--success);">
+            <i data-lucide="database" style="width: 24px; height: 24px;"></i>
         </div>
-        <div>
-            <strong style="color: var(--text-muted);">每日限制</strong>
-            <div style="color: var(--text-primary); margin-top: 4px;">{{ tenant.daily_card_limit }} 張</div>
+        <div class="number" style="color: var(--success);">{{ summary.total_saved }}</div>
+        <div class="label">成功儲存</div>
+        <div class="stat-detail">
+            成功率 {{ summary.success_rate }}%
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="color: var(--danger);">
+            <i data-lucide="alert-circle" style="width: 24px; height: 24px;"></i>
+        </div>
+        <div class="number" style="{% if summary.total_errors > 0 %}color: var(--danger);{% endif %}">{{ summary.total_errors }}</div>
+        <div class="label">錯誤次數</div>
+        <div class="stat-detail">
+            錯誤率 {{ summary.error_rate }}%
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="color: var(--accent-purple);">
+            <i data-lucide="users" style="width: 24px; height: 24px;"></i>
+        </div>
+        <div class="number">{{ user_count }}</div>
+        <div class="label">活躍用戶</div>
+        <div class="stat-detail">
+            {{ summary.active_days }} 天有使用
         </div>
     </div>
 </div>
 
-<!-- Usage Stats -->
-<div class="card">
-    <h2>
-        <i data-lucide="calendar" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
-        過去 30 天使用統計
-    </h2>
+<!-- Tabs -->
+<div class="tabs-container">
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('usage')">
+            <i data-lucide="activity" style="width: 16px; height: 16px;"></i>
+            使用統計
+        </button>
+        <button class="tab-btn" onclick="switchTab('users')">
+            <i data-lucide="users" style="width: 16px; height: 16px;"></i>
+            用戶統計
+        </button>
+        <button class="tab-btn" onclick="switchTab('monthly')">
+            <i data-lucide="calendar" style="width: 16px; height: 16px;"></i>
+            月統計
+        </button>
+    </div>
+</div>
 
-    {% if stats %}
-    <table>
-        <thead>
-            <tr>
-                <th>日期</th>
-                <th style="text-align: center;">處理名片</th>
-                <th style="text-align: center;">儲存名片</th>
-                <th style="text-align: center;">API 呼叫</th>
-                <th style="text-align: center;">錯誤</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for stat in stats %}
-            <tr>
-                <td style="color: var(--text-secondary);">{{ stat.date }}</td>
-                <td style="text-align: center;">
-                    <span class="{% if stat.cards_processed > 0 %}text-accent{% else %}text-muted{% endif %}">
-                        {{ stat.cards_processed }}
-                    </span>
-                </td>
-                <td style="text-align: center;">
-                    <span class="{% if stat.cards_saved > 0 %}text-success{% else %}text-muted{% endif %}">
-                        {{ stat.cards_saved }}
-                    </span>
-                </td>
-                <td style="text-align: center; color: var(--text-secondary);">{{ stat.api_calls }}</td>
-                <td style="text-align: center;">
-                    <span class="{% if stat.errors > 0 %}text-danger{% else %}text-muted{% endif %}">
-                        {{ stat.errors }}
-                    </span>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <!-- Summary -->
-    {% set total_processed = stats|map(attribute='cards_processed')|sum %}
-    {% set total_saved = stats|map(attribute='cards_saved')|sum %}
-    {% set total_errors = stats|map(attribute='errors')|sum %}
-    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color); display: flex; gap: 24px; flex-wrap: wrap;">
-        <div>
-            <strong style="color: var(--text-muted);">30 天總計</strong>
-        </div>
-        <div>
-            <i data-lucide="scan" style="width: 14px; height: 14px; color: var(--accent-blue);"></i>
-            <span style="color: var(--text-primary);">處理 {{ total_processed }} 張</span>
-        </div>
-        <div>
-            <i data-lucide="database" style="width: 14px; height: 14px; color: var(--success);"></i>
-            <span style="color: var(--text-primary);">儲存 {{ total_saved }} 張</span>
-        </div>
-        <div>
-            <i data-lucide="alert-circle" style="width: 14px; height: 14px; color: var(--danger);"></i>
-            <span style="color: var(--text-primary);">錯誤 {{ total_errors }} 次</span>
+<!-- Usage Tab -->
+<div id="tab-usage" class="tab-content active">
+    <!-- Chart -->
+    <div class="card">
+        <h2>
+            <i data-lucide="trending-up" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            處理量趨勢
+        </h2>
+        <div class="chart-container">
+            <canvas id="usageChart"></canvas>
         </div>
     </div>
 
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-state-icon">
-            <i data-lucide="bar-chart" style="width: 48px; height: 48px;"></i>
+    <!-- Daily Stats Table -->
+    <div class="card">
+        <h2>
+            <i data-lucide="table" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            詳細記錄
+        </h2>
+
+        {% if stats %}
+        <table>
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th style="text-align: center;">處理名片</th>
+                    <th style="text-align: center;">儲存名片</th>
+                    <th style="text-align: center;">API 呼叫</th>
+                    <th style="text-align: center;">錯誤</th>
+                    <th style="text-align: center;">成功率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in stats %}
+                <tr>
+                    <td style="color: var(--text-secondary);">{{ stat.date }}</td>
+                    <td style="text-align: center;">
+                        <span class="{% if stat.cards_processed > 0 %}text-accent{% else %}text-muted{% endif %}">
+                            {{ stat.cards_processed }}
+                        </span>
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="{% if stat.cards_saved > 0 %}text-success{% else %}text-muted{% endif %}">
+                            {{ stat.cards_saved }}
+                        </span>
+                    </td>
+                    <td style="text-align: center; color: var(--text-secondary);">{{ stat.api_calls }}</td>
+                    <td style="text-align: center;">
+                        <span class="{% if stat.errors > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ stat.errors }}
+                        </span>
+                    </td>
+                    <td style="text-align: center;">
+                        {% if stat.cards_processed > 0 %}
+                        <span class="badge {% if (stat.cards_saved / stat.cards_processed * 100) >= 90 %}badge-success{% elif (stat.cards_saved / stat.cards_processed * 100) >= 70 %}badge-warning{% else %}badge-danger{% endif %}">
+                            {{ ((stat.cards_saved / stat.cards_processed) * 100) | round(1) }}%
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <i data-lucide="bar-chart" style="width: 48px; height: 48px;"></i>
+            </div>
+            <h3>尚無使用記錄</h3>
+            <p>開始使用後這裡會顯示統計資料</p>
         </div>
-        <h3>尚無使用記錄</h3>
-        <p>開始使用後這裡會顯示統計資料</p>
+        {% endif %}
     </div>
-    {% endif %}
+</div>
+
+<!-- Users Tab -->
+<div id="tab-users" class="tab-content">
+    <div class="card">
+        <h2>
+            <i data-lucide="users" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            用戶使用統計
+            <span class="badge badge-info" style="margin-left: 8px;">{{ user_count }} 位用戶</span>
+        </h2>
+
+        {% if top_users %}
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 50px;">排名</th>
+                    <th>用戶 ID</th>
+                    <th style="text-align: center;">處理數</th>
+                    <th style="text-align: center;">儲存數</th>
+                    <th style="text-align: center;">錯誤數</th>
+                    <th style="text-align: center;">成功率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in top_users %}
+                <tr>
+                    <td style="text-align: center;">
+                        {% if loop.index == 1 %}
+                        <span style="color: #FFD700;">🥇</span>
+                        {% elif loop.index == 2 %}
+                        <span style="color: #C0C0C0;">🥈</span>
+                        {% elif loop.index == 3 %}
+                        <span style="color: #CD7F32;">🥉</span>
+                        {% else %}
+                        <span class="text-muted">{{ loop.index }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <code style="font-size: 0.85rem; color: var(--accent-purple);">{{ user.line_user_id[:12] }}...</code>
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="text-accent">{{ user.total_processed }}</span>
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="text-success">{{ user.total_saved }}</span>
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="{% if user.total_errors > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ user.total_errors }}
+                        </span>
+                    </td>
+                    <td style="text-align: center;">
+                        {% if user.success_rate %}
+                        <span class="badge {% if user.success_rate >= 90 %}badge-success{% elif user.success_rate >= 70 %}badge-warning{% else %}badge-danger{% endif %}">
+                            {{ user.success_rate }}%
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <i data-lucide="user-x" style="width: 48px; height: 48px;"></i>
+            </div>
+            <h3>尚無用戶資料</h3>
+            <p>開始使用後這裡會顯示用戶統計</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Monthly Tab -->
+<div id="tab-monthly" class="tab-content">
+    <div class="card">
+        <h2>
+            <i data-lucide="calendar" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            月度統計
+        </h2>
+
+        {% if monthly_stats %}
+        <table>
+            <thead>
+                <tr>
+                    <th>月份</th>
+                    <th style="text-align: center;">處理名片</th>
+                    <th style="text-align: center;">儲存名片</th>
+                    <th style="text-align: center;">錯誤</th>
+                    <th style="text-align: center;">活躍天數</th>
+                    <th style="text-align: center;">成功率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in monthly_stats %}
+                <tr>
+                    <td style="color: var(--text-primary); font-weight: 500;">{{ stat.month }}</td>
+                    <td style="text-align: center;">
+                        <span class="text-accent">{{ stat.cards_processed }}</span>
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="text-success">{{ stat.cards_saved }}</span>
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="{% if stat.errors > 0 %}text-danger{% else %}text-muted{% endif %}">
+                            {{ stat.errors }}
+                        </span>
+                    </td>
+                    <td style="text-align: center; color: var(--text-secondary);">
+                        {{ stat.active_days }} 天
+                    </td>
+                    <td style="text-align: center;">
+                        {% if stat.cards_processed > 0 %}
+                        <span class="badge {% if (stat.cards_saved / stat.cards_processed * 100) >= 90 %}badge-success{% elif (stat.cards_saved / stat.cards_processed * 100) >= 70 %}badge-warning{% else %}badge-danger{% endif %}">
+                            {{ ((stat.cards_saved / stat.cards_processed) * 100) | round(1) }}%
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <i data-lucide="calendar-x" style="width: 48px; height: 48px;"></i>
+            </div>
+            <h3>尚無月度資料</h3>
+            <p>累積足夠資料後會顯示月度統計</p>
+        </div>
+        {% endif %}
+    </div>
 </div>
 
 <!-- Actions -->
@@ -160,10 +342,219 @@
         </button>
     </div>
 </div>
+
+<style>
+/* Period Selector */
+.period-selector {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.period-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.period-btn:hover {
+    background: var(--bg-card);
+    border-color: var(--accent-purple);
+    color: var(--text-primary);
+}
+
+.period-btn.active {
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    border-color: transparent;
+    color: white;
+}
+
+/* Stat Detail */
+.stat-detail {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Tabs */
+.tabs-container {
+    margin-top: 24px;
+}
+
+.tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0;
+}
+
+.tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+    margin-bottom: -1px;
+}
+
+.tab-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.tab-btn.active {
+    color: var(--accent-purple);
+    border-bottom-color: var(--accent-purple);
+}
+
+.tab-content {
+    display: none;
+    margin-top: 20px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Chart Container */
+.chart-container {
+    position: relative;
+    height: 300px;
+    margin-top: 16px;
+}
+
+/* Badge variations */
+.badge-warning {
+    background: rgba(255, 193, 7, 0.15);
+    color: #ffc107;
+}
+
+.badge-info {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+// Tab switching
+function switchTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+
+    // Remove active from all buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    // Show selected tab
+    document.getElementById('tab-' + tabName).classList.add('active');
+    event.target.closest('.tab-btn').classList.add('active');
+
+    lucide.createIcons();
+}
+
+// Chart.js setup
+const ctx = document.getElementById('usageChart');
+if (ctx) {
+    // Prepare data from stats (reverse to show oldest first)
+    const statsData = {{ stats | tojson | safe }};
+    const labels = statsData.map(s => s.date).reverse();
+    const processedData = statsData.map(s => s.cards_processed).reverse();
+    const savedData = statsData.map(s => s.cards_saved).reverse();
+    const errorsData = statsData.map(s => s.errors).reverse();
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '處理數',
+                    data: processedData,
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: '儲存數',
+                    data: savedData,
+                    borderColor: '#22c55e',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: '錯誤數',
+                    data: errorsData,
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: '#a1a1aa',
+                        usePointStyle: true,
+                        padding: 20
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(161, 161, 170, 0.1)'
+                    },
+                    ticks: {
+                        color: '#71717a',
+                        maxTicksLimit: 10
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(161, 161, 170, 0.1)'
+                    },
+                    ticks: {
+                        color: '#71717a'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Test connection
 function testConnection(tenantId) {
     document.getElementById('testModal').style.display = 'block';
     document.getElementById('testResults').innerHTML = '<p>測試中...</p>';
@@ -211,5 +602,8 @@ function testConnection(tenantId) {
 function closeTestModal() {
     document.getElementById('testModal').style.display = 'none';
 }
+
+// Initialize icons
+lucide.createIcons();
 </script>
 {% endblock %}

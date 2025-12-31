@@ -11,6 +11,22 @@
     </a>
 </div>
 
+<!-- Time Period Selector -->
+<div class="period-selector" style="margin-bottom: 20px;">
+    <a href="?period=day" class="period-btn {% if current_period == 'day' %}active{% endif %}">
+        <i data-lucide="calendar" style="width: 14px; height: 14px;"></i>
+        今日
+    </a>
+    <a href="?period=week" class="period-btn {% if current_period == 'week' %}active{% endif %}">
+        <i data-lucide="calendar-days" style="width: 14px; height: 14px;"></i>
+        本週
+    </a>
+    <a href="?period=month" class="period-btn {% if current_period == 'month' %}active{% endif %}">
+        <i data-lucide="calendar-range" style="width: 14px; height: 14px;"></i>
+        本月
+    </a>
+</div>
+
 <!-- Statistics Cards -->
 <div class="stats-grid">
     <div class="stat-card">
@@ -24,22 +40,28 @@
         <div class="stat-icon">
             <i data-lucide="scan" style="width: 24px; height: 24px;"></i>
         </div>
-        <div class="number">{{ stats.today_cards_processed }}</div>
-        <div class="label">今日處理名片</div>
+        <div class="number">{{ all_tenants_summary.total_processed }}</div>
+        <div class="label">
+            {% if current_period == 'day' %}今日{% elif current_period == 'week' %}本週{% else %}本月{% endif %}處理
+        </div>
     </div>
     <div class="stat-card">
-        <div class="stat-icon">
+        <div class="stat-icon" style="color: var(--success);">
             <i data-lucide="database" style="width: 24px; height: 24px;"></i>
         </div>
-        <div class="number">{{ stats.today_cards_saved }}</div>
-        <div class="label">今日儲存名片</div>
+        <div class="number" style="color: var(--success);">{{ all_tenants_summary.total_saved }}</div>
+        <div class="label">
+            {% if current_period == 'day' %}今日{% elif current_period == 'week' %}本週{% else %}本月{% endif %}儲存
+        </div>
     </div>
     <div class="stat-card">
         <div class="stat-icon" style="color: var(--danger);">
             <i data-lucide="alert-circle" style="width: 24px; height: 24px;"></i>
         </div>
-        <div class="number" style="{% if stats.today_errors > 0 %}color: var(--danger);{% endif %}">{{ stats.today_errors }}</div>
-        <div class="label">今日錯誤</div>
+        <div class="number" style="{% if all_tenants_summary.total_errors > 0 %}color: var(--danger);{% endif %}">{{ all_tenants_summary.total_errors }}</div>
+        <div class="label">
+            {% if current_period == 'day' %}今日{% elif current_period == 'week' %}本週{% else %}本月{% endif %}錯誤
+        </div>
     </div>
 </div>
 
@@ -127,6 +149,41 @@
     </div>
     {% endif %}
 </div>
+
+<style>
+/* Period Selector */
+.period-selector {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.period-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.period-btn:hover {
+    background: var(--bg-card);
+    border-color: var(--accent-purple);
+    color: var(--text-primary);
+}
+
+.period-btn.active {
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    border-color: transparent;
+    color: white;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}

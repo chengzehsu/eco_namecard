@@ -115,8 +115,21 @@ class TenantDatabase:
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS user_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id TEXT NOT NULL,
+                line_user_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                cards_processed INTEGER DEFAULT 0,
+                cards_saved INTEGER DEFAULT 0,
+                errors INTEGER DEFAULT 0,
+                UNIQUE(tenant_id, line_user_id, date)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tenants_line_channel_id ON tenants(line_channel_id);
             CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
+            CREATE INDEX IF NOT EXISTS idx_user_stats_tenant ON user_stats(tenant_id);
+            CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
         """)
         logger.info("Database schema created inline")
 
@@ -428,6 +441,26 @@ class TenantDatabase:
                 "today_errors": row[2] or 0,
             }
 
+    def get_today_stats_by_tenant(self) -> Dict[str, Dict[str, int]]:
+        """Get today's usage stats for all tenants"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT tenant_id, cards_processed, cards_saved, errors
+                FROM usage_stats WHERE date = ?
+                """,
+                (today,)
+            )
+            result = {}
+            for row in cursor.fetchall():
+                result[row["tenant_id"]] = {
+                    "cards_processed": row["cards_processed"] or 0,
+                    "cards_saved": row["cards_saved"] or 0,
+                    "errors": row["errors"] or 0,
+                }
+            return result
+
     # ==================== Audit Log Operations ====================
 
     def log_audit(self, action: str, admin_id: Optional[str] = None,
@@ -442,6 +475,214 @@ class TenantDatabase:
                 """,
                 (admin_id, action, target_tenant_id, details, ip_address)
             )
+
+    # ==================== User Stats Operations ====================
+
+    def record_user_usage(self, tenant_id: str, line_user_id: str,
+                          cards_processed: int = 0, cards_saved: int = 0, errors: int = 0):
+        """Record usage statistics for a specific user"""
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_stats (tenant_id, line_user_id, date, cards_processed, cards_saved, errors)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, line_user_id, date) DO UPDATE SET
+                    cards_processed = cards_processed + excluded.cards_processed,
+                    cards_saved = cards_saved + excluded.cards_saved,
+                    errors = errors + excluded.errors
+                """,
+                (tenant_id, line_user_id, today, cards_processed, cards_saved, errors)
+            )
+
+    def get_tenant_users_stats(self, tenant_id: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Get aggregated stats for all users of a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    line_user_id,
+                    SUM(cards_processed) as total_processed,
+                    SUM(cards_saved) as total_saved,
+                    SUM(errors) as total_errors,
+                    COUNT(DISTINCT date) as active_days,
+                    MAX(date) as last_active
+                FROM user_stats
+                WHERE tenant_id = ? AND date >= date('now', ?)
+                GROUP BY line_user_id
+                ORDER BY total_processed DESC
+                """,
+                (tenant_id, f"-{days} days")
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_top_users(self, tenant_id: str, limit: int = 10, days: int = 30) -> List[Dict[str, Any]]:
+        """Get top users by usage for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    line_user_id,
+                    SUM(cards_processed) as total_processed,
+                    SUM(cards_saved) as total_saved,
+                    SUM(errors) as total_errors,
+                    ROUND(CAST(SUM(cards_saved) AS FLOAT) / NULLIF(SUM(cards_processed), 0) * 100, 1) as success_rate
+                FROM user_stats
+                WHERE tenant_id = ? AND date >= date('now', ?)
+                GROUP BY line_user_id
+                ORDER BY total_processed DESC
+                LIMIT ?
+                """,
+                (tenant_id, f"-{days} days", limit)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_user_stats(self, tenant_id: str, line_user_id: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Get daily stats for a specific user"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM user_stats
+                WHERE tenant_id = ? AND line_user_id = ? AND date >= date('now', ?)
+                ORDER BY date DESC
+                """,
+                (tenant_id, line_user_id, f"-{days} days")
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    # ==================== Extended Stats Operations ====================
+
+    def get_tenant_stats_monthly(self, tenant_id: str, months: int = 12) -> List[Dict[str, Any]]:
+        """Get monthly aggregated stats for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    strftime('%Y-%m', date) as month,
+                    SUM(cards_processed) as cards_processed,
+                    SUM(cards_saved) as cards_saved,
+                    SUM(api_calls) as api_calls,
+                    SUM(errors) as errors,
+                    COUNT(DISTINCT date) as active_days
+                FROM usage_stats
+                WHERE tenant_id = ? AND date >= date('now', ?)
+                GROUP BY strftime('%Y-%m', date)
+                ORDER BY month DESC
+                """,
+                (tenant_id, f"-{months} months")
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_tenant_stats_yearly(self, tenant_id: str, years: int = 3) -> List[Dict[str, Any]]:
+        """Get yearly aggregated stats for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    strftime('%Y', date) as year,
+                    SUM(cards_processed) as cards_processed,
+                    SUM(cards_saved) as cards_saved,
+                    SUM(api_calls) as api_calls,
+                    SUM(errors) as errors,
+                    COUNT(DISTINCT date) as active_days
+                FROM usage_stats
+                WHERE tenant_id = ? AND date >= date('now', ?)
+                GROUP BY strftime('%Y', date)
+                ORDER BY year DESC
+                """,
+                (tenant_id, f"-{years} years")
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_tenant_stats_range(self, tenant_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get stats for a tenant within a date range"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM usage_stats
+                WHERE tenant_id = ? AND date >= ? AND date <= ?
+                ORDER BY date DESC
+                """,
+                (tenant_id, start_date, end_date)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_tenant_stats_summary(self, tenant_id: str, days: int = 30) -> Dict[str, Any]:
+        """Get summary statistics for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    SUM(cards_processed) as total_processed,
+                    SUM(cards_saved) as total_saved,
+                    SUM(errors) as total_errors,
+                    SUM(api_calls) as total_api_calls,
+                    COUNT(DISTINCT date) as active_days,
+                    AVG(cards_processed) as avg_daily_processed
+                FROM usage_stats
+                WHERE tenant_id = ? AND date >= date('now', ?)
+                """,
+                (tenant_id, f"-{days} days")
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "total_processed": row["total_processed"] or 0,
+                    "total_saved": row["total_saved"] or 0,
+                    "total_errors": row["total_errors"] or 0,
+                    "total_api_calls": row["total_api_calls"] or 0,
+                    "active_days": row["active_days"] or 0,
+                    "avg_daily_processed": round(row["avg_daily_processed"] or 0, 1),
+                    "success_rate": round(
+                        (row["total_saved"] or 0) / max(row["total_processed"] or 1, 1) * 100, 1
+                    ),
+                    "error_rate": round(
+                        (row["total_errors"] or 0) / max(row["total_processed"] or 1, 1) * 100, 1
+                    ),
+                }
+            return {
+                "total_processed": 0, "total_saved": 0, "total_errors": 0,
+                "total_api_calls": 0, "active_days": 0, "avg_daily_processed": 0,
+                "success_rate": 0, "error_rate": 0
+            }
+
+    def get_all_tenants_summary(self, days: int = 30) -> Dict[str, Any]:
+        """Get summary statistics across all tenants"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT
+                    SUM(cards_processed) as total_processed,
+                    SUM(cards_saved) as total_saved,
+                    SUM(errors) as total_errors,
+                    COUNT(DISTINCT tenant_id) as active_tenants
+                FROM usage_stats
+                WHERE date >= date('now', ?)
+                """,
+                (f"-{days} days",)
+            )
+            row = cursor.fetchone()
+            return {
+                "total_processed": row["total_processed"] or 0,
+                "total_saved": row["total_saved"] or 0,
+                "total_errors": row["total_errors"] or 0,
+                "active_tenants": row["active_tenants"] or 0,
+            }
+
+    def get_user_count_by_tenant(self, tenant_id: str, days: int = 30) -> int:
+        """Get count of unique users for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT COUNT(DISTINCT line_user_id) as user_count
+                FROM user_stats
+                WHERE tenant_id = ? AND date >= date('now', ?)
+                """,
+                (tenant_id, f"-{days} days")
+            )
+            row = cursor.fetchone()
+            return row["user_count"] if row else 0
 
 
 # Global database instance

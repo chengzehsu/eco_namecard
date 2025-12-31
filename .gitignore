@@ -153,3 +153,6 @@ temp/
 # Logs
 logs/
 *.logdata/*.db
+
+# Database files
+data/*.db

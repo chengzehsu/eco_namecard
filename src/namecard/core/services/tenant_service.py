@@ -318,6 +318,62 @@ class TenantService:
         """Get overall statistics"""
         return self.db.get_overall_stats()
 
+    def get_today_stats_by_tenant(self) -> Dict[str, Dict[str, int]]:
+        """Get today's usage stats for all tenants"""
+        return self.db.get_today_stats_by_tenant()
+
+    # ==================== Extended Statistics ====================
+
+    def record_user_usage(self, tenant_id: str, line_user_id: str,
+                          cards_processed: int = 0, cards_saved: int = 0, errors: int = 0):
+        """Record usage statistics for a specific user"""
+        self.db.record_user_usage(
+            tenant_id=tenant_id,
+            line_user_id=line_user_id,
+            cards_processed=cards_processed,
+            cards_saved=cards_saved,
+            errors=errors
+        )
+
+    def get_tenant_monthly_stats(self, tenant_id: str, months: int = 12) -> List[Dict[str, Any]]:
+        """Get monthly aggregated stats for a tenant"""
+        return self.db.get_tenant_stats_monthly(tenant_id, months)
+
+    def get_tenant_yearly_stats(self, tenant_id: str, years: int = 3) -> List[Dict[str, Any]]:
+        """Get yearly aggregated stats for a tenant"""
+        return self.db.get_tenant_stats_yearly(tenant_id, years)
+
+    def get_tenant_stats_by_range(self, tenant_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get stats for a tenant within a date range"""
+        return self.db.get_tenant_stats_range(tenant_id, start_date, end_date)
+
+    def get_tenant_stats_summary(self, tenant_id: str, days: int = 30) -> Dict[str, Any]:
+        """
+        Get comprehensive summary statistics for a tenant.
+
+        Returns dict with:
+        - total_processed, total_saved, total_errors, total_api_calls
+        - active_days, avg_daily_processed
+        - success_rate, error_rate (calculated percentages)
+        """
+        return self.db.get_tenant_stats_summary(tenant_id, days)
+
+    def get_tenant_users_stats(self, tenant_id: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Get aggregated stats for all users of a tenant"""
+        return self.db.get_tenant_users_stats(tenant_id, days)
+
+    def get_top_users(self, tenant_id: str, limit: int = 10, days: int = 30) -> List[Dict[str, Any]]:
+        """Get top users by usage for a tenant"""
+        return self.db.get_top_users(tenant_id, limit, days)
+
+    def get_user_count(self, tenant_id: str, days: int = 30) -> int:
+        """Get count of unique users for a tenant"""
+        return self.db.get_user_count_by_tenant(tenant_id, days)
+
+    def get_all_tenants_summary(self, days: int = 30) -> Dict[str, Any]:
+        """Get summary statistics across all tenants"""
+        return self.db.get_all_tenants_summary(days)
+
 
 # Global service instance
 _service_instance: Optional[TenantService] = None

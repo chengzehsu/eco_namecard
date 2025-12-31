@@ -101,6 +101,54 @@ except Exception as e:
 
 logger.info("Multi-tenant admin panel enabled", admin_url="/admin")
 
+# 自動創建預設租戶（從環境變數）
+def init_default_tenant():
+    """Auto-create default tenant from environment variables if all required vars are set"""
+    from src.namecard.core.services.tenant_service import get_tenant_service
+    from src.namecard.core.models.tenant import TenantCreateRequest
+
+    # 檢查必要環境變數是否都有設定
+    if not all([
+        settings.line_channel_id,
+        settings.line_channel_access_token,
+        settings.line_channel_secret,
+        settings.notion_api_key,
+        settings.notion_database_id
+    ]):
+        logger.info("Skipping default tenant creation (incomplete env vars)")
+        return
+
+    try:
+        tenant_service = get_tenant_service()
+
+        # 檢查該 channel_id 的租戶是否已存在
+        existing = tenant_service.get_tenant_by_channel_id(settings.line_channel_id)
+        if existing:
+            logger.info("Default tenant already exists", tenant_id=existing.id, name=existing.name)
+            return
+
+        # 創建預設租戶
+        request = TenantCreateRequest(
+            name="Default Tenant",
+            slug="default",
+            line_channel_id=settings.line_channel_id,
+            line_channel_access_token=settings.line_channel_access_token,
+            line_channel_secret=settings.line_channel_secret,
+            notion_api_key=settings.notion_api_key,
+            notion_database_id=settings.notion_database_id,
+            google_api_key=settings.google_api_key if settings.google_api_key else None,
+            use_shared_google_api=True,
+        )
+        tenant = tenant_service.create_tenant(request)
+        logger.info("Default tenant auto-created from env vars", tenant_id=tenant.id)
+    except Exception as e:
+        logger.error("Failed to auto-create default tenant", error=str(e))
+
+try:
+    init_default_tenant()
+except Exception as e:
+    logger.warning("Default tenant initialization skipped", error=str(e))
+
 # ===========================================================
 
 def main():

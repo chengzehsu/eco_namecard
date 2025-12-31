@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     )
     
     # LINE Bot Configuration
+    line_channel_id: Optional[str] = Field(default=None, description="LINE Bot User ID for default tenant (starts with U)")
     line_channel_access_token: str = Field(default="", description="LINE Channel Access Token")
     line_channel_secret: str = Field(default="", description="LINE Channel Secret")
     

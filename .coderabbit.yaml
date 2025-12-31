@@ -1,7 +1,7 @@
 # CodeRabbit Configuration for LINE Bot Namecard System
 # Project: AI-powered business card recognition with Google Gemini & Notion integration
 
-language: "zh-TW"  # Traditional Chinese for Taiwan market
+language: "zh"  # Chinese (Traditional Chinese for Taiwan market)
 
 reviews:
   # Request changes workflow

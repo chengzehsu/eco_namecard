@@ -1,6 +1,8 @@
 """
 Comprehensive tests for LINE Bot main.py webhook processing and event handling
 Tests webhook validation, message routing, error handling, and all core functionality
+
+Updated for multi-tenant architecture.
 """
 
 import pytest
@@ -10,17 +12,14 @@ from flask import Flask
 
 # Mock all external dependencies before importing
 with patch('src.namecard.infrastructure.ai.card_processor.genai'):
-    with patch('src.namecard.api.line_bot.main.line_bot_api') as mock_line_api:
-        with patch('src.namecard.api.line_bot.main.handler') as mock_handler:
-            with patch('src.namecard.api.line_bot.main.card_processor') as mock_card_processor:
-                with patch('src.namecard.api.line_bot.main.notion_client') as mock_notion:
-                    with patch('src.namecard.api.line_bot.main.user_service') as mock_user_service:
-                        with patch('src.namecard.api.line_bot.main.security_service') as mock_security:
+    with patch('src.namecard.api.line_bot.main.default_line_bot_api') as mock_line_api:
+        with patch('src.namecard.api.line_bot.main.default_handler') as mock_handler:
+            with patch('src.namecard.api.line_bot.main.default_card_processor') as mock_card_processor:
+                with patch('src.namecard.api.line_bot.main.default_notion_client') as mock_notion:
+                    with patch('src.namecard.api.line_bot.main.default_event_handler') as mock_event_handler:
+                        with patch('src.namecard.core.services.security.security_service') as mock_security:
                             from src.namecard.api.line_bot.main import (
-                                app, callback, create_help_message, create_batch_summary_message,
-                                process_line_event_manually, handle_text_message_manual,
-                                handle_image_message_manual, health_check, test_endpoint,
-                                debug_webhook, debug_sentry, debug_notion
+                                app, callback, health_check, test_endpoint, debug_notion
                             )
 
 from src.namecard.core.models.card import BusinessCard, BatchProcessResult

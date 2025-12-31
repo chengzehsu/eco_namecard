@@ -84,7 +84,7 @@ class SecurityService:
                 # 使用 PBKDF2 從 SECRET_KEY 衍生穩定的加密密鑰
                 from cryptography.hazmat.primitives import hashes
                 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-                
+
                 salt = b'linebot_namecard_salt_2024'  # 固定鹽值確保一致性
                 kdf = PBKDF2HMAC(
                     algorithm=hashes.SHA256(),
@@ -92,7 +92,9 @@ class SecurityService:
                     salt=salt,
                     iterations=100000,
                 )
-                key = kdf.derive(secret_key.encode('utf-8'))
+                raw_key = kdf.derive(secret_key.encode('utf-8'))
+                # Fernet 需要 base64 encoded key
+                key = base64.urlsafe_b64encode(raw_key)
                 logger.info("Derived encryption key from SECRET_KEY")
                 return key
             except Exception as e:

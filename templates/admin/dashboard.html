@@ -1,0 +1,100 @@
+{% extends "layout.html" %}
+
+{% block title %}儀表板{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>儀表板</h1>
+    <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary">+ 新增租戶</a>
+</div>
+
+<!-- Statistics Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="number">{{ stats.total_tenants }}</div>
+        <div class="label">活躍租戶</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.today_cards_processed }}</div>
+        <div class="label">今日處理名片</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.today_cards_saved }}</div>
+        <div class="label">今日儲存名片</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.today_errors }}</div>
+        <div class="label">今日錯誤</div>
+    </div>
+</div>
+
+<!-- Tenants Overview -->
+<div class="card">
+    <h2>租戶總覽</h2>
+    {% if tenants %}
+    <table>
+        <thead>
+            <tr>
+                <th>名稱</th>
+                <th>狀態</th>
+                <th>LINE Channel ID</th>
+                <th>每日限制</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tenant in tenants %}
+            <tr>
+                <td>
+                    <strong>{{ tenant.name }}</strong>
+                    <br><small style="color: #7f8c8d;">{{ tenant.slug }}</small>
+                </td>
+                <td>
+                    {% if tenant.is_active %}
+                    <span class="badge badge-success">啟用</span>
+                    {% else %}
+                    <span class="badge badge-danger">停用</span>
+                    {% endif %}
+                </td>
+                <td><code>{{ tenant.line_channel_id[:15] }}...</code></td>
+                <td>{{ tenant.daily_card_limit }} 張/天</td>
+                <td class="actions">
+                    <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-secondary btn-sm">編輯</a>
+                    <a href="{{ url_for('admin.tenant_stats', tenant_id=tenant.id) }}" class="btn btn-primary btn-sm">統計</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="text-align: center; color: #7f8c8d; padding: 40px;">
+        尚無租戶。<a href="{{ url_for('admin.create_tenant') }}">建立第一個租戶</a>
+    </p>
+    {% endif %}
+</div>
+
+<!-- Quick Help -->
+<div class="card">
+    <h2>快速指南</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+        <div>
+            <h3 style="font-size: 1rem; color: #2c3e50; margin-bottom: 10px;">1. 建立租戶</h3>
+            <p style="color: #7f8c8d; font-size: 0.9rem;">
+                點擊「新增租戶」，填入朋友的 LINE Bot 和 Notion 資訊。
+            </p>
+        </div>
+        <div>
+            <h3 style="font-size: 1rem; color: #2c3e50; margin-bottom: 10px;">2. 取得 LINE Channel ID</h3>
+            <p style="color: #7f8c8d; font-size: 0.9rem;">
+                在 LINE Developers Console 中，查看 Bot 的 「Basic ID」或使用 Bot 的 User ID。
+            </p>
+        </div>
+        <div>
+            <h3 style="font-size: 1rem; color: #2c3e50; margin-bottom: 10px;">3. 設定 Webhook URL</h3>
+            <p style="color: #7f8c8d; font-size: 0.9rem;">
+                所有租戶使用相同的 Webhook URL：<code>https://namecard-app.zeabur.app/callback</code>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

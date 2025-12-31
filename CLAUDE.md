@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 LINE Bot namecard management system that uses Google Gemini AI to recognize business card content and automatically saves to Notion database. The system supports batch processing, multi-card detection, and includes comprehensive security and error handling.
 
+**Multi-Tenant Support**: 系統支援多租戶模式，允許管理多個獨立的 LINE Bot 和 Notion Database。每個朋友可以有自己專屬的 Bot，所有請求由單一應用程式處理。
+
 ## Essential Commands
 
 ### Development
@@ -239,3 +241,139 @@ VERBOSE_ERRORS=true
 
 Repository: https://github.com/chengzehsu/eco_namecard
 Deployment: https://namecard-app.zeabur.app
+
+## Multi-Tenant Management System
+
+### Overview
+
+系統支援多租戶模式，讓你可以幫多個朋友設定獨立的 LINE Bot 和 Notion Database，所有請求由單一應用程式處理。
+
+### Admin Panel
+
+**管理後台 URL**: https://namecard-app.zeabur.app/admin
+
+**功能**:
+- 新增/編輯/停用租戶
+- 設定每個租戶的 LINE Bot 憑證
+- 設定每個租戶的 Notion Database
+- 測試連線功能
+- 查看使用統計
+
+**預設管理員**:
+- 首次啟動時會自動建立管理員帳號
+- 帳號: 由 `INITIAL_ADMIN_USERNAME` 環境變數設定 (預設 `admin`)
+- 密碼: 由 `INITIAL_ADMIN_PASSWORD` 環境變數設定 (如未設定會自動產生並記錄在 logs)
+
+### Multi-Tenant Architecture
+
+**核心元件**:
+- `src/namecard/core/models/tenant.py` - TenantConfig, TenantContext 模型
+- `src/namecard/core/services/tenant_service.py` - 租戶服務 (CRUD + 快取)
+- `src/namecard/infrastructure/storage/tenant_db.py` - SQLite 資料庫操作
+- `src/namecard/api/admin/` - 管理後台 Blueprint
+
+**資料儲存**:
+- SQLite 資料庫: `data/tenants.db`
+- API Keys 使用 Fernet 加密存儲
+- 租戶配置快取 5 分鐘
+
+**路由機制**:
+- 所有 LINE Bot 使用相同的 Webhook URL: `/callback`
+- 系統根據 webhook 中的 `destination` (Bot User ID) 識別租戶
+- 如果找不到對應租戶，則使用預設的全域設定（向後相容）
+
+### Setting Up a New Tenant
+
+1. **取得 LINE Bot 資訊**:
+   - 在 LINE Developers Console 建立 Messaging API Channel
+   - 取得 Channel Access Token (long-lived)
+   - 取得 Channel Secret
+   - 取得 Bot 的 User ID (作為 `line_channel_id`)
+
+2. **取得 Notion 資訊**:
+   - 在 https://www.notion.so/my-integrations 建立 Integration
+   - 取得 Integration Token
+   - 建立或複製 Database，取得 Database ID
+   - 將 Integration 加入 Database 的共用設定
+
+3. **在管理後台設定**:
+   - 登入 /admin
+   - 點擊「新增租戶」
+   - 填入上述資訊
+   - 點擊「測試連線」確認設定正確
+
+4. **設定 LINE Webhook**:
+   - 在 LINE Developers Console 設定 Webhook URL: `https://namecard-app.zeabur.app/callback`
+   - 所有租戶使用相同的 URL
+
+### Multi-Tenant Environment Variables
+
+**管理後台專用**:
+```bash
+ADMIN_SECRET_KEY=<session 加密金鑰>
+INITIAL_ADMIN_USERNAME=admin
+INITIAL_ADMIN_PASSWORD=<安全密碼>
+TENANT_DB_PATH=data/tenants.db
+```
+
+**向後相容**:
+現有的環境變數 (LINE_CHANNEL_ACCESS_TOKEN 等) 仍作為預設配置使用，
+當 webhook 請求無法匹配任何租戶時，會 fallback 到這些預設設定。
+
+### Database Schema
+
+```sql
+-- 租戶配置表
+CREATE TABLE tenants (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    line_channel_id TEXT NOT NULL UNIQUE,
+    line_channel_access_token_encrypted TEXT NOT NULL,
+    line_channel_secret_encrypted TEXT NOT NULL,
+    notion_api_key_encrypted TEXT NOT NULL,
+    notion_database_id TEXT NOT NULL,
+    google_api_key_encrypted TEXT,
+    use_shared_google_api INTEGER DEFAULT 1,
+    daily_card_limit INTEGER DEFAULT 50,
+    batch_size_limit INTEGER DEFAULT 10,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+-- 管理員帳號表
+CREATE TABLE admin_users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    is_super_admin INTEGER DEFAULT 0,
+    created_at TEXT,
+    last_login TEXT
+);
+
+-- 使用統計表
+CREATE TABLE usage_stats (
+    tenant_id TEXT,
+    date TEXT,
+    cards_processed INTEGER DEFAULT 0,
+    cards_saved INTEGER DEFAULT 0,
+    api_calls INTEGER DEFAULT 0,
+    errors INTEGER DEFAULT 0,
+    PRIMARY KEY (tenant_id, date)
+);
+```
+
+### Troubleshooting Multi-Tenant
+
+**管理後台無法登入**:
+- 檢查 `ADMIN_SECRET_KEY` 環境變數是否設定
+- 查看 logs 中的初始密碼
+
+**租戶 Webhook 無回應**:
+- 確認 `line_channel_id` 是 Bot 的 User ID (以 U 開頭)
+- 使用管理後台的「測試連線」功能
+
+**Notion 儲存失敗**:
+- 確認 Integration 已加入 Database 共用
+- 確認 Database 有必要的欄位 (Name, 公司, 電話 等)

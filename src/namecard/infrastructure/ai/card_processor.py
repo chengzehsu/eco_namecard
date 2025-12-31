@@ -113,12 +113,19 @@ class CardProcessor:
     使用 Google Gemini AI 進行圖像理解和文字擷取。
     """
     
-    def __init__(self, config: Optional[ProcessingConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[ProcessingConfig] = None,
+        api_key: Optional[str] = None,
+        fallback_api_key: Optional[str] = None,
+    ) -> None:
         """
         初始化處理器
 
         Args:
             config: 處理配置，預設使用預設配置
+            api_key: 自訂 Google API Key (用於多租戶)，預設使用全域設定
+            fallback_api_key: 自訂備用 API Key，預設使用全域設定
         """
         self.config = config or ProcessingConfig()
         self.model = None
@@ -126,9 +133,9 @@ class CardProcessor:
         self._api_call_count = 0
         self._last_api_call = 0
 
-        # API key 管理
-        self.primary_api_key = settings.google_api_key
-        self.fallback_api_key = settings.google_api_key_fallback
+        # API key 管理 - 支援自訂 key (多租戶) 或使用全域 key
+        self.primary_api_key = api_key or settings.google_api_key
+        self.fallback_api_key = fallback_api_key or settings.google_api_key_fallback
         self.current_api_key = self.primary_api_key  # 目前使用的 key
         self.primary_quota_exceeded = False  # 主要 key 是否已達配額
 
@@ -312,7 +319,7 @@ class CardProcessor:
                 operation="api_setup",
                 status="failed"
             )
-            raise APIKeyInvalidError(details={"error": str(e), "key_type": "primary"})
+            raise APIKeyInvalidError(details={"error": str(e), "key_type": "primary"}) from e
 
         # 如果有 fallback API key，初始化 fallback 模型
         if self.fallback_api_key:
@@ -642,7 +649,7 @@ class CardProcessor:
                         raise SafetyFilterBlockedError(
                             finish_reason="SAFETY",
                             details={"error": str(fallback_error), "both_models_failed": True}
-                        )
+                        ) from fallback_error
                 else:
                     raise SafetyFilterBlockedError(
                         finish_reason="SAFETY",
@@ -765,7 +772,7 @@ class CardProcessor:
                             "original_error": str(e),
                             "fallback_error": str(fallback_error),
                             "both_keys_exhausted": True
-                        })
+                        }) from fallback_error
 
                 # 沒有 fallback 或已經在使用 fallback
                 raise APIQuotaExceededError(details={
@@ -773,19 +780,19 @@ class CardProcessor:
                     "error_type": type(e).__name__,
                     "has_fallback": bool(self.fallback_model),
                     "already_using_fallback": self.primary_quota_exceeded
-                })
+                }) from e
 
             # 網路相關錯誤
             if any(keyword in error_str for keyword in ['network', 'connection', 'connect', 'unreachable']):
-                raise NetworkError(details={"original_error": str(e), "error_type": type(e).__name__})
+                raise NetworkError(details={"original_error": str(e), "error_type": type(e).__name__}) from e
 
             # 超時錯誤
             if any(keyword in error_str for keyword in ['timeout', 'timed out', 'time out']):
-                raise APITimeoutError(timeout_seconds=self.config.timeout_seconds, details={"original_error": str(e)})
+                raise APITimeoutError(timeout_seconds=self.config.timeout_seconds, details={"original_error": str(e)}) from e
 
             # 授權/金鑰錯誤
             if any(keyword in error_str for keyword in ['unauthorized', 'invalid api key', 'authentication', 'permission denied']):
-                raise APIKeyInvalidError(details={"original_error": str(e), "error_type": type(e).__name__})
+                raise APIKeyInvalidError(details={"original_error": str(e), "error_type": type(e).__name__}) from e
 
             # 其他未分類錯誤
             raise APIError(f"Gemini API call failed: {str(e)}")
@@ -858,7 +865,7 @@ class CardProcessor:
             raise JSONParsingError(
                 raw_response=response_text,
                 details={"error": str(e), "response_preview": response_text[:500]}
-            )
+            ) from e
         except Exception as e:
             logger.error("Failed to parse response", error=str(e))
             raise

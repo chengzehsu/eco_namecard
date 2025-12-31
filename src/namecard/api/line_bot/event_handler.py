@@ -20,13 +20,17 @@ logger = structlog.get_logger()
 
 
 class UnifiedEventHandler:
-    """統一的事件處理器，處理所有 LINE Bot 訊息"""
+    """統一的事件處理器，處理所有 LINE Bot 訊息
+
+    支援多租戶模式：可選的 tenant_id 參數用於追蹤和隔離。
+    """
 
     def __init__(
         self,
         line_bot_api: LineBotApi,
         card_processor: CardProcessor,
-        notion_client: NotionClient
+        notion_client: NotionClient,
+        tenant_id: Optional[str] = None
     ):
         """
         初始化事件處理器
@@ -35,10 +39,12 @@ class UnifiedEventHandler:
             line_bot_api: LINE Bot API 實例
             card_processor: 名片處理器
             notion_client: Notion 客戶端
+            tenant_id: 租戶 ID (多租戶模式)，預設為 None (單租戶)
         """
         self.line_bot_api = line_bot_api
         self.card_processor = card_processor
         self.notion_client = notion_client
+        self.tenant_id = tenant_id
 
     def handle_text_message(
         self,

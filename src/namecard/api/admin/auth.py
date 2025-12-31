@@ -24,11 +24,13 @@ class AdminAuth:
         self._ensure_initial_admin()
 
     def _ensure_initial_admin(self):
-        """Create initial admin user if none exists"""
-        if not self.db.admin_exists():
-            username = os.environ.get("INITIAL_ADMIN_USERNAME", "admin")
-            password = os.environ.get("INITIAL_ADMIN_PASSWORD")
+        """Create initial admin user if none exists, or reset password if requested"""
+        username = os.environ.get("INITIAL_ADMIN_USERNAME", "admin")
+        password = os.environ.get("INITIAL_ADMIN_PASSWORD")
+        reset_password = os.environ.get("RESET_ADMIN_PASSWORD", "").lower() in ("true", "1", "yes")
 
+        if not self.db.admin_exists():
+            # No admin exists, create one
             if not password:
                 # Generate a random password if not provided
                 import secrets
@@ -41,6 +43,21 @@ class AdminAuth:
 
             self.create_admin(username, password, is_super=True)
             logger.info("Initial admin user created", username=username)
+
+        elif reset_password and password:
+            # Admin exists and reset is requested with a new password
+            password_hash = self.hash_password(password)
+            if self.db.update_admin_password(username, password_hash):
+                logger.info(
+                    "Admin password reset successfully",
+                    username=username,
+                    hint="Remember to set RESET_ADMIN_PASSWORD=false after reset"
+                )
+            else:
+                logger.warning(
+                    "Failed to reset admin password - user not found",
+                    username=username
+                )
 
     def hash_password(self, password: str) -> str:
         """Hash a password using bcrypt"""

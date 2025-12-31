@@ -14,13 +14,17 @@ from src.namecard.core.models.tenant import TenantCreateRequest, TenantUpdateReq
 
 logger = structlog.get_logger()
 
+# Calculate absolute paths for templates and static files
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.abspath(os.path.join(_current_dir, "../../../.."))
+
 # Create blueprint
 admin_bp = Blueprint(
     "admin",
     __name__,
     url_prefix="/admin",
-    template_folder="../../../../templates/admin",
-    static_folder="../../../../static/admin"
+    template_folder=os.path.join(_project_root, "templates/admin"),
+    static_folder=os.path.join(_project_root, "static/admin")
 )
 
 

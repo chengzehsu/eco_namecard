@@ -264,6 +264,11 @@ Deployment: https://namecard-app.zeabur.app
 - 帳號: 由 `INITIAL_ADMIN_USERNAME` 環境變數設定 (預設 `admin`)
 - 密碼: 由 `INITIAL_ADMIN_PASSWORD` 環境變數設定 (如未設定會自動產生並記錄在 logs)
 
+**重設密碼**:
+- 如果忘記密碼或需要更新，設定 `RESET_ADMIN_PASSWORD=true` 並重新部署
+- 系統會用 `INITIAL_ADMIN_PASSWORD` 的值更新密碼
+- 重設成功後記得將 `RESET_ADMIN_PASSWORD` 改回 `false`
+
 ### Multi-Tenant Architecture
 
 **核心元件**:
@@ -313,6 +318,7 @@ Deployment: https://namecard-app.zeabur.app
 ADMIN_SECRET_KEY=<session 加密金鑰>
 INITIAL_ADMIN_USERNAME=admin
 INITIAL_ADMIN_PASSWORD=<安全密碼>
+RESET_ADMIN_PASSWORD=false  # 設為 true 可重設密碼
 TENANT_DB_PATH=data/tenants.db
 ```
 

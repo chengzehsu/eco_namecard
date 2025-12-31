@@ -229,6 +229,25 @@ def delete_tenant(tenant_id: str):
     return redirect(url_for("admin.list_tenants"))
 
 
+@admin_bp.route("/tenants/<tenant_id>/activate", methods=["POST"])
+@login_required
+def activate_tenant(tenant_id: str):
+    """Reactivate a deactivated tenant"""
+    tenant_service = get_tenant_service()
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+
+    if not tenant:
+        flash("找不到此租戶", "error")
+        return redirect(url_for("admin.list_tenants"))
+
+    # Update is_active to True
+    update_request = TenantUpdateRequest(is_active=True)
+    tenant_service.update_tenant(tenant_id, update_request)
+    flash(f"租戶 '{tenant.name}' 已重新啟用", "success")
+
+    return redirect(url_for("admin.list_tenants"))
+
+
 @admin_bp.route("/tenants/<tenant_id>/stats")
 @login_required
 def tenant_stats(tenant_id: str):

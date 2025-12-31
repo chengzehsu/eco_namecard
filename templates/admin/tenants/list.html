@@ -54,6 +54,12 @@
                     <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-secondary btn-sm">編輯</a>
                     <a href="{{ url_for('admin.tenant_stats', tenant_id=tenant.id) }}" class="btn btn-primary btn-sm">統計</a>
                     <button onclick="testConnection('{{ tenant.id }}')" class="btn btn-success btn-sm">測試</button>
+                    {% if tenant.is_active %}
+                    <button onclick="deactivateTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-warning btn-sm">停用</button>
+                    {% else %}
+                    <button onclick="activateTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-success btn-sm">啟用</button>
+                    {% endif %}
+                    <button onclick="deleteTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-danger btn-sm">刪除</button>
                 </td>
             </tr>
             {% endfor %}
@@ -104,6 +110,45 @@ function testConnection(tenantId) {
 
 function closeTestModal() {
     document.getElementById('testModal').style.display = 'none';
+}
+
+function deactivateTenant(tenantId, tenantName) {
+    if (confirm(`確定要停用租戶「${tenantName}」嗎？\n\n停用後該租戶的 LINE Bot 將無法使用。`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/admin/tenants/${tenantId}/delete`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function activateTenant(tenantId, tenantName) {
+    if (confirm(`確定要重新啟用租戶「${tenantName}」嗎？`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/admin/tenants/${tenantId}/activate`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function deleteTenant(tenantId, tenantName) {
+    if (confirm(`⚠️ 警告：確定要永久刪除租戶「${tenantName}」嗎？\n\n此操作無法復原！所有資料將被永久刪除。`)) {
+        if (confirm(`再次確認：真的要永久刪除「${tenantName}」嗎？`)) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/admin/tenants/${tenantId}/delete`;
+
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'hard_delete';
+            input.value = 'true';
+            form.appendChild(input);
+
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
 }
 </script>
 {% endblock %}

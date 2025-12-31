@@ -69,9 +69,11 @@ def extract_channel_id(body: str) -> Optional[str]:
         # destination 是接收此 webhook 的 Bot 的 User ID
         destination = data.get('destination')
         if destination:
-            logger.info("=== LINE WEBHOOK DESTINATION ===",
-                       destination=destination,
-                       hint="Use this value as line_channel_id when creating tenant")
+            print(f"\n{'='*50}")
+            print(f"=== LINE WEBHOOK DESTINATION ===")
+            print(f"destination: {destination}")
+            print(f"Use this value as line_channel_id when creating tenant")
+            print(f"{'='*50}\n", flush=True)
             return destination
         else:
             logger.warning("No destination in webhook body")

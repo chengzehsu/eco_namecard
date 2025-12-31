@@ -53,6 +53,9 @@ default_event_handler = UnifiedEventHandler(
 
 # ==================== 多租戶工具函數 ====================
 
+# 儲存最近收到的 webhook destination（用於 debug）
+_last_destination = {"value": None, "timestamp": None}
+
 def extract_channel_id(body: str) -> Optional[str]:
     """
     從 webhook body 中提取 LINE Channel ID
@@ -69,11 +72,10 @@ def extract_channel_id(body: str) -> Optional[str]:
         # destination 是接收此 webhook 的 Bot 的 User ID
         destination = data.get('destination')
         if destination:
-            print(f"\n{'='*50}")
-            print(f"=== LINE WEBHOOK DESTINATION ===")
-            print(f"destination: {destination}")
-            print(f"Use this value as line_channel_id when creating tenant")
-            print(f"{'='*50}\n", flush=True)
+            # 儲存到全域變數供 debug endpoint 使用
+            global _last_destination
+            _last_destination["value"] = destination
+            _last_destination["timestamp"] = str(datetime.now())
             return destination
         else:
             logger.warning("No destination in webhook body")
@@ -424,6 +426,22 @@ def debug_tenants():
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/debug/last-destination", methods=['GET'])
+def debug_last_destination():
+    """
+    顯示最近收到的 LINE webhook destination
+
+    用於幫助用戶找到正確的 line_channel_id 值。
+    發送訊息給 LINE Bot 後訪問此 endpoint 即可查看。
+    """
+    return jsonify({
+        "status": "ok",
+        "last_destination": _last_destination["value"],
+        "received_at": _last_destination["timestamp"],
+        "hint": "Use this value as line_channel_id when creating tenant" if _last_destination["value"] else "Send a message to your LINE Bot first"
+    })
 
 
 if __name__ == '__main__':

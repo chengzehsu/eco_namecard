@@ -4,15 +4,24 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>{{ '編輯租戶' if is_edit else '新增租戶' }}</h1>
-    <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">返回列表</a>
+    <h1>
+        <i data-lucide="{{ 'edit-2' if is_edit else 'plus-circle' }}" style="width: 24px; height: 24px; margin-right: 8px;"></i>
+        {{ '編輯租戶' if is_edit else '新增租戶' }}
+    </h1>
+    <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">
+        <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+        返回列表
+    </a>
 </div>
 
 <div class="card">
     <form method="POST" action="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) if is_edit else url_for('admin.create_tenant') }}">
 
         <!-- Basic Info -->
-        <h2>基本資訊</h2>
+        <h2>
+            <i data-lucide="info" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            基本資訊
+        </h2>
 
         <div class="form-group">
             <label for="name">租戶名稱 *</label>
@@ -23,7 +32,7 @@
         {% if is_edit %}
         <div class="form-group">
             <label>識別碼 (Slug)</label>
-            <input type="text" value="{{ tenant.slug }}" disabled>
+            <input type="text" value="{{ tenant.slug }}" disabled style="opacity: 0.6;">
             <small>建立後無法修改</small>
         </div>
 
@@ -40,13 +49,16 @@
         {% endif %}
 
         <!-- LINE Bot Config -->
-        <h2 style="margin-top: 30px;">LINE Bot 設定</h2>
+        <h2 style="margin-top: 30px;">
+            <i data-lucide="message-circle" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            LINE Bot 設定
+        </h2>
 
         <div class="form-group">
             <label for="line_channel_id">LINE Channel ID (Bot User ID) *</label>
             <input type="text" id="line_channel_id" name="line_channel_id"
                    value="{{ tenant.line_channel_id if tenant else '' }}"
-                   {{ 'readonly' if is_edit else 'required' }}
+                   {{ 'readonly style="opacity: 0.6;"' if is_edit else 'required' }}
                    placeholder="U1234567890abcdef...">
             <small>
                 在 LINE Developers Console → Messaging API → Bot basic ID，或使用 Bot 的 User ID。
@@ -71,14 +83,17 @@
         </div>
 
         <!-- Notion Config -->
-        <h2 style="margin-top: 30px;">Notion 設定</h2>
+        <h2 style="margin-top: 30px;">
+            <i data-lucide="database" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            Notion 設定
+        </h2>
 
         <div class="form-group">
             <label for="notion_api_key">Notion API Key {{ '*' if not is_edit else '' }}</label>
             <input type="password" id="notion_api_key" name="notion_api_key"
                    {{ 'required' if not is_edit else '' }}
                    placeholder="{{ '已設定 (留空保持不變)' if is_edit else 'secret_xxxxxx...' }}">
-            <small>在 <a href="https://www.notion.so/my-integrations" target="_blank">Notion Integrations</a> 建立並取得</small>
+            <small>在 <a href="https://www.notion.so/my-integrations" target="_blank" style="color: var(--accent-purple);">Notion Integrations</a> 建立並取得</small>
         </div>
 
         <div class="form-group">
@@ -86,18 +101,21 @@
             <input type="text" id="notion_database_id" name="notion_database_id"
                    value="{{ tenant.notion_database_id if tenant else '' }}" required
                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-            <small>Database URL 中的 ID 部分，例如：notion.so/myworkspace/<strong>abc123...</strong>?v=...</small>
+            <small>Database URL 中的 ID 部分，例如：notion.so/myworkspace/<strong style="color: var(--accent-purple);">abc123...</strong>?v=...</small>
         </div>
 
         <!-- Google AI Config -->
-        <h2 style="margin-top: 30px;">Google AI 設定</h2>
+        <h2 style="margin-top: 30px;">
+            <i data-lucide="sparkles" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            Google AI 設定
+        </h2>
 
         <div class="form-group form-check">
             <input type="checkbox" id="use_shared_google_api" name="use_shared_google_api"
                    {{ 'checked' if (not tenant or tenant.use_shared_google_api) else '' }}
                    onchange="toggleGoogleApiKey()">
             <label for="use_shared_google_api">使用共用 Google API Key</label>
-            <small style="display: block; margin-left: 26px; color: #7f8c8d;">建議開啟，使用系統的 Google Gemini API</small>
+            <small style="display: block; margin-left: 26px; color: var(--text-muted);">建議開啟，使用系統的 Google Gemini API</small>
         </div>
 
         <div class="form-group" id="google_api_key_group" style="{{ 'display:none' if (not tenant or tenant.use_shared_google_api) else '' }}">
@@ -108,7 +126,10 @@
         </div>
 
         <!-- Limits -->
-        <h2 style="margin-top: 30px;">使用限制</h2>
+        <h2 style="margin-top: 30px;">
+            <i data-lucide="gauge" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            使用限制
+        </h2>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
             <div class="form-group">
@@ -129,15 +150,22 @@
         <!-- Actions -->
         <div style="margin-top: 30px; display: flex; gap: 10px;">
             <button type="submit" class="btn btn-primary">
+                <i data-lucide="{{ 'save' if is_edit else 'plus' }}" style="width: 16px; height: 16px;"></i>
                 {{ '儲存變更' if is_edit else '建立租戶' }}
             </button>
-            <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">取消</a>
+            <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">
+                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+                取消
+            </a>
 
             {% if is_edit %}
             <form method="POST" action="{{ url_for('admin.delete_tenant', tenant_id=tenant.id) }}"
                   style="margin-left: auto;"
                   onsubmit="return confirm('確定要停用此租戶嗎？');">
-                <button type="submit" class="btn btn-danger">停用租戶</button>
+                <button type="submit" class="btn btn-danger">
+                    <i data-lucide="pause-circle" style="width: 16px; height: 16px;"></i>
+                    停用租戶
+                </button>
             </form>
             {% endif %}
         </div>
@@ -147,12 +175,16 @@
 {% if is_edit %}
 <!-- Webhook Info -->
 <div class="card" style="margin-top: 20px;">
-    <h2>Webhook 設定說明</h2>
-    <p style="color: #7f8c8d;">請在 LINE Developers Console 中設定以下 Webhook URL：</p>
-    <div style="background: #f8f9fa; padding: 15px; border-radius: 4px; margin-top: 10px;">
-        <code style="font-size: 1.1rem;">https://namecard-app.zeabur.app/callback</code>
+    <h2>
+        <i data-lucide="link" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        Webhook 設定說明
+    </h2>
+    <p style="color: var(--text-muted);">請在 LINE Developers Console 中設定以下 Webhook URL：</p>
+    <div style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; margin-top: 10px; border: 1px solid var(--border-color);">
+        <code style="font-size: 1rem; color: var(--accent-purple);">https://namecard-app.zeabur.app/callback</code>
     </div>
-    <p style="color: #7f8c8d; margin-top: 10px; font-size: 0.9rem;">
+    <p style="color: var(--text-muted); margin-top: 10px; font-size: 0.9rem;">
+        <i data-lucide="info" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;"></i>
         所有租戶使用相同的 Webhook URL，系統會根據 Bot User ID 自動識別租戶。
     </p>
 </div>

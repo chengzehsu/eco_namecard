@@ -5,7 +5,10 @@
 {% block content %}
 <div class="page-header">
     <h1>租戶管理</h1>
-    <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary">+ 新增租戶</a>
+    <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary">
+        <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+        新增租戶
+    </a>
 </div>
 
 <div class="card">
@@ -27,57 +30,101 @@
             {% for tenant in tenants %}
             <tr>
                 <td>
-                    <strong>{{ tenant.name }}</strong>
-                    <br><small style="color: #7f8c8d;">{{ tenant.slug }}</small>
+                    <strong style="color: var(--text-primary);">{{ tenant.name }}</strong>
+                    <br><small style="color: var(--text-muted);">{{ tenant.slug }}</small>
                 </td>
                 <td>
                     {% if tenant.is_active %}
-                    <span class="badge badge-success">啟用</span>
+                    <span class="badge badge-success">
+                        <i data-lucide="check-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                        啟用
+                    </span>
                     {% else %}
-                    <span class="badge badge-danger">停用</span>
+                    <span class="badge badge-danger">
+                        <i data-lucide="x-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                        停用
+                    </span>
                     {% endif %}
                 </td>
-                <td><code style="font-size: 0.8rem;">{{ tenant.line_channel_id[:12] }}...</code></td>
-                <td><code style="font-size: 0.8rem;">{{ tenant.notion_database_id[:8] }}...</code></td>
+                <td><code>{{ tenant.line_channel_id[:12] }}...</code></td>
+                <td><code>{{ tenant.notion_database_id[:8] }}...</code></td>
                 <td>
                     {% if tenant.use_shared_google_api %}
-                    <span style="color: #7f8c8d;">共用</span>
+                    <span style="color: var(--text-muted);">
+                        <i data-lucide="share-2" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+                        共用
+                    </span>
                     {% else %}
-                    <span style="color: #27ae60;">專用</span>
+                    <span style="color: var(--success);">
+                        <i data-lucide="key" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+                        專用
+                    </span>
                     {% endif %}
                 </td>
-                <td>{{ tenant.daily_card_limit }}/天</td>
-                <td style="font-size: 0.85rem; color: #7f8c8d;">
+                <td style="color: var(--text-secondary);">{{ tenant.daily_card_limit }}/天</td>
+                <td style="color: var(--text-muted);">
                     {{ tenant.created_at.strftime('%Y-%m-%d') if tenant.created_at else '-' }}
                 </td>
                 <td class="actions">
-                    <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-secondary btn-sm">編輯</a>
-                    <a href="{{ url_for('admin.tenant_stats', tenant_id=tenant.id) }}" class="btn btn-primary btn-sm">統計</a>
-                    <button onclick="testConnection('{{ tenant.id }}')" class="btn btn-success btn-sm">測試</button>
+                    <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-secondary btn-sm">
+                        <i data-lucide="edit-2" style="width: 14px; height: 14px;"></i>
+                        編輯
+                    </a>
+                    <a href="{{ url_for('admin.tenant_stats', tenant_id=tenant.id) }}" class="btn btn-primary btn-sm">
+                        <i data-lucide="bar-chart-2" style="width: 14px; height: 14px;"></i>
+                        統計
+                    </a>
+                    <button onclick="testConnection('{{ tenant.id }}')" class="btn btn-success btn-sm">
+                        <i data-lucide="wifi" style="width: 14px; height: 14px;"></i>
+                        測試
+                    </button>
                     {% if tenant.is_active %}
-                    <button onclick="deactivateTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-warning btn-sm">停用</button>
+                    <button onclick="deactivateTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-warning btn-sm">
+                        <i data-lucide="pause-circle" style="width: 14px; height: 14px;"></i>
+                        停用
+                    </button>
                     {% else %}
-                    <button onclick="activateTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-success btn-sm">啟用</button>
+                    <button onclick="activateTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-success btn-sm">
+                        <i data-lucide="play-circle" style="width: 14px; height: 14px;"></i>
+                        啟用
+                    </button>
                     {% endif %}
-                    <button onclick="deleteTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-danger btn-sm">刪除</button>
+                    <button onclick="deleteTenant('{{ tenant.id }}', '{{ tenant.name }}')" class="btn btn-danger btn-sm">
+                        <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                        刪除
+                    </button>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <p style="text-align: center; color: #7f8c8d; padding: 40px;">
-        尚無租戶。點擊上方「新增租戶」按鈕開始設定。
-    </p>
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i data-lucide="building-2" style="width: 48px; height: 48px;"></i>
+        </div>
+        <h3>尚無租戶</h3>
+        <p>點擊上方「新增租戶」按鈕開始設定</p>
+        <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary" style="margin-top: 16px;">
+            <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+            建立第一個租戶
+        </a>
+    </div>
     {% endif %}
 </div>
 
 <!-- Test Connection Modal -->
-<div id="testModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000;">
-    <div style="background: white; max-width: 500px; margin: 100px auto; padding: 30px; border-radius: 8px;">
-        <h3 style="margin-bottom: 20px;">連線測試結果</h3>
-        <div id="testResults"></div>
-        <button onclick="closeTestModal()" class="btn btn-secondary" style="margin-top: 20px;">關閉</button>
+<div id="testModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000;">
+    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); max-width: 500px; margin: 100px auto; padding: 28px; border-radius: 14px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <h3 style="margin-bottom: 20px; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="wifi" style="width: 20px; height: 20px;"></i>
+            連線測試結果
+        </h3>
+        <div id="testResults" style="color: var(--text-secondary);"></div>
+        <button onclick="closeTestModal()" class="btn btn-secondary" style="margin-top: 20px;">
+            <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            關閉
+        </button>
     </div>
 </div>
 
@@ -87,7 +134,10 @@
 <script>
 function testConnection(tenantId) {
     document.getElementById('testModal').style.display = 'block';
-    document.getElementById('testResults').innerHTML = '<p>測試中...</p>';
+    document.getElementById('testResults').innerHTML = '<p style="display: flex; align-items: center; gap: 8px;"><span class="loading-spinner"></span> 測試中...</p>';
+
+    // Re-initialize icons for modal
+    lucide.createIcons();
 
     fetch('/admin/api/tenants/' + tenantId + '/test', {
         method: 'POST',
@@ -95,16 +145,36 @@ function testConnection(tenantId) {
     })
     .then(response => response.json())
     .then(data => {
-        let html = '';
+        let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
         for (const [service, result] of Object.entries(data)) {
-            const icon = result.status === 'success' ? '✅' : (result.status === 'skipped' ? '⏭️' : '❌');
+            const isSuccess = result.status === 'success';
+            const isSkipped = result.status === 'skipped';
+            const iconName = isSuccess ? 'check-circle' : (isSkipped ? 'minus-circle' : 'x-circle');
+            const color = isSuccess ? 'var(--success)' : (isSkipped ? 'var(--text-muted)' : 'var(--danger)');
             const msg = result.message || result.bot_name || result.database_title || '';
-            html += `<p><strong>${icon} ${service.toUpperCase()}</strong>: ${result.status} ${msg ? '- ' + msg : ''}</p>`;
+            html += `
+                <div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-card); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <i data-lucide="${iconName}" style="width: 20px; height: 20px; color: ${color};"></i>
+                    <div>
+                        <strong style="color: var(--text-primary);">${service.toUpperCase()}</strong>
+                        <span style="color: ${color}; margin-left: 8px;">${result.status}</span>
+                        ${msg ? `<br><small style="color: var(--text-muted);">${msg}</small>` : ''}
+                    </div>
+                </div>
+            `;
         }
+        html += '</div>';
         document.getElementById('testResults').innerHTML = html;
+        lucide.createIcons();
     })
     .catch(error => {
-        document.getElementById('testResults').innerHTML = '<p style="color: red;">測試失敗: ' + error + '</p>';
+        document.getElementById('testResults').innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; color: var(--danger);">
+                <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
+                測試失敗: ${error}
+            </div>
+        `;
+        lucide.createIcons();
     });
 }
 

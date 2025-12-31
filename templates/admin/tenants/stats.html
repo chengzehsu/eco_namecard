@@ -4,57 +4,92 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>{{ tenant.name }} - 使用統計</h1>
-    <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">返回列表</a>
+    <h1>
+        <i data-lucide="bar-chart-2" style="width: 24px; height: 24px; margin-right: 8px;"></i>
+        {{ tenant.name }} - 使用統計
+    </h1>
+    <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">
+        <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+        返回列表
+    </a>
 </div>
 
 <!-- Tenant Info -->
 <div class="card">
-    <h2>租戶資訊</h2>
+    <h2>
+        <i data-lucide="building-2" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        租戶資訊
+    </h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
         <div>
-            <strong>名稱：</strong> {{ tenant.name }}
+            <strong style="color: var(--text-muted);">名稱</strong>
+            <div style="color: var(--text-primary); margin-top: 4px;">{{ tenant.name }}</div>
         </div>
         <div>
-            <strong>識別碼：</strong> {{ tenant.slug }}
+            <strong style="color: var(--text-muted);">識別碼</strong>
+            <div style="color: var(--text-primary); margin-top: 4px;"><code>{{ tenant.slug }}</code></div>
         </div>
         <div>
-            <strong>狀態：</strong>
-            {% if tenant.is_active %}
-            <span class="badge badge-success">啟用</span>
-            {% else %}
-            <span class="badge badge-danger">停用</span>
-            {% endif %}
+            <strong style="color: var(--text-muted);">狀態</strong>
+            <div style="margin-top: 4px;">
+                {% if tenant.is_active %}
+                <span class="badge badge-success">
+                    <i data-lucide="check-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                    啟用
+                </span>
+                {% else %}
+                <span class="badge badge-danger">
+                    <i data-lucide="x-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                    停用
+                </span>
+                {% endif %}
+            </div>
         </div>
         <div>
-            <strong>每日限制：</strong> {{ tenant.daily_card_limit }} 張
+            <strong style="color: var(--text-muted);">每日限制</strong>
+            <div style="color: var(--text-primary); margin-top: 4px;">{{ tenant.daily_card_limit }} 張</div>
         </div>
     </div>
 </div>
 
 <!-- Usage Stats -->
 <div class="card">
-    <h2>過去 30 天使用統計</h2>
+    <h2>
+        <i data-lucide="calendar" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        過去 30 天使用統計
+    </h2>
 
     {% if stats %}
     <table>
         <thead>
             <tr>
                 <th>日期</th>
-                <th>處理名片</th>
-                <th>儲存名片</th>
-                <th>API 呼叫</th>
-                <th>錯誤</th>
+                <th style="text-align: center;">處理名片</th>
+                <th style="text-align: center;">儲存名片</th>
+                <th style="text-align: center;">API 呼叫</th>
+                <th style="text-align: center;">錯誤</th>
             </tr>
         </thead>
         <tbody>
             {% for stat in stats %}
             <tr>
-                <td>{{ stat.date }}</td>
-                <td>{{ stat.cards_processed }}</td>
-                <td>{{ stat.cards_saved }}</td>
-                <td>{{ stat.api_calls }}</td>
-                <td style="color: {{ '#e74c3c' if stat.errors > 0 else '#27ae60' }}">{{ stat.errors }}</td>
+                <td style="color: var(--text-secondary);">{{ stat.date }}</td>
+                <td style="text-align: center;">
+                    <span class="{% if stat.cards_processed > 0 %}text-accent{% else %}text-muted{% endif %}">
+                        {{ stat.cards_processed }}
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    <span class="{% if stat.cards_saved > 0 %}text-success{% else %}text-muted{% endif %}">
+                        {{ stat.cards_saved }}
+                    </span>
+                </td>
+                <td style="text-align: center; color: var(--text-secondary);">{{ stat.api_calls }}</td>
+                <td style="text-align: center;">
+                    <span class="{% if stat.errors > 0 %}text-danger{% else %}text-muted{% endif %}">
+                        {{ stat.errors }}
+                    </span>
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -64,40 +99,75 @@
     {% set total_processed = stats|map(attribute='cards_processed')|sum %}
     {% set total_saved = stats|map(attribute='cards_saved')|sum %}
     {% set total_errors = stats|map(attribute='errors')|sum %}
-    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
-        <strong>30 天總計：</strong>
-        處理 {{ total_processed }} 張，儲存 {{ total_saved }} 張，錯誤 {{ total_errors }} 次
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color); display: flex; gap: 24px; flex-wrap: wrap;">
+        <div>
+            <strong style="color: var(--text-muted);">30 天總計</strong>
+        </div>
+        <div>
+            <i data-lucide="scan" style="width: 14px; height: 14px; color: var(--accent-blue);"></i>
+            <span style="color: var(--text-primary);">處理 {{ total_processed }} 張</span>
+        </div>
+        <div>
+            <i data-lucide="database" style="width: 14px; height: 14px; color: var(--success);"></i>
+            <span style="color: var(--text-primary);">儲存 {{ total_saved }} 張</span>
+        </div>
+        <div>
+            <i data-lucide="alert-circle" style="width: 14px; height: 14px; color: var(--danger);"></i>
+            <span style="color: var(--text-primary);">錯誤 {{ total_errors }} 次</span>
+        </div>
     </div>
 
     {% else %}
-    <p style="text-align: center; color: #7f8c8d; padding: 40px;">
-        尚無使用記錄
-    </p>
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i data-lucide="bar-chart" style="width: 48px; height: 48px;"></i>
+        </div>
+        <h3>尚無使用記錄</h3>
+        <p>開始使用後這裡會顯示統計資料</p>
+    </div>
     {% endif %}
 </div>
 
 <!-- Actions -->
 <div class="card">
-    <h2>操作</h2>
-    <div style="display: flex; gap: 10px;">
-        <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-primary">編輯租戶設定</a>
-        <button onclick="testConnection('{{ tenant.id }}')" class="btn btn-success">測試連線</button>
+    <h2>
+        <i data-lucide="settings" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        操作
+    </h2>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-primary">
+            <i data-lucide="edit-2" style="width: 16px; height: 16px;"></i>
+            編輯租戶設定
+        </a>
+        <button onclick="testConnection('{{ tenant.id }}')" class="btn btn-success">
+            <i data-lucide="wifi" style="width: 16px; height: 16px;"></i>
+            測試連線
+        </button>
     </div>
 </div>
 
 <!-- Test Modal -->
-<div id="testModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000;">
-    <div style="background: white; max-width: 500px; margin: 100px auto; padding: 30px; border-radius: 8px;">
-        <h3 style="margin-bottom: 20px;">連線測試結果</h3>
-        <div id="testResults"></div>
-        <button onclick="closeTestModal()" class="btn btn-secondary" style="margin-top: 20px;">關閉</button>
+<div id="testModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000;">
+    <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); max-width: 500px; margin: 100px auto; padding: 28px; border-radius: 14px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <h3 style="margin-bottom: 20px; color: var(--text-primary); font-weight: 600; display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="wifi" style="width: 20px; height: 20px;"></i>
+            連線測試結果
+        </h3>
+        <div id="testResults" style="color: var(--text-secondary);"></div>
+        <button onclick="closeTestModal()" class="btn btn-secondary" style="margin-top: 20px;">
+            <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            關閉
+        </button>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 function testConnection(tenantId) {
     document.getElementById('testModal').style.display = 'block';
     document.getElementById('testResults').innerHTML = '<p>測試中...</p>';
+    lucide.createIcons();
 
     fetch('/admin/api/tenants/' + tenantId + '/test', {
         method: 'POST',
@@ -105,16 +175,36 @@ function testConnection(tenantId) {
     })
     .then(response => response.json())
     .then(data => {
-        let html = '';
+        let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
         for (const [service, result] of Object.entries(data)) {
-            const icon = result.status === 'success' ? '✅' : (result.status === 'skipped' ? '⏭️' : '❌');
+            const isSuccess = result.status === 'success';
+            const isSkipped = result.status === 'skipped';
+            const iconName = isSuccess ? 'check-circle' : (isSkipped ? 'minus-circle' : 'x-circle');
+            const color = isSuccess ? 'var(--success)' : (isSkipped ? 'var(--text-muted)' : 'var(--danger)');
             const msg = result.message || result.bot_name || result.database_title || '';
-            html += `<p><strong>${icon} ${service.toUpperCase()}</strong>: ${result.status} ${msg ? '- ' + msg : ''}</p>`;
+            html += `
+                <div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-card); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <i data-lucide="${iconName}" style="width: 20px; height: 20px; color: ${color};"></i>
+                    <div>
+                        <strong style="color: var(--text-primary);">${service.toUpperCase()}</strong>
+                        <span style="color: ${color}; margin-left: 8px;">${result.status}</span>
+                        ${msg ? `<br><small style="color: var(--text-muted);">${msg}</small>` : ''}
+                    </div>
+                </div>
+            `;
         }
+        html += '</div>';
         document.getElementById('testResults').innerHTML = html;
+        lucide.createIcons();
     })
     .catch(error => {
-        document.getElementById('testResults').innerHTML = '<p style="color: red;">測試失敗: ' + error + '</p>';
+        document.getElementById('testResults').innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; color: var(--danger);">
+                <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
+                測試失敗: ${error}
+            </div>
+        `;
+        lucide.createIcons();
     });
 }
 

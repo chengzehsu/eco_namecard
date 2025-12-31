@@ -5,96 +5,133 @@
 {% block content %}
 <div class="page-header">
     <h1>儀表板</h1>
-    <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary">+ 新增租戶</a>
+    <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary">
+        <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+        新增租戶
+    </a>
 </div>
 
 <!-- Statistics Cards -->
 <div class="stats-grid">
     <div class="stat-card">
+        <div class="stat-icon">
+            <i data-lucide="users" style="width: 24px; height: 24px;"></i>
+        </div>
         <div class="number">{{ stats.total_tenants }}</div>
         <div class="label">活躍租戶</div>
     </div>
     <div class="stat-card">
+        <div class="stat-icon">
+            <i data-lucide="scan" style="width: 24px; height: 24px;"></i>
+        </div>
         <div class="number">{{ stats.today_cards_processed }}</div>
         <div class="label">今日處理名片</div>
     </div>
     <div class="stat-card">
+        <div class="stat-icon">
+            <i data-lucide="database" style="width: 24px; height: 24px;"></i>
+        </div>
         <div class="number">{{ stats.today_cards_saved }}</div>
         <div class="label">今日儲存名片</div>
     </div>
     <div class="stat-card">
-        <div class="number">{{ stats.today_errors }}</div>
+        <div class="stat-icon" style="color: var(--danger);">
+            <i data-lucide="alert-circle" style="width: 24px; height: 24px;"></i>
+        </div>
+        <div class="number" style="{% if stats.today_errors > 0 %}color: var(--danger);{% endif %}">{{ stats.today_errors }}</div>
         <div class="label">今日錯誤</div>
     </div>
 </div>
 
 <!-- Tenants Overview -->
 <div class="card">
-    <h2>租戶總覽</h2>
+    <h2>
+        <i data-lucide="activity" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        租戶使用狀況
+    </h2>
     {% if tenants %}
     <table>
         <thead>
             <tr>
                 <th>名稱</th>
                 <th>狀態</th>
-                <th>LINE Channel ID</th>
-                <th>每日限制</th>
+                <th style="text-align: center;">今日處理</th>
+                <th style="text-align: center;">今日儲存</th>
+                <th style="text-align: center;">今日錯誤</th>
+                <th style="text-align: center;">每日限制</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody>
             {% for tenant in tenants %}
+            {% set t_stats = tenant_stats.get(tenant.id, {'cards_processed': 0, 'cards_saved': 0, 'errors': 0}) %}
             <tr>
                 <td>
-                    <strong>{{ tenant.name }}</strong>
-                    <br><small style="color: #7f8c8d;">{{ tenant.slug }}</small>
+                    <strong style="color: var(--text-primary);">{{ tenant.name }}</strong>
+                    <br><small style="color: var(--text-muted);">{{ tenant.slug }}</small>
                 </td>
                 <td>
                     {% if tenant.is_active %}
-                    <span class="badge badge-success">啟用</span>
+                    <span class="badge badge-success">
+                        <i data-lucide="check-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                        啟用
+                    </span>
                     {% else %}
-                    <span class="badge badge-danger">停用</span>
+                    <span class="badge badge-danger">
+                        <i data-lucide="x-circle" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+                        停用
+                    </span>
                     {% endif %}
                 </td>
-                <td><code>{{ tenant.line_channel_id[:15] }}...</code></td>
-                <td>{{ tenant.daily_card_limit }} 張/天</td>
+                <td style="text-align: center;">
+                    <span class="{% if t_stats.cards_processed > 0 %}text-accent{% else %}text-muted{% endif %}">
+                        {{ t_stats.cards_processed }}
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    <span class="{% if t_stats.cards_saved > 0 %}text-success{% else %}text-muted{% endif %}">
+                        {{ t_stats.cards_saved }}
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    <span class="{% if t_stats.errors > 0 %}text-danger{% else %}text-muted{% endif %}">
+                        {{ t_stats.errors }}
+                    </span>
+                </td>
+                <td style="text-align: center; color: var(--text-secondary);">{{ tenant.daily_card_limit }}</td>
                 <td class="actions">
-                    <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-secondary btn-sm">編輯</a>
-                    <a href="{{ url_for('admin.tenant_stats', tenant_id=tenant.id) }}" class="btn btn-primary btn-sm">統計</a>
+                    <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-secondary btn-sm">
+                        <i data-lucide="edit-2" style="width: 14px; height: 14px;"></i>
+                        編輯
+                    </a>
+                    <a href="{{ url_for('admin.tenant_stats', tenant_id=tenant.id) }}" class="btn btn-primary btn-sm">
+                        <i data-lucide="bar-chart-2" style="width: 14px; height: 14px;"></i>
+                        統計
+                    </a>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <p style="text-align: center; color: #7f8c8d; padding: 40px;">
-        尚無租戶。<a href="{{ url_for('admin.create_tenant') }}">建立第一個租戶</a>
-    </p>
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i data-lucide="inbox" style="width: 48px; height: 48px;"></i>
+        </div>
+        <h3>尚無租戶</h3>
+        <p>點擊上方「新增租戶」按鈕開始設定</p>
+        <a href="{{ url_for('admin.create_tenant') }}" class="btn btn-primary" style="margin-top: 16px;">
+            <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+            建立第一個租戶
+        </a>
+    </div>
     {% endif %}
 </div>
+{% endblock %}
 
-<!-- Quick Help -->
-<div class="card">
-    <h2>快速指南</h2>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
-        <div>
-            <h3 style="font-size: 1rem; color: #2c3e50; margin-bottom: 10px;">1. 建立租戶</h3>
-            <p style="color: #7f8c8d; font-size: 0.9rem;">
-                點擊「新增租戶」，填入朋友的 LINE Bot 和 Notion 資訊。
-            </p>
-        </div>
-        <div>
-            <h3 style="font-size: 1rem; color: #2c3e50; margin-bottom: 10px;">2. 取得 LINE Channel ID</h3>
-            <p style="color: #7f8c8d; font-size: 0.9rem;">
-                在 LINE Developers Console 中，查看 Bot 的 「Basic ID」或使用 Bot 的 User ID。
-            </p>
-        </div>
-        <div>
-            <h3 style="font-size: 1rem; color: #2c3e50; margin-bottom: 10px;">3. 設定 Webhook URL</h3>
-            <p style="color: #7f8c8d; font-size: 0.9rem;">
-                所有租戶使用相同的 Webhook URL：<code>https://namecard-app.zeabur.app/callback</code>
-            </p>
-        </div>
-    </div>
-</div>
+{% block scripts %}
+<script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+</script>
 {% endblock %}

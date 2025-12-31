@@ -11,7 +11,33 @@ import structlog
 from cryptography.fernet import Fernet
 import base64
 import os
+import sys
 
+# 添加項目根目錄到 Python 路徑
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+
+from simple_config import settings
+from src.namecard.core.exceptions import (
+    NamecardException,
+    get_user_friendly_message,
+    # AI 相關異常
+    APIKeyInvalidError,
+    APIQuotaExceededError,
+    SafetyFilterBlockedError,
+    LowQualityCardError,
+    IncompleteCardDataError,
+    LowResolutionImageError,
+    JSONParsingError,
+    EmptyAIResponseError,
+    NetworkError,
+    APITimeoutError,
+    # Notion 相關異常
+    NotionUnauthorizedError,
+    NotionDatabaseNotFoundError,
+    NotionSchemaError,
+    NotionRateLimitError,
+    NotionNetworkError,
+)
 
 logger = structlog.get_logger()
 
@@ -58,7 +84,7 @@ class SecurityService:
                 # 使用 PBKDF2 從 SECRET_KEY 衍生穩定的加密密鑰
                 from cryptography.hazmat.primitives import hashes
                 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-                
+
                 salt = b'linebot_namecard_salt_2024'  # 固定鹽值確保一致性
                 kdf = PBKDF2HMAC(
                     algorithm=hashes.SHA256(),
@@ -66,7 +92,9 @@ class SecurityService:
                     salt=salt,
                     iterations=100000,
                 )
-                key = kdf.derive(secret_key.encode('utf-8'))
+                raw_key = kdf.derive(secret_key.encode('utf-8'))
+                # Fernet 需要 base64 encoded key
+                key = base64.urlsafe_b64encode(raw_key)
                 logger.info("Derived encryption key from SECRET_KEY")
                 return key
             except Exception as e:
@@ -322,45 +350,87 @@ class SecurityService:
 
 
 class ErrorHandler:
-    """錯誤處理器"""
-    
-    def __init__(self):
+    """錯誤處理器（支援詳細的用戶友善錯誤訊息）"""
+
+    def __init__(self, verbose: bool = False):
+        """
+        初始化錯誤處理器
+
+        Args:
+            verbose: 是否顯示詳細的技術錯誤訊息（開發模式）
+        """
         self._error_counts: Dict[str, int] = defaultdict(int)
         self._last_errors: Dict[str, datetime] = {}
-    
+        self.verbose = verbose
+
+        # 從 settings 讀取 verbose 設定
+        if hasattr(settings, 'verbose_errors'):
+            self.verbose = settings.verbose_errors
+
+        logger.info("ErrorHandler initialized", verbose_mode=self.verbose)
+
     def handle_ai_error(self, error: Exception, user_id: str) -> str:
-        """處理 AI 相關錯誤"""
+        """
+        處理 AI 相關錯誤
+
+        Args:
+            error: 異常物件
+            user_id: 用戶 ID
+
+        Returns:
+            用戶友善的錯誤訊息
+        """
         error_type = type(error).__name__
         self._error_counts[error_type] += 1
         self._last_errors[error_type] = datetime.now()
-        
-        logger.error("AI processing error", 
+
+        logger.error("AI processing error",
                     error_type=error_type,
                     error_message=str(error),
                     user_id=user_id,
                     count=self._error_counts[error_type])
-        
-        # 根據錯誤類型返回友善訊息
-        if "quota" in str(error).lower() or "limit" in str(error).lower():
+
+        # 使用新的異常系統
+        if isinstance(error, NamecardException):
+            return get_user_friendly_message(error, verbose=self.verbose)
+
+        # 向後兼容：處理舊的錯誤訊息格式
+        error_str = str(error).lower()
+        if "quota" in error_str or "limit" in error_str:
             return "⚠️ AI 服務暫時繁忙，請稍後再試"
-        elif "network" in str(error).lower() or "timeout" in str(error).lower():
+        elif "network" in error_str or "timeout" in error_str:
             return "🌐 網路連線問題，請檢查網路後重試"
         else:
             return "❌ 圖片分析失敗，請確認圖片清晰後重試"
     
     def handle_notion_error(self, error: Exception, user_id: str) -> str:
-        """處理 Notion 相關錯誤"""
+        """
+        處理 Notion 相關錯誤
+
+        Args:
+            error: 異常物件
+            user_id: 用戶 ID
+
+        Returns:
+            用戶友善的錯誤訊息
+        """
         error_type = type(error).__name__
         self._error_counts[error_type] += 1
-        
+
         logger.error("Notion storage error",
                     error_type=error_type,
                     error_message=str(error),
                     user_id=user_id)
-        
-        if "unauthorized" in str(error).lower():
+
+        # 使用新的異常系統
+        if isinstance(error, NamecardException):
+            return get_user_friendly_message(error, verbose=self.verbose)
+
+        # 向後兼容：處理舊的錯誤訊息格式
+        error_str = str(error).lower()
+        if "unauthorized" in error_str:
             return "🔐 資料庫存取權限問題，請聯繫管理員"
-        elif "not_found" in str(error).lower():
+        elif "not_found" in error_str:
             return "📁 找不到指定的資料庫，請聯繫管理員"
         else:
             return "💾 資料儲存失敗，請稍後重試"

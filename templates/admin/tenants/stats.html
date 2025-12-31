@@ -1,0 +1,125 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ tenant.name }} - 使用統計{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ tenant.name }} - 使用統計</h1>
+    <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">返回列表</a>
+</div>
+
+<!-- Tenant Info -->
+<div class="card">
+    <h2>租戶資訊</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+        <div>
+            <strong>名稱：</strong> {{ tenant.name }}
+        </div>
+        <div>
+            <strong>識別碼：</strong> {{ tenant.slug }}
+        </div>
+        <div>
+            <strong>狀態：</strong>
+            {% if tenant.is_active %}
+            <span class="badge badge-success">啟用</span>
+            {% else %}
+            <span class="badge badge-danger">停用</span>
+            {% endif %}
+        </div>
+        <div>
+            <strong>每日限制：</strong> {{ tenant.daily_card_limit }} 張
+        </div>
+    </div>
+</div>
+
+<!-- Usage Stats -->
+<div class="card">
+    <h2>過去 30 天使用統計</h2>
+
+    {% if stats %}
+    <table>
+        <thead>
+            <tr>
+                <th>日期</th>
+                <th>處理名片</th>
+                <th>儲存名片</th>
+                <th>API 呼叫</th>
+                <th>錯誤</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stat in stats %}
+            <tr>
+                <td>{{ stat.date }}</td>
+                <td>{{ stat.cards_processed }}</td>
+                <td>{{ stat.cards_saved }}</td>
+                <td>{{ stat.api_calls }}</td>
+                <td style="color: {{ '#e74c3c' if stat.errors > 0 else '#27ae60' }}">{{ stat.errors }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Summary -->
+    {% set total_processed = stats|map(attribute='cards_processed')|sum %}
+    {% set total_saved = stats|map(attribute='cards_saved')|sum %}
+    {% set total_errors = stats|map(attribute='errors')|sum %}
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+        <strong>30 天總計：</strong>
+        處理 {{ total_processed }} 張，儲存 {{ total_saved }} 張，錯誤 {{ total_errors }} 次
+    </div>
+
+    {% else %}
+    <p style="text-align: center; color: #7f8c8d; padding: 40px;">
+        尚無使用記錄
+    </p>
+    {% endif %}
+</div>
+
+<!-- Actions -->
+<div class="card">
+    <h2>操作</h2>
+    <div style="display: flex; gap: 10px;">
+        <a href="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) }}" class="btn btn-primary">編輯租戶設定</a>
+        <button onclick="testConnection('{{ tenant.id }}')" class="btn btn-success">測試連線</button>
+    </div>
+</div>
+
+<!-- Test Modal -->
+<div id="testModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000;">
+    <div style="background: white; max-width: 500px; margin: 100px auto; padding: 30px; border-radius: 8px;">
+        <h3 style="margin-bottom: 20px;">連線測試結果</h3>
+        <div id="testResults"></div>
+        <button onclick="closeTestModal()" class="btn btn-secondary" style="margin-top: 20px;">關閉</button>
+    </div>
+</div>
+
+<script>
+function testConnection(tenantId) {
+    document.getElementById('testModal').style.display = 'block';
+    document.getElementById('testResults').innerHTML = '<p>測試中...</p>';
+
+    fetch('/admin/api/tenants/' + tenantId + '/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        let html = '';
+        for (const [service, result] of Object.entries(data)) {
+            const icon = result.status === 'success' ? '✅' : (result.status === 'skipped' ? '⏭️' : '❌');
+            const msg = result.message || result.bot_name || result.database_title || '';
+            html += `<p><strong>${icon} ${service.toUpperCase()}</strong>: ${result.status} ${msg ? '- ' + msg : ''}</p>`;
+        }
+        document.getElementById('testResults').innerHTML = html;
+    })
+    .catch(error => {
+        document.getElementById('testResults').innerHTML = '<p style="color: red;">測試失敗: ' + error + '</p>';
+    });
+}
+
+function closeTestModal() {
+    document.getElementById('testModal').style.display = 'none';
+}
+</script>
+{% endblock %}

@@ -16,13 +16,30 @@ logger = structlog.get_logger()
 
 
 class NotionClient:
-    """Notion 資料庫客戶端"""
-    
-    def __init__(self):
-        self.client = Client(auth=settings.notion_api_key)
-        self.database_id = settings.notion_database_id
-        self.database_url = f"https://notion.so/{settings.notion_database_id.replace('-', '')}"
-        
+    """Notion 資料庫客戶端
+
+    支援多租戶模式，可使用自訂的 API Key 和 Database ID。
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        database_id: Optional[str] = None,
+    ):
+        """
+        初始化 Notion 客戶端
+
+        Args:
+            api_key: 自訂 Notion API Key (用於多租戶)，預設使用全域設定
+            database_id: 自訂 Database ID (用於多租戶)，預設使用全域設定
+        """
+        # 支援自訂憑證 (多租戶) 或使用全域設定
+        self._api_key = api_key or settings.notion_api_key
+        self.database_id = database_id or settings.notion_database_id
+
+        self.client = Client(auth=self._api_key)
+        self.database_url = f"https://notion.so/{self.database_id.replace('-', '')}"
+
         # 測試連接
         self._test_connection()
     

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-LINE Bot 名片管理系統 - 主啟動文件
+LINE Bot 名片管理系統 - 主啟動文件（多租戶版）
 智能 LINE Bot 名片管理系統，使用 Google Gemini AI 識別名片內容，並自動存入 Notion 資料庫
+
+支援多租戶模式：
+- 管理後台 (/admin) 用於管理多個 LINE Bot 租戶
+- 每個租戶可有獨立的 LINE Bot 和 Notion Database
 """
 
 import os
@@ -69,12 +73,43 @@ else:
 # 導入主應用（在 Redis 初始化之後）
 from src.namecard.api.line_bot.main import app
 
+# ==================== 多租戶管理後台設定 ====================
+
+# 設定 Flask session secret key
+admin_secret_key = os.environ.get("ADMIN_SECRET_KEY") or os.environ.get("SECRET_KEY", "dev-secret-key")
+app.secret_key = admin_secret_key
+
+# 註冊管理後台 Blueprint
+from src.namecard.api.admin import admin_bp
+app.register_blueprint(admin_bp)
+
+# 初始化租戶資料庫
+from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
+try:
+    tenant_db = get_tenant_db()
+    logger.info("Tenant database initialized", db_path=tenant_db.db_path)
+except Exception as e:
+    logger.warning("Failed to initialize tenant database", error=str(e))
+
+# 初始化管理員認證（會自動建立初始管理員）
+try:
+    from src.namecard.api.admin.auth import get_admin_auth
+    admin_auth = get_admin_auth()
+    logger.info("Admin authentication initialized")
+except Exception as e:
+    logger.warning("Failed to initialize admin auth", error=str(e))
+
+logger.info("Multi-tenant admin panel enabled", admin_url="/admin")
+
+# ===========================================================
+
 def main():
     """主函數"""
-    logger.info("Starting LINE Bot Namecard System", 
-                version="1.0.0",
+    logger.info("Starting LINE Bot Namecard System",
+                version="3.0.0",
                 port=settings.app_port,
-                environment=settings.flask_env)
+                environment=settings.flask_env,
+                multi_tenant=True)
     
     try:
         # 啟動 Flask 應用

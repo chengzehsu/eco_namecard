@@ -152,4 +152,4 @@ temp/
 
 # Logs
 logs/
-*.log
+*.logdata/*.db

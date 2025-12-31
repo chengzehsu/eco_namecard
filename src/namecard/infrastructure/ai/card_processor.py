@@ -18,6 +18,18 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
 from simple_config import settings
 from src.namecard.core.models.card import BusinessCard
+from src.namecard.core.exceptions import (
+    APIKeyInvalidError,
+    APIQuotaExceededError,
+    SafetyFilterBlockedError,
+    LowQualityCardError,
+    IncompleteCardDataError,
+    LowResolutionImageError,
+    JSONParsingError,
+    EmptyAIResponseError,
+    NetworkError,
+    APITimeoutError,
+)
 
 logger = structlog.get_logger()
 
@@ -101,18 +113,32 @@ class CardProcessor:
     使用 Google Gemini AI 進行圖像理解和文字擷取。
     """
     
-    def __init__(self, config: Optional[ProcessingConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[ProcessingConfig] = None,
+        api_key: Optional[str] = None,
+        fallback_api_key: Optional[str] = None,
+    ) -> None:
         """
         初始化處理器
-        
+
         Args:
             config: 處理配置，預設使用預設配置
+            api_key: 自訂 Google API Key (用於多租戶)，預設使用全域設定
+            fallback_api_key: 自訂備用 API Key，預設使用全域設定
         """
         self.config = config or ProcessingConfig()
         self.model = None
         self.fallback_model = None
         self._api_call_count = 0
         self._last_api_call = 0
+
+        # API key 管理 - 支援自訂 key (多租戶) 或使用全域 key
+        self.primary_api_key = api_key or settings.google_api_key
+        self.fallback_api_key = fallback_api_key or settings.google_api_key_fallback
+        self.current_api_key = self.primary_api_key  # 目前使用的 key
+        self.primary_quota_exceeded = False  # 主要 key 是否已達配額
+
         self._setup_gemini()
         
         logger.info(
@@ -257,61 +283,79 @@ class CardProcessor:
     
     def _setup_gemini(self) -> None:
         """設置 Gemini API 並初始化模型
-        
+
+        初始化主要和備用 API key 的模型實例，實現 quota exceeded 時的自動切換
+
         Raises:
-            APIError: 當主要和備用 API 金鑰都失敗時
+            APIKeyInvalidError: 當主要 API 金鑰無效時（備用 key 可選）
         """
-        api_keys = [settings.google_api_key]
-        if settings.google_api_key_fallback:
-            api_keys.append(settings.google_api_key_fallback)
-        
-        for i, api_key in enumerate(api_keys):
-            if not api_key:
-                continue
-                
+        # 測試模式：跳過真實的 API 初始化
+        if self.primary_api_key in ['test_key', 'test', '']:
+            logger.warning("Running in test mode, skipping Gemini API initialization")
+            self.model = None
+            self.fallback_model = None
+            return
+
+        # 初始化主要 API key 的模型
+        try:
+            genai.configure(api_key=self.primary_api_key)
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
+
+            # 測試主要 API 連接
+            _ = self.model.generate_content("test")
+
+            logger.info(
+                "Primary Gemini API configured successfully",
+                model="gemini-2.5-flash",
+                has_fallback_key=bool(self.fallback_api_key),
+                operation="api_setup",
+                status="success"
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to configure primary Gemini API",
+                error=str(e),
+                operation="api_setup",
+                status="failed"
+            )
+            raise APIKeyInvalidError(details={"error": str(e), "key_type": "primary"}) from e
+
+        # 如果有 fallback API key，初始化 fallback 模型
+        if self.fallback_api_key:
             try:
-                genai.configure(api_key=api_key)
+                # 暫存當前配置
+                primary_model = self.model
 
-                # 主要模型：gemini-2.5-flash（速度快，成本低）
-                self.model = genai.GenerativeModel('gemini-2.5-flash')
+                # 配置 fallback key 並創建模型
+                genai.configure(api_key=self.fallback_api_key)
+                self.fallback_model = genai.GenerativeModel('gemini-2.5-flash')
 
-                # Fallback 模型：gemini-2.0-flash（當 2.5 被安全過濾器阻擋時使用）
-                self.fallback_model = genai.GenerativeModel('gemini-2.0-flash')
+                # 測試 fallback API 連接
+                _ = self.fallback_model.generate_content("test")
 
-                # 測試 API 連接
-                _ = self.model.generate_content("test")
+                # 恢復主要 API key 配置
+                genai.configure(api_key=self.primary_api_key)
+                self.model = primary_model
 
-                key_type = "primary" if i == 0 else "fallback"
-                logger.info(f"Gemini API configured successfully using {key_type} key")
-
-                # 記錄成功的 API 配置
                 logger.info(
-                    "Gemini API configured successfully",
-                    key_type=key_type,
-                    api_index=i,
-                    primary_model="gemini-2.5-flash",
-                    fallback_model="gemini-2.0-flash",
+                    "Fallback Gemini API configured successfully",
+                    model="gemini-2.5-flash",
                     operation="api_setup",
                     status="success"
                 )
-                return
-                
+
             except Exception as e:
-                key_type = "primary" if i == 0 else "fallback"
-                logger.warning(f"Failed to configure {key_type} Gemini API", error=str(e))
-                
-                # 記錄 API 配置失敗
                 logger.warning(
-                    f"Failed to configure {key_type} Gemini API",
-                    key_type=key_type,
+                    "Failed to configure fallback Gemini API (not critical)",
                     error=str(e),
-                    api_index=i,
                     operation="api_setup",
-                    status="failed"
+                    status="warning"
                 )
-                continue
-        
-        raise APIError("All Gemini API keys failed to initialize")
+                self.fallback_model = None  # Fallback 失敗不是致命錯誤
+        else:
+            logger.info("No fallback API key configured")
+            self.fallback_model = None
     
     def process_image(self, image_data: bytes, user_id: str) -> List[BusinessCard]:
         """
@@ -344,7 +388,18 @@ class CardProcessor:
             
             # 解析結果
             cards = self._parse_response(response, user_id)
-            
+
+            # 檢查是否識別到名片
+            if not cards:
+                logger.warning(
+                    "No valid cards detected after parsing",
+                    user_id=user_id,
+                    operation="card_processing",
+                    status="no_cards"
+                )
+                # 沒有識別到任何名片，拋出空回應錯誤
+                raise EmptyAIResponseError(details={"user_id": user_id, "reason": "no_valid_cards_after_quality_check"})
+
             # 記錄成功事件和業務指標
             logger.info(
                 "Card processing completed successfully",
@@ -356,7 +411,7 @@ class CardProcessor:
                 operation="card_processing",
                 status="success"
             )
-            
+
             # 檢查識別品質並發出警告
             low_confidence_cards = [c for c in cards if c.confidence_score < 0.5]
             if low_confidence_cards:
@@ -369,13 +424,27 @@ class CardProcessor:
                     operation="quality_check",
                     issue="low_confidence"
                 )
-            
-            logger.info("Card processing completed", 
-                       user_id=user_id, 
+
+            logger.info("Card processing completed",
+                       user_id=user_id,
                        cards_count=len(cards))
-            
+
             return cards
             
+        except (
+            APIKeyInvalidError,
+            APIQuotaExceededError,
+            SafetyFilterBlockedError,
+            LowQualityCardError,
+            IncompleteCardDataError,
+            LowResolutionImageError,
+            JSONParsingError,
+            EmptyAIResponseError,
+            NetworkError,
+            APITimeoutError,
+        ):
+            # 這些是我們定義的具體異常，直接再次拋出
+            raise
         except Exception as e:
             # 記錄異常詳情
             logger.error(
@@ -388,11 +457,12 @@ class CardProcessor:
                 operation="card_processing",
                 traceback=traceback.format_exc()
             )
-            
-            logger.error("Card processing failed", 
-                        user_id=user_id, 
+
+            logger.error("Card processing failed",
+                        user_id=user_id,
                         error=str(e))
-            return []
+            # 拋出異常而不是返回空列表
+            raise
     
     def _preprocess_image(self, image: Image.Image) -> Image.Image:
         """圖片預處理和優化
@@ -436,12 +506,21 @@ class CardProcessor:
             # 簡單的品質評估
             if image.size[0] < 300 or image.size[1] < 300:
                 logger.warning(
-                    "Image resolution may be too low for optimal OCR",
-                    size=image.size
+                    "Image resolution too low",
+                    size=image.size,
+                    min_required=(300, 300)
+                )
+                raise LowResolutionImageError(
+                    width=image.size[0],
+                    height=image.size[1],
+                    details={"original_size": original_size, "processed_size": image.size}
                 )
             
             return image
-            
+
+        except LowResolutionImageError:
+            # 讓解析度錯誤直接傳播
+            raise
         except Exception as e:
             logger.error("Image preprocessing failed", error=str(e))
             raise ImageProcessingError(f"Failed to preprocess image: {str(e)}")
@@ -546,7 +625,7 @@ class CardProcessor:
                         )
 
                         if not fallback_response.text:
-                            raise APIError("Fallback model returned empty response")
+                            raise EmptyAIResponseError(details={"model": "gemini-2.0-flash", "reason": "fallback_empty_response"})
 
                         logger.info(
                             "Fallback model succeeded",
@@ -558,6 +637,8 @@ class CardProcessor:
 
                         return fallback_response.text.strip()
 
+                    except EmptyAIResponseError:
+                        raise
                     except Exception as fallback_error:
                         logger.error(
                             "Fallback model also failed",
@@ -565,9 +646,15 @@ class CardProcessor:
                             error=str(fallback_error),
                             operation="fallback_failure"
                         )
-                        raise APIError(f"兩個模型都無法處理此圖片：{str(fallback_error)}")
+                        raise SafetyFilterBlockedError(
+                            finish_reason="SAFETY",
+                            details={"error": str(fallback_error), "both_models_failed": True}
+                        ) from fallback_error
                 else:
-                    raise APIError("圖片處理被阻擋且無 fallback 模型可用")
+                    raise SafetyFilterBlockedError(
+                        finish_reason="SAFETY",
+                        details={"no_fallback_model": True}
+                    )
 
             if not response.text:
                 # 記錄空回應錯誤
@@ -577,7 +664,7 @@ class CardProcessor:
                     operation="gemini_api",
                     error_type="empty_response"
                 )
-                raise APIError("Empty response from Gemini")
+                raise EmptyAIResponseError(details={"model": "gemini-2.5-flash"})
             
             # 記錄成功的 API 調用
             logger.info(
@@ -597,6 +684,9 @@ class CardProcessor:
             
             return response.text.strip()
             
+        except (EmptyAIResponseError, SafetyFilterBlockedError):
+            # 這些異常已經處理過，直接再次拋出
+            raise
         except Exception as e:
             # 記錄 API 調用失敗
             logger.error(
@@ -607,12 +697,104 @@ class CardProcessor:
                 operation="gemini_api",
                 error_category="api_failure"
             )
-            
+
             logger.error(
                 "Gemini analysis failed",
                 error=str(e),
                 api_call_count=self._api_call_count
             )
+
+            # 根據錯誤訊息分類
+            error_str = str(e).lower()
+
+            # API Quota 相關錯誤 - 檢查是否可以切換到 fallback API key
+            if any(keyword in error_str for keyword in ['quota', 'limit', 'exceeded', 'rate limit', '429']):
+                # 如果主要 key 還沒達到配額限制，標記它並嘗試 fallback
+                if not self.primary_quota_exceeded and self.fallback_model:
+                    logger.warning(
+                        "Primary API key quota exceeded, switching to fallback API key",
+                        api_call_count=self._api_call_count,
+                        operation="quota_fallback"
+                    )
+                    self.primary_quota_exceeded = True
+                    self.current_api_key = self.fallback_api_key
+
+                    try:
+                        # 重新配置為 fallback API key
+                        genai.configure(api_key=self.fallback_api_key)
+
+                        # 使用 fallback model 重試
+                        logger.info(
+                            "Retrying with fallback API key",
+                            api_call_count=self._api_call_count,
+                            operation="quota_retry"
+                        )
+
+                        # 配置安全設定
+                        safety_settings = [
+                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                        ]
+
+                        fallback_response = self.fallback_model.generate_content(
+                            [self.card_prompt, image],
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=0.1,
+                                max_output_tokens=2048,
+                                response_mime_type="application/json"
+                            ),
+                            safety_settings=safety_settings
+                        )
+
+                        if not fallback_response.text:
+                            raise EmptyAIResponseError(details={"model": "fallback", "reason": "quota_fallback_empty"})
+
+                        logger.info(
+                            "Fallback API key succeeded",
+                            api_call_count=self._api_call_count,
+                            response_length=len(fallback_response.text),
+                            operation="quota_fallback_success"
+                        )
+
+                        return fallback_response.text.strip()
+
+                    except Exception as fallback_error:
+                        logger.error(
+                            "Fallback API key also failed or quota exceeded",
+                            error=str(fallback_error),
+                            api_call_count=self._api_call_count,
+                            operation="quota_fallback_failure"
+                        )
+                        # Fallback 也失敗，拋出配額錯誤
+                        raise APIQuotaExceededError(details={
+                            "original_error": str(e),
+                            "fallback_error": str(fallback_error),
+                            "both_keys_exhausted": True
+                        }) from fallback_error
+
+                # 沒有 fallback 或已經在使用 fallback
+                raise APIQuotaExceededError(details={
+                    "original_error": str(e),
+                    "error_type": type(e).__name__,
+                    "has_fallback": bool(self.fallback_model),
+                    "already_using_fallback": self.primary_quota_exceeded
+                }) from e
+
+            # 網路相關錯誤
+            if any(keyword in error_str for keyword in ['network', 'connection', 'connect', 'unreachable']):
+                raise NetworkError(details={"original_error": str(e), "error_type": type(e).__name__}) from e
+
+            # 超時錯誤
+            if any(keyword in error_str for keyword in ['timeout', 'timed out', 'time out']):
+                raise APITimeoutError(timeout_seconds=self.config.timeout_seconds, details={"original_error": str(e)}) from e
+
+            # 授權/金鑰錯誤
+            if any(keyword in error_str for keyword in ['unauthorized', 'invalid api key', 'authentication', 'permission denied']):
+                raise APIKeyInvalidError(details={"original_error": str(e), "error_type": type(e).__name__}) from e
+
+            # 其他未分類錯誤
             raise APIError(f"Gemini API call failed: {str(e)}")
     
     def _parse_response(self, response_text: str, user_id: str) -> List[BusinessCard]:
@@ -677,13 +859,16 @@ class CardProcessor:
             return cards
             
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse JSON response", 
-                        error=str(e), 
+            logger.error("Failed to parse JSON response",
+                        error=str(e),
                         response=response_text[:500])
-            return []
+            raise JSONParsingError(
+                raw_response=response_text,
+                details={"error": str(e), "response_preview": response_text[:500]}
+            ) from e
         except Exception as e:
             logger.error("Failed to parse response", error=str(e))
-            return []
+            raise
     
     def _validate_card_quality(self, card: BusinessCard) -> bool:
         """驗證名片品質和完整性

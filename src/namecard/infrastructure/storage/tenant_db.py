@@ -351,6 +351,24 @@ class TenantDatabase:
             cursor = conn.execute("SELECT COUNT(*) FROM admin_users")
             return cursor.fetchone()[0] > 0
 
+    def update_admin_password(self, username: str, password_hash: str) -> bool:
+        """
+        Update admin password by username
+
+        Args:
+            username: Admin username
+            password_hash: New bcrypt password hash
+
+        Returns:
+            True if updated, False if user not found
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE admin_users SET password_hash = ? WHERE username = ?",
+                (password_hash, username)
+            )
+            return cursor.rowcount > 0
+
     # ==================== Usage Stats Operations ====================
 
     def record_usage(self, tenant_id: str, cards_processed: int = 0,

@@ -126,6 +126,9 @@ class UnifiedEventHandler:
                 return
 
             # 下載圖片
+            # #region agent log
+            logger.info("DEBUG_BEFORE_GET_CONTENT", message_id=message_id, user_id=user_id, tenant_id=self.tenant_id)
+            # #endregion
             message_content = self.line_bot_api.get_message_content(message_id)
             image_data = message_content.content
 
@@ -211,6 +214,9 @@ class UnifiedEventHandler:
             )
 
         except LineBotApiError as e:
+            # #region agent log
+            logger.info("DEBUG_LINE_API_ERROR", error_str=str(e)[:200], status_code=getattr(e,'status_code',None), message_id=message_id, user_id=user_id, tenant_id=self.tenant_id)
+            # #endregion
             logger.error("LINE API error in image processing",
                         error=str(e),
                         user_id=user_id)

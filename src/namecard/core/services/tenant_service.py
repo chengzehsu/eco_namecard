@@ -78,12 +78,22 @@ class TenantService:
     def _decrypt(self, ciphertext: str) -> str:
         """Decrypt a string"""
         if not ciphertext:
+            # #region agent log
+            logger.info("DEBUG_DECRYPT_EMPTY_CIPHERTEXT")
+            # #endregion
             return ""
         try:
             encrypted = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
             decrypted = self._cipher.decrypt(encrypted)
-            return decrypted.decode("utf-8")
+            result = decrypted.decode("utf-8")
+            # #region agent log
+            logger.info("DEBUG_DECRYPT_SUCCESS", result_length=len(result), result_empty=not result)
+            # #endregion
+            return result
         except Exception as e:
+            # #region agent log
+            logger.info("DEBUG_DECRYPT_FAILED", error=str(e)[:100])
+            # #endregion
             logger.error("Decryption failed", error=str(e))
             return ""
 

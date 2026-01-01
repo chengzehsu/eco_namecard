@@ -97,6 +97,9 @@ def get_tenant_context(channel_id: str) -> Optional[TenantContext]:
     try:
         tenant_service = get_tenant_service()
         tenant = tenant_service.get_tenant_by_channel_id(channel_id)
+        # #region agent log
+        logger.info("DEBUG_TENANT_LOOKUP", channel_id=channel_id, tenant_found=tenant is not None, tenant_name=tenant.name if tenant else None, tenant_is_active=tenant.is_active if tenant else None, tenant_line_channel_id=tenant.line_channel_id if tenant else None)
+        # #endregion
         if tenant and tenant.is_active:
             return TenantContext(tenant)
     except Exception as e:
@@ -149,6 +152,9 @@ def callback():
     channel_id = extract_channel_id(body)
     tenant_context = get_tenant_context(channel_id) if channel_id else None
 
+    # #region agent log
+    logger.info("DEBUG_ROUTING_DECISION", channel_id=channel_id, tenant_context_found=tenant_context is not None, mode="multi-tenant" if tenant_context else "default")
+    # #endregion
     if tenant_context:
         # 多租戶模式
         logger.info("Multi-tenant mode",

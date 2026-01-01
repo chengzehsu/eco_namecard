@@ -120,7 +120,11 @@ class TenantContext:
     def line_bot_api(self) -> LineBotApi:
         """Lazy-loaded LINE Bot API instance"""
         if self._line_bot_api is None:
-            self._line_bot_api = LineBotApi(self.tenant.line_channel_access_token)
+            token = self.tenant.line_channel_access_token
+            # #region agent log
+            import structlog; structlog.get_logger().info("DEBUG_TOKEN_CHECK", tenant_id=self.tenant.id, token_length=len(token) if token else 0, token_empty=not token, token_prefix=token[:20] if token and len(token)>20 else "SHORT_OR_EMPTY")
+            # #endregion
+            self._line_bot_api = LineBotApi(token)
         return self._line_bot_api
 
     @property

@@ -239,6 +239,9 @@ def process_multi_tenant(body: str, signature: str, context: TenantContext):
 
     使用租戶專屬的配置驗證簽名和處理事件。
     """
+    # #region agent log
+    logger.warning("DEBUG_MULTI_TENANT_START", tenant_id=context.tenant_id, tenant_name=context.tenant_name)
+    # #endregion
     # 驗證簽名（使用租戶的 secret）
     if settings.flask_env == "production":
         if not security_service.validate_line_signature(
@@ -250,16 +253,31 @@ def process_multi_tenant(body: str, signature: str, context: TenantContext):
 
     try:
         # 創建租戶專屬的事件處理器
+        # #region agent log
+        logger.warning("DEBUG_CREATING_EVENT_HANDLER", tenant_id=context.tenant_id)
+        # #endregion
         event_handler = get_event_handler_for_tenant(context)
+        # #region agent log
+        logger.warning("DEBUG_EVENT_HANDLER_CREATED", tenant_id=context.tenant_id)
+        # #endregion
 
         # 記錄使用統計
         tenant_service = get_tenant_service()
         tenant_service.record_usage(context.tenant_id, api_calls=1)
 
         # 處理事件
+        # #region agent log
+        logger.warning("DEBUG_BEFORE_PROCESS_EVENTS", tenant_id=context.tenant_id)
+        # #endregion
         process_events_with_handler(body, event_handler, context.line_bot_api)
+        # #region agent log
+        logger.warning("DEBUG_AFTER_PROCESS_EVENTS", tenant_id=context.tenant_id)
+        # #endregion
 
     except Exception as e:
+        # #region agent log
+        logger.error("DEBUG_MULTI_TENANT_ERROR", tenant_id=context.tenant_id, error=str(e), error_type=type(e).__name__)
+        # #endregion
         logger.error("Multi-tenant webhook processing error",
                     tenant_id=context.tenant_id,
                     error=str(e))
@@ -330,7 +348,9 @@ def process_events_with_handler(body: str, event_handler: UnifiedEventHandler, l
         webhook_data = json.loads(body)
         events = webhook_data.get('events', [])
 
-        logger.info("Processing events", event_count=len(events))
+        # #region agent log
+        logger.warning("DEBUG_PROCESS_EVENTS_START", event_count=len(events))
+        # #endregion
 
         for event_data in events:
             event_type = event_data.get('type')
@@ -346,6 +366,10 @@ def process_events_with_handler(body: str, event_handler: UnifiedEventHandler, l
             user_id = source.get('userId')
             reply_token = event_data.get('replyToken')
 
+            # #region agent log
+            logger.warning("DEBUG_MESSAGE_RECEIVED", message_type=message_type, user_id=user_id[:10] + "..." if user_id else None)
+            # #endregion
+
             if not user_id or not reply_token:
                 logger.warning("Missing user_id or reply_token")
                 continue
@@ -357,7 +381,13 @@ def process_events_with_handler(body: str, event_handler: UnifiedEventHandler, l
 
             elif message_type == 'image':
                 message_id = message.get('id')
+                # #region agent log
+                logger.warning("DEBUG_CALLING_HANDLE_IMAGE", message_id=message_id, user_id=user_id[:10] + "...")
+                # #endregion
                 event_handler.handle_image_message(user_id, message_id, reply_token)
+                # #region agent log
+                logger.warning("DEBUG_HANDLE_IMAGE_RETURNED", message_id=message_id)
+                # #endregion
 
             else:
                 logger.info("Unsupported message type", message_type=message_type)
@@ -367,6 +397,9 @@ def process_events_with_handler(body: str, event_handler: UnifiedEventHandler, l
     except json.JSONDecodeError as e:
         logger.error("Failed to parse webhook JSON", error=str(e))
     except Exception as e:
+        # #region agent log
+        logger.error("DEBUG_PROCESS_EVENTS_ERROR", error=str(e), error_type=type(e).__name__)
+        # #endregion
         logger.error("Event processing error", error=str(e))
 
 

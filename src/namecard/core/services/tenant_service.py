@@ -263,6 +263,8 @@ class TenantService:
             data["name"] = request.name
         if request.is_active is not None:
             data["is_active"] = request.is_active
+        if request.line_channel_id is not None:
+            data["line_channel_id"] = request.line_channel_id
         if request.line_channel_access_token is not None:
             data["line_channel_access_token_encrypted"] = self._encrypt(request.line_channel_access_token)
         if request.line_channel_secret is not None:

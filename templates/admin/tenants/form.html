@@ -58,11 +58,10 @@
             <label for="line_channel_id">LINE Channel ID (Bot User ID) *</label>
             <input type="text" id="line_channel_id" name="line_channel_id"
                    value="{{ tenant.line_channel_id if tenant else '' }}"
-                   {{ 'readonly style="opacity: 0.6;"' if is_edit else 'required' }}
+                   required
                    placeholder="U1234567890abcdef...">
             <small>
-                在 LINE Developers Console → Messaging API → Bot basic ID，或使用 Bot 的 User ID。
-                {% if is_edit %}(建立後無法修改){% endif %}
+                Bot 的 User ID（格式：U 開頭的 33 字元）。可透過 <code>/debug/last-destination</code> 端點取得。
             </small>
         </div>
 

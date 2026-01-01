@@ -175,6 +175,11 @@ def edit_tenant(tenant_id: str):
             if is_active != tenant.is_active:
                 update_data["is_active"] = is_active
 
+            # LINE Channel ID - always check for updates
+            line_channel_id = request.form.get("line_channel_id", "").strip()
+            if line_channel_id and line_channel_id != tenant.line_channel_id:
+                update_data["line_channel_id"] = line_channel_id
+
             # Credential fields - only update if provided
             line_token = request.form.get("line_channel_access_token", "").strip()
             if line_token:

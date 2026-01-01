@@ -77,6 +77,7 @@ class TenantUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
     # LINE Bot (optional updates)
+    line_channel_id: Optional[str] = None  # Allow updating line_channel_id
     line_channel_access_token: Optional[str] = None
     line_channel_secret: Optional[str] = None
 

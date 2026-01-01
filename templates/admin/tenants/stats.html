@@ -176,10 +176,19 @@
 <!-- Users Tab -->
 <div id="tab-users" class="tab-content">
     <div class="card">
-        <h2>
-            <i data-lucide="users" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
-            用戶使用統計
-            <span class="badge badge-info" style="margin-left: 8px;">{{ user_count }} 位用戶</span>
+        <h2 style="display: flex; justify-content: space-between; align-items: center;">
+            <span>
+                <i data-lucide="users" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+                用戶使用統計
+                <span class="badge badge-info" style="margin-left: 8px;">{{ user_count }} 位用戶</span>
+            </span>
+            <button onclick="syncUserProfiles('{{ tenant.id }}')" 
+                    class="btn btn-sm" 
+                    style="background: var(--accent-purple); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.875rem;"
+                    id="sync-profiles-btn">
+                <i data-lucide="refresh-cw" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;"></i>
+                同步用戶資訊
+            </button>
         </h2>
 
         {% if top_users %}
@@ -624,7 +633,52 @@ function closeTestModal() {
     document.getElementById('testModal').style.display = 'none';
 }
 
+function syncUserProfiles(tenantId) {
+    const btn = document.getElementById('sync-profiles-btn');
+    const originalText = btn.innerHTML;
+    
+    // 禁用按鈕並顯示載入狀態
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-2" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle; animation: spin 1s linear infinite;"></i>同步中...';
+    lucide.createIcons();
+    
+    fetch(`/admin/api/tenants/${tenantId}/users/sync-profiles`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        lucide.createIcons();
+        
+        if (data.error) {
+            alert('同步失敗: ' + data.error);
+        } else {
+            alert(`同步完成！\n已同步: ${data.synced} 個用戶\n失敗: ${data.failed} 個用戶\n\n請重新整理頁面查看更新後的用戶資訊。`);
+            // 可選：自動重新載入頁面
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        lucide.createIcons();
+        alert('同步失敗: ' + error.message);
+    });
+}
+
 // Initialize icons
 lucide.createIcons();
 </script>
+<style>
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+</style>
 {% endblock %}

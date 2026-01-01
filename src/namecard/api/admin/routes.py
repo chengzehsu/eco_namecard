@@ -516,3 +516,75 @@ def api_tenant_users(tenant_id: str):
         "users": users,
         "total_users": user_count
     })
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/users/sync-profiles", methods=["POST"])
+@login_required
+def sync_user_profiles(tenant_id: str):
+    """Sync LINE user profiles for existing users (fetch names and avatars)"""
+    from linebot import LineBotApi
+    from linebot.exceptions import LineBotApiError
+    
+    tenant_service = get_tenant_service()
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    
+    if not tenant:
+        return jsonify({"error": "Tenant not found"}), 404
+    
+    # 獲取所有有使用記錄但沒有 profile 的用戶
+    user_stats = tenant_service.get_tenant_users_stats(tenant_id, days=365)
+    users_without_profile = [
+        user for user in user_stats 
+        if not user.get("display_name") and user.get("line_user_id")
+    ]
+    
+    if not users_without_profile:
+        return jsonify({
+            "message": "所有用戶已有 profile 資訊",
+            "synced": 0,
+            "failed": 0
+        })
+    
+    # 初始化 LINE Bot API
+    try:
+        line_bot_api = LineBotApi(tenant.line_channel_access_token)
+    except Exception as e:
+        logger.error("Failed to initialize LINE Bot API", error=str(e))
+        return jsonify({"error": "Failed to initialize LINE Bot API"}), 500
+    
+    synced = 0
+    failed = 0
+    errors = []
+    
+    # 為每個用戶獲取 profile
+    for user_stat in users_without_profile[:50]:  # 限制一次最多 50 個
+        user_id = user_stat.get("line_user_id")
+        if not user_id:
+            continue
+            
+        try:
+            profile = line_bot_api.get_profile(user_id)
+            tenant_service.save_line_user(
+                tenant_id=tenant_id,
+                line_user_id=user_id,
+                display_name=profile.display_name,
+                picture_url=profile.picture_url
+            )
+            synced += 1
+        except LineBotApiError as e:
+            # 某些情況下無法獲取（如用戶未加好友、已封鎖等）
+            failed += 1
+            errors.append(f"User {user_id[:12]}...: {str(e)}")
+            logger.debug("Could not get user profile", user_id=user_id, error=str(e))
+        except Exception as e:
+            failed += 1
+            errors.append(f"User {user_id[:12]}...: {str(e)}")
+            logger.warning("Failed to sync user profile", user_id=user_id, error=str(e))
+    
+    return jsonify({
+        "message": f"已同步 {synced} 個用戶 profile",
+        "synced": synced,
+        "failed": failed,
+        "total": len(users_without_profile),
+        "errors": errors[:10]  # 只返回前 10 個錯誤
+    })

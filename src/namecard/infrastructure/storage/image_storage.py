@@ -94,16 +94,7 @@ def get_image_storage() -> Optional[ImageStorage]:
     global _image_storage
 
     if _image_storage is None:
-        # #region agent log
-        import json
-        with open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "image_storage.py:get_image_storage", "message": "BEFORE import simple_config", "hypothesisId": "H1", "runId": "post-fix"}) + '\n')
-        # #endregion
         from simple_config import settings
-        # #region agent log
-        with open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "image_storage.py:get_image_storage", "message": "AFTER import simple_config SUCCESS", "hypothesisId": "H1", "runId": "post-fix"}) + '\n')
-        # #endregion
 
         api_key = getattr(settings, 'imgbb_api_key', None)
         if api_key:

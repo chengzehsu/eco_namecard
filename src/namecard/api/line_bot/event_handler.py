@@ -5,12 +5,16 @@
 """
 
 import structlog
-from typing import Optional, Callable
+from typing import Optional, Callable, Union
 from linebot import LineBotApi
-from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
+from linebot.models import TextSendMessage, FlexSendMessage, QuickReply, QuickReplyButton, MessageAction
 from linebot.exceptions import LineBotApiError
 
 from src.namecard.core.services.user_service import user_service
+from src.namecard.api.line_bot.flex_templates import (
+    create_card_result_message,
+    create_batch_complete_message,
+)
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
@@ -121,7 +125,9 @@ class UnifiedEventHandler:
             if status.daily_usage >= 50:
                 self._send_reply(
                     reply_token,
-                    f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試"
+                    f"⚠️ 已達每日上限（{status.daily_usage}/50）\n"
+                    f"📅 每日凌晨 04:00 重置\n"
+                    f"💬 如需提高上限，請聯繫管理員"
                 )
                 return
 
@@ -246,7 +252,7 @@ class UnifiedEventHandler:
 📊 輸入「狀態」→ 查看進度
 
 ⚡ 支援多張名片同時識別
-📋 每日限制：50 張"""
+📋 每日限制：50 張（凌晨 04:00 重置）"""
 
         self._send_reply(
             reply_token,
@@ -287,38 +293,27 @@ class UnifiedEventHandler:
         status_text = f"""📊 使用狀態
 
 今日使用：{status.daily_usage} / 50 張
-批次模式：{'開啟' if status.is_batch_mode else '關閉'}"""
+批次模式：{'開啟' if status.is_batch_mode else '關閉'}
+📅 凌晨 04:00 重置"""
 
         self._send_reply(reply_token, status_text)
 
     def _end_batch_mode(self, user_id: str, reply_token: str) -> None:
-        """結束批次模式"""
+        """結束批次模式（使用 Flex Message）"""
         batch_result = user_service.end_batch_mode(user_id)
 
         if not batch_result:
             self._send_reply(reply_token, "⚠️ 目前不在批次模式")
             return
 
-        # 生成總結
-        duration = batch_result.completed_at - batch_result.started_at
-        success_rate = batch_result.success_rate * 100
-
-        summary_text = f"""📊 批次完成！
-
-總計：{batch_result.total_cards} 張
-成功：{batch_result.successful_cards} 張 ({success_rate:.0f}%)
-失敗：{batch_result.failed_cards} 張
-時間：{duration.seconds // 60}:{duration.seconds % 60:02d}"""
-
-        if batch_result.errors:
-            summary_text += f"\n\n⚠️ {batch_result.errors[0][:50]}"
-
-        self._send_reply(reply_token, summary_text)
+        # 使用 Flex Message 卡片顯示批次結果
+        flex_message = create_batch_complete_message(batch_result)
+        self._send_reply(reply_token, flex_message)
 
         logger.info("Batch mode ended",
                    user_id=user_id,
                    total_cards=batch_result.total_cards,
-                   success_rate=success_rate)
+                   success_rate=batch_result.success_rate * 100)
 
     def _send_unknown_command(self, reply_token: str) -> None:
         """發送未知命令訊息"""
@@ -339,36 +334,22 @@ class UnifiedEventHandler:
         error_messages: list,
         status
     ) -> None:
-        """發送處理結果訊息"""
-        total = len(cards)
-
+        """發送處理結果訊息（使用 Flex Message）"""
         if success_count > 0:
-            # 成功訊息
-            if total == 1:
-                card = cards[0]
-                result_text = f"""✅ 名片識別成功！
+            # 成功 - 使用 Flex Message 卡片
+            batch_progress = None
+            if status.is_batch_mode and status.current_batch:
+                batch_progress = status.current_batch.total_cards
 
-姓名：{card.name or '未識別'}
-公司：{card.company or '未識別'}
-職稱：{card.title or '未識別'}
-電話：{card.phone or '未識別'}
-Email：{card.email or '未識別'}"""
-            else:
-                result_text = f"""✅ 識別完成！
-
-成功：{success_count} 張
-失敗：{failed_count} 張
-總計：{total} 張"""
-
-            # 批次模式提示
-            if status.is_batch_mode:
-                batch = status.current_batch
-                result_text += f"\n\n📦 批次進度：{batch.total_cards} 張"
-
-            self._send_reply(reply_token, result_text)
+            flex_message = create_card_result_message(
+                cards=cards,
+                is_batch_mode=status.is_batch_mode,
+                batch_progress=batch_progress
+            )
+            self._send_reply(reply_token, flex_message)
 
         elif failed_count > 0:
-            # 全部失敗
+            # 全部失敗 - 維持純文字錯誤訊息
             error_text = error_messages[0] if error_messages else "❌ 儲存失敗，請稍後重試"
             self._send_reply(reply_token, error_text)
 
@@ -379,7 +360,7 @@ Email：{card.email or '未識別'}"""
     def _send_reply(
         self,
         reply_token: str,
-        text: str,
+        message: Union[str, FlexSendMessage],
         quick_reply: Optional[QuickReply] = None
     ) -> None:
         """
@@ -387,12 +368,21 @@ Email：{card.email or '未識別'}"""
 
         Args:
             reply_token: 回覆 token
-            text: 訊息內容
+            message: 訊息內容（字串或 FlexSendMessage）
             quick_reply: 快速回覆選項（可選）
         """
         try:
-            message = TextSendMessage(text=text, quick_reply=quick_reply)
-            self.line_bot_api.reply_message(reply_token, message)
+            if isinstance(message, str):
+                # 純文字訊息
+                send_message = TextSendMessage(text=message, quick_reply=quick_reply)
+            elif isinstance(message, FlexSendMessage):
+                # Flex Message - 附加 quick_reply
+                message.quick_reply = quick_reply
+                send_message = message
+            else:
+                raise ValueError(f"不支援的訊息類型: {type(message)}")
+
+            self.line_bot_api.reply_message(reply_token, send_message)
         except LineBotApiError as e:
             logger.error("Failed to send reply",
                         error=str(e),

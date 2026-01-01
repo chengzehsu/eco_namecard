@@ -74,8 +74,10 @@ def dashboard():
     stats = tenant_service.get_overall_stats()
     tenants = tenant_service.list_tenants(include_inactive=True)
 
-    # Get extended stats for the period
-    all_tenants_summary = tenant_service.get_all_tenants_summary(days=days)
+    # Get extended stats for the period (with default values)
+    all_tenants_summary = tenant_service.get_all_tenants_summary(days=days) or {
+        "total_processed": 0, "total_saved": 0, "total_errors": 0, "active_tenants": 0
+    }
 
     try:
         tenant_stats = tenant_service.get_today_stats_by_tenant() or {}
@@ -281,12 +283,16 @@ def tenant_stats(tenant_id: str):
         flash("找不到此租戶", "error")
         return redirect(url_for("admin.list_tenants"))
 
-    # Get comprehensive stats
-    stats = tenant_service.get_tenant_stats(tenant_id, days=days)
-    summary = tenant_service.get_tenant_stats_summary(tenant_id, days=days)
-    monthly_stats = tenant_service.get_tenant_monthly_stats(tenant_id, months=12)
-    user_count = tenant_service.get_user_count(tenant_id, days=days)
-    top_users = tenant_service.get_top_users(tenant_id, limit=10, days=days)
+    # Get comprehensive stats (with default values to prevent None errors)
+    stats = tenant_service.get_tenant_stats(tenant_id, days=days) or []
+    summary = tenant_service.get_tenant_stats_summary(tenant_id, days=days) or {
+        "total_processed": 0, "total_saved": 0, "total_errors": 0,
+        "total_api_calls": 0, "active_days": 0, "avg_daily_processed": 0,
+        "success_rate": 0, "error_rate": 0
+    }
+    monthly_stats = tenant_service.get_tenant_monthly_stats(tenant_id, months=12) or []
+    user_count = tenant_service.get_user_count(tenant_id, days=days) or 0
+    top_users = tenant_service.get_top_users(tenant_id, limit=10, days=days) or []
 
     return render_template(
         "tenants/stats.html",

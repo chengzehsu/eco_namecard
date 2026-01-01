@@ -77,34 +77,39 @@ class SecurityService:
             except Exception as e:
                 logger.error("Invalid encryption key in environment", error=str(e))
         
-        # 嘗試從 SECRET_KEY 衍生密鑰
-        secret_key = os.environ.get('SECRET_KEY')
-        if secret_key:
-            try:
-                # 使用 PBKDF2 從 SECRET_KEY 衍生穩定的加密密鑰
-                from cryptography.hazmat.primitives import hashes
-                from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        # 嘗試從 SECRET_KEY 衍生密鑰（使用與 tenant_service.py 相同的預設值）
+        # 確保與 tenant_service.py 使用完全相同的預設值以保持一致性
+        DEFAULT_SECRET_KEY = 'default-secret-key-change-me'
+        secret_key = os.environ.get('SECRET_KEY', DEFAULT_SECRET_KEY)
 
-                salt = b'linebot_namecard_salt_2024'  # 固定鹽值確保一致性
-                kdf = PBKDF2HMAC(
-                    algorithm=hashes.SHA256(),
-                    length=32,
-                    salt=salt,
-                    iterations=100000,
-                )
-                raw_key = kdf.derive(secret_key.encode('utf-8'))
-                # Fernet 需要 base64 encoded key
-                key = base64.urlsafe_b64encode(raw_key)
+        try:
+            # 使用 PBKDF2 從 SECRET_KEY 衍生穩定的加密密鑰
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+            salt = b'linebot_namecard_salt_2024'  # 固定鹽值確保一致性
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+            )
+            raw_key = kdf.derive(secret_key.encode('utf-8'))
+            # Fernet 需要 base64 encoded key
+            key = base64.urlsafe_b64encode(raw_key)
+
+            if secret_key == DEFAULT_SECRET_KEY:
+                logger.warning("Using default SECRET_KEY - set a secure SECRET_KEY in production")
+            else:
                 logger.info("Derived encryption key from SECRET_KEY")
-                return key
-            except Exception as e:
-                logger.error("Failed to derive key from SECRET_KEY", error=str(e))
-        
-        # 最後選擇：生成新的金鑰（不推薦用於生產環境）
-        key = Fernet.generate_key()
-        logger.warning("Generated new encryption key - data encrypted with this key will be lost on restart")
-        logger.warning("Set ENCRYPTION_KEY or SECRET_KEY environment variable for persistent encryption")
-        return key
+            return key
+        except Exception as e:
+            logger.error("Failed to derive key from SECRET_KEY", error=str(e))
+            # 最後選擇：生成新的金鑰（不推薦用於生產環境）
+            key = Fernet.generate_key()
+            logger.warning("Generated new encryption key - data encrypted with this key will be lost on restart")
+            logger.warning("Set ENCRYPTION_KEY or SECRET_KEY environment variable for persistent encryption")
+            return key
     
     def validate_line_signature(self, body: str, signature: str, channel_secret: str) -> bool:
         """驗證 LINE webhook 簽名"""

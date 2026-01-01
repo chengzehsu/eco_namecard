@@ -141,6 +141,9 @@ class UnifiedEventHandler:
 
             # 驗證圖片
             if not security_service.validate_image_data(image_data):
+                # 記錄圖片驗證失敗的錯誤（多租戶模式）
+                if self.tenant_id:
+                    self._record_error(user_id, error_type="image_validation")
                 self._send_reply(
                     reply_token,
                     "❌ 圖片格式錯誤或檔案過大\n請上傳 10MB 以內的 JPG/PNG 圖片"
@@ -227,6 +230,9 @@ class UnifiedEventHandler:
                         cards_saved=success_count,
                         errors=failed_count
                     )
+
+                    # 獲取並儲存用戶資訊（名稱、頭像）
+                    self._save_user_profile(user_id, tenant_service)
                 except Exception as e:
                     logger.warning("Failed to record usage stats", error=str(e))
 
@@ -248,6 +254,9 @@ class UnifiedEventHandler:
                         error=str(e),
                         user_id=user_id)
             error_handler.handle_line_error(e, user_id)
+            # 記錄 LINE API 錯誤（多租戶模式）
+            if self.tenant_id:
+                self._record_error(user_id, error_type="line_api")
             # 嘗試用 push message 發送錯誤訊息
             try:
                 self.line_bot_api.push_message(
@@ -262,6 +271,9 @@ class UnifiedEventHandler:
                         error=str(e),
                         user_id=user_id)
             error_msg = error_handler.handle_ai_error(e, user_id)
+            # 記錄 AI 識別失敗錯誤（多租戶模式）
+            if self.tenant_id:
+                self._record_error(user_id, error_type="ai_processing")
             self._send_error_message(reply_token, error_msg)
 
     def _send_help_message(self, reply_token: str) -> None:
@@ -377,6 +389,78 @@ class UnifiedEventHandler:
     def _send_error_message(self, reply_token: str, error_msg: str) -> None:
         """發送錯誤訊息"""
         self._send_reply(reply_token, error_msg)
+
+    def _record_error(self, user_id: str, error_type: str = "unknown") -> None:
+        """
+        記錄錯誤到統計（多租戶模式）
+
+        Args:
+            user_id: LINE 用戶 ID
+            error_type: 錯誤類型（用於日誌追蹤）
+        """
+        if not self.tenant_id:
+            return
+
+        try:
+            from src.namecard.core.services.tenant_service import get_tenant_service
+            tenant_service = get_tenant_service()
+
+            # 記錄租戶級別錯誤
+            tenant_service.record_usage(self.tenant_id, errors=1)
+
+            # 記錄用戶級別錯誤
+            tenant_service.record_user_usage(
+                tenant_id=self.tenant_id,
+                line_user_id=user_id,
+                errors=1
+            )
+
+            logger.info("Error recorded to stats",
+                       tenant_id=self.tenant_id,
+                       user_id=user_id,
+                       error_type=error_type)
+        except Exception as e:
+            logger.warning("Failed to record error stats", error=str(e))
+
+    def _save_user_profile(self, user_id: str, tenant_service=None) -> None:
+        """
+        獲取並儲存 LINE 用戶資訊（名稱、頭像）
+
+        Args:
+            user_id: LINE 用戶 ID
+            tenant_service: TenantService 實例（可選，避免重複 import）
+        """
+        if not self.tenant_id:
+            return
+
+        try:
+            # 獲取用戶 profile
+            profile = self.line_bot_api.get_profile(user_id)
+            display_name = profile.display_name
+            picture_url = profile.picture_url
+
+            # 取得 tenant_service
+            if tenant_service is None:
+                from src.namecard.core.services.tenant_service import get_tenant_service
+                tenant_service = get_tenant_service()
+
+            # 儲存用戶資訊
+            tenant_service.save_line_user(
+                tenant_id=self.tenant_id,
+                line_user_id=user_id,
+                display_name=display_name,
+                picture_url=picture_url
+            )
+
+            logger.debug("User profile saved",
+                        tenant_id=self.tenant_id,
+                        user_id=user_id,
+                        display_name=display_name)
+        except LineBotApiError as e:
+            # 某些情況下無法獲取用戶 profile（如用戶未加好友）
+            logger.debug("Could not get user profile", user_id=user_id, error=str(e))
+        except Exception as e:
+            logger.warning("Failed to save user profile", user_id=user_id, error=str(e))
 
     def _send_reply(
         self,

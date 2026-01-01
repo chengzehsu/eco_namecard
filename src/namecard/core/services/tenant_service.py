@@ -394,6 +394,50 @@ class TenantService:
         """Get summary statistics across all tenants"""
         return self.db.get_all_tenants_summary(days)
 
+    # ==================== LINE User Operations ====================
+
+    def save_line_user(self, tenant_id: str, line_user_id: str,
+                       display_name: Optional[str] = None,
+                       picture_url: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Save or update LINE user information.
+
+        Args:
+            tenant_id: Tenant ID
+            line_user_id: LINE user ID
+            display_name: User's display name
+            picture_url: User's profile picture URL
+
+        Returns:
+            User data dict
+        """
+        return self.db.upsert_line_user(tenant_id, line_user_id, display_name, picture_url)
+
+    def get_line_user(self, tenant_id: str, line_user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get LINE user information.
+
+        Args:
+            tenant_id: Tenant ID
+            line_user_id: LINE user ID
+
+        Returns:
+            User data dict or None if not found
+        """
+        return self.db.get_line_user(tenant_id, line_user_id)
+
+    def get_line_users(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all LINE users for a tenant.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            List of user data dicts
+        """
+        return self.db.get_line_users_by_tenant(tenant_id)
+
     # ==================== Pending Tenant Operations ====================
 
     def get_pending_tenants(self) -> List[TenantConfig]:

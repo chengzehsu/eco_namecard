@@ -105,6 +105,28 @@ class TenantDatabase:
             conn.execute("ALTER TABLE tenants ADD COLUMN use_shared_notion_api INTEGER DEFAULT 1")
             logger.info("Migration: use_shared_notion_api column added")
 
+        # Check if line_users table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='line_users'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS line_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id TEXT NOT NULL,
+                    line_user_id TEXT NOT NULL,
+                    display_name TEXT,
+                    picture_url TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(tenant_id, line_user_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_line_users_tenant ON line_users(tenant_id);
+                CREATE INDEX IF NOT EXISTS idx_line_users_user ON line_users(line_user_id);
+            """)
+            logger.info("Migration: line_users table created")
+
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""
         conn.executescript("""
@@ -169,10 +191,23 @@ class TenantDatabase:
                 UNIQUE(tenant_id, line_user_id, date)
             );
 
+            CREATE TABLE IF NOT EXISTS line_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id TEXT NOT NULL,
+                line_user_id TEXT NOT NULL,
+                display_name TEXT,
+                picture_url TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(tenant_id, line_user_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tenants_line_channel_id ON tenants(line_channel_id);
             CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
             CREATE INDEX IF NOT EXISTS idx_user_stats_tenant ON user_stats(tenant_id);
             CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
+            CREATE INDEX IF NOT EXISTS idx_line_users_tenant ON line_users(tenant_id);
+            CREATE INDEX IF NOT EXISTS idx_line_users_user ON line_users(line_user_id);
         """)
         logger.info("Database schema created inline")
 
@@ -607,20 +642,23 @@ class TenantDatabase:
             )
 
     def get_tenant_users_stats(self, tenant_id: str, days: int = 30) -> List[Dict[str, Any]]:
-        """Get aggregated stats for all users of a tenant"""
+        """Get aggregated stats for all users of a tenant, including user profile info"""
         with self.get_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT
-                    line_user_id,
-                    SUM(cards_processed) as total_processed,
-                    SUM(cards_saved) as total_saved,
-                    SUM(errors) as total_errors,
-                    COUNT(DISTINCT date) as active_days,
-                    MAX(date) as last_active
-                FROM user_stats
-                WHERE tenant_id = ? AND date >= date('now', ?)
-                GROUP BY line_user_id
+                    us.line_user_id,
+                    lu.display_name,
+                    lu.picture_url,
+                    SUM(us.cards_processed) as total_processed,
+                    SUM(us.cards_saved) as total_saved,
+                    SUM(us.errors) as total_errors,
+                    COUNT(DISTINCT us.date) as active_days,
+                    MAX(us.date) as last_active
+                FROM user_stats us
+                LEFT JOIN line_users lu ON us.tenant_id = lu.tenant_id AND us.line_user_id = lu.line_user_id
+                WHERE us.tenant_id = ? AND us.date >= date('now', ?)
+                GROUP BY us.line_user_id
                 ORDER BY total_processed DESC
                 """,
                 (tenant_id, f"-{days} days")
@@ -628,19 +666,22 @@ class TenantDatabase:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_top_users(self, tenant_id: str, limit: int = 10, days: int = 30) -> List[Dict[str, Any]]:
-        """Get top users by usage for a tenant"""
+        """Get top users by usage for a tenant, including user profile info"""
         with self.get_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT
-                    line_user_id,
-                    SUM(cards_processed) as total_processed,
-                    SUM(cards_saved) as total_saved,
-                    SUM(errors) as total_errors,
-                    ROUND(CAST(SUM(cards_saved) AS FLOAT) / NULLIF(SUM(cards_processed), 0) * 100, 1) as success_rate
-                FROM user_stats
-                WHERE tenant_id = ? AND date >= date('now', ?)
-                GROUP BY line_user_id
+                    us.line_user_id,
+                    lu.display_name,
+                    lu.picture_url,
+                    SUM(us.cards_processed) as total_processed,
+                    SUM(us.cards_saved) as total_saved,
+                    SUM(us.errors) as total_errors,
+                    ROUND(CAST(SUM(us.cards_saved) AS FLOAT) / NULLIF(SUM(us.cards_processed), 0) * 100, 1) as success_rate
+                FROM user_stats us
+                LEFT JOIN line_users lu ON us.tenant_id = lu.tenant_id AND us.line_user_id = lu.line_user_id
+                WHERE us.tenant_id = ? AND us.date >= date('now', ?)
+                GROUP BY us.line_user_id
                 ORDER BY total_processed DESC
                 LIMIT ?
                 """,
@@ -793,6 +834,83 @@ class TenantDatabase:
             )
             row = cursor.fetchone()
             return row["user_count"] if row else 0
+
+    # ==================== LINE User Operations ====================
+
+    def upsert_line_user(self, tenant_id: str, line_user_id: str,
+                         display_name: Optional[str] = None,
+                         picture_url: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Insert or update LINE user information.
+
+        Args:
+            tenant_id: Tenant ID
+            line_user_id: LINE user ID
+            display_name: User's display name
+            picture_url: User's profile picture URL
+
+        Returns:
+            User data dict
+        """
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO line_users (tenant_id, line_user_id, display_name, picture_url, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, line_user_id) DO UPDATE SET
+                    display_name = COALESCE(excluded.display_name, display_name),
+                    picture_url = COALESCE(excluded.picture_url, picture_url),
+                    updated_at = excluded.updated_at
+                """,
+                (tenant_id, line_user_id, display_name, picture_url, now, now)
+            )
+
+        return self.get_line_user(tenant_id, line_user_id)
+
+    def get_line_user(self, tenant_id: str, line_user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get LINE user information.
+
+        Args:
+            tenant_id: Tenant ID
+            line_user_id: LINE user ID
+
+        Returns:
+            User data dict or None if not found
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM line_users
+                WHERE tenant_id = ? AND line_user_id = ?
+                """,
+                (tenant_id, line_user_id)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_line_users_by_tenant(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all LINE users for a tenant.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            List of user data dicts
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM line_users
+                WHERE tenant_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (tenant_id,)
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
 
 # Global database instance

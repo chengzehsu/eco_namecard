@@ -40,20 +40,27 @@ class NotionClient:
         self.client = Client(auth=self._api_key)
         self.database_url = f"https://notion.so/{self.database_id.replace('-', '')}"
 
-        # 測試連接
+        # 緩存資料庫 schema（用於檢查欄位是否存在）
+        self._db_schema: Dict[str, Any] = {}
+
+        # 測試連接並獲取 schema
         self._test_connection()
     
     def _test_connection(self) -> None:
-        """測試 Notion 連接"""
+        """測試 Notion 連接並緩存 schema"""
         try:
             # 嘗試讀取資料庫資訊
-            self.client.databases.retrieve(database_id=self.database_id)
-            logger.info("Notion connection established successfully")
+            response = self.client.databases.retrieve(database_id=self.database_id)
+            self._db_schema = response.get("properties", {})
+            
+            logger.info("Notion connection established successfully",
+                       available_fields=list(self._db_schema.keys()))
             
             logger.info("Notion database connection established", 
                        database_id=self.database_id[:10] + "...",
                        operation="connection_test",
-                       status="success")
+                       status="success",
+                       field_count=len(self._db_schema))
             
         except Exception as e:
             logger.error("Failed to connect to Notion", error=str(e))
@@ -65,6 +72,10 @@ class NotionClient:
                         operation="connection_test",
                         status="failed")
             # 不拋出異常，允許應用程式繼續運行
+
+    def _field_exists(self, field_name: str) -> bool:
+        """檢查欄位是否存在於資料庫 schema 中"""
+        return field_name in self._db_schema
     
     def save_business_card(self, card: BusinessCard) -> Optional[str]:
         """
@@ -206,7 +217,7 @@ class NotionClient:
         }
 
         # 2. Email (email)
-        if card.email and "@" in card.email:
+        if card.email and "@" in card.email and self._field_exists(NotionFields.EMAIL):
             properties[NotionFields.EMAIL] = {
                 "email": card.email
             }
@@ -227,7 +238,7 @@ class NotionClient:
             additional_info.append(f"傳真: {card.fax}")
         
         # 4. 公司名稱 (rich_text) - 提取主公司名稱
-        if card.company:
+        if card.company and self._field_exists(NotionFields.COMPANY):
             # 拆分公司名稱，取第一個部分作為主公司名稱
             company_parts = card.company.split()
             main_company = company_parts[0] if company_parts else card.company
@@ -243,7 +254,7 @@ class NotionClient:
             }
 
         # 5. 地址 (rich_text)
-        if card.address:
+        if card.address and self._field_exists(NotionFields.ADDRESS):
             properties[NotionFields.ADDRESS] = {
                 "rich_text": [
                     {
@@ -263,7 +274,7 @@ class NotionClient:
         # 這些欄位需要業務人員根據實際情況評估和填寫
 
         # 6. 職稱 (select) - 清理後存入，讓 Notion 自動創建新選項
-        if card.title:
+        if card.title and self._field_exists(NotionFields.TITLE):
             cleaned_title = self._clean_title_or_department(card.title)
             if cleaned_title:
                 properties[NotionFields.TITLE] = {
@@ -277,7 +288,7 @@ class NotionClient:
                            cleaned_title=cleaned_title)
 
         # 7. 部門 (rich_text) - 清理後存入
-        if card.department:
+        if card.department and self._field_exists(NotionFields.DEPARTMENT):
             cleaned_department = self._clean_title_or_department(card.department)
             if cleaned_department:
                 properties[NotionFields.DEPARTMENT] = {
@@ -295,13 +306,13 @@ class NotionClient:
                            cleaned_department=cleaned_department)
 
         # 8. 電話 (phone_number)
-        if card.phone:
+        if card.phone and self._field_exists(NotionFields.PHONE):
             properties[NotionFields.PHONE] = {
                 "phone_number": card.phone
             }
 
-        # 9. 備註 (rich_text) - 如果有額外資訊，放入備註欄位
-        if additional_info:
+        # 9. 備註 (rich_text) - 如果有額外資訊且欄位存在，放入備註欄位
+        if additional_info and self._field_exists(NotionFields.NOTES):
             properties[NotionFields.NOTES] = {
                 "rich_text": [
                     {

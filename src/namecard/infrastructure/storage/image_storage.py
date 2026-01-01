@@ -4,10 +4,15 @@ ImgBB 圖片儲存服務
 提供圖片上傳功能，用於將名片圖片存儲到 ImgBB 並獲取公開 URL。
 """
 
+import os
+import sys
 import base64
 import requests
 import structlog
 from typing import Optional
+
+# Add project root to path for simple_config import
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
 
 logger = structlog.get_logger()
 
@@ -89,7 +94,16 @@ def get_image_storage() -> Optional[ImageStorage]:
     global _image_storage
 
     if _image_storage is None:
-        from src.namecard.simple_config import settings
+        # #region agent log
+        import json
+        with open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "image_storage.py:get_image_storage", "message": "BEFORE import simple_config", "hypothesisId": "H1", "runId": "post-fix"}) + '\n')
+        # #endregion
+        from simple_config import settings
+        # #region agent log
+        with open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "image_storage.py:get_image_storage", "message": "AFTER import simple_config SUCCESS", "hypothesisId": "H1", "runId": "post-fix"}) + '\n')
+        # #endregion
 
         api_key = getattr(settings, 'imgbb_api_key', None)
         if api_key:

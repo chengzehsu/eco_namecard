@@ -76,6 +76,10 @@ def extract_channel_id(body: str) -> Optional[str]:
             global _last_destination
             _last_destination["value"] = destination
             _last_destination["timestamp"] = str(datetime.now())
+            # #region agent log
+            # 明確記錄收到的 Bot User ID，方便用戶配置
+            logger.warning("WEBHOOK_RECEIVED", bot_user_id=destination, hint="Use this value as line_channel_id in tenant config")
+            # #endregion
             return destination
         else:
             logger.warning("No destination in webhook body")

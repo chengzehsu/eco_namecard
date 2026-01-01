@@ -129,6 +129,62 @@ def get_event_handler_for_tenant(context: TenantContext) -> UnifiedEventHandler:
     )
 
 
+def try_auto_activate_tenant(body: str, signature: str, channel_id: str) -> Optional[TenantContext]:
+    """
+    嘗試自動匹配並啟用 pending 狀態的租戶
+
+    當 webhook 收到來自未知 channel_id 的請求時，遍歷所有 pending 租戶，
+    使用各自的 channel_secret 驗證簽名。如果驗證成功，表示這個 Bot
+    屬於該租戶，自動綁定並啟用。
+
+    Args:
+        body: Webhook 請求體
+        signature: LINE 簽名
+        channel_id: LINE Bot User ID (destination)
+
+    Returns:
+        啟用成功的 TenantContext，否則 None
+    """
+    try:
+        tenant_service = get_tenant_service()
+        pending_tenants = tenant_service.get_pending_tenants()
+
+        if not pending_tenants:
+            logger.debug("No pending tenants to match")
+            return None
+
+        logger.info("Attempting auto-activation", pending_count=len(pending_tenants), channel_id=channel_id[:10] + "...")
+
+        for tenant in pending_tenants:
+            # 使用該租戶的 channel_secret 驗證簽名
+            if security_service.validate_line_signature(body, signature, tenant.line_channel_secret):
+                # 簽名驗證成功！這個 Bot 屬於這個租戶
+                logger.info(
+                    "Auto-activation signature match found",
+                    tenant_id=tenant.id,
+                    tenant_name=tenant.name
+                )
+
+                # 啟用租戶並綁定 channel_id
+                activated_tenant = tenant_service.activate_tenant_with_channel_id(tenant.id, channel_id)
+
+                if activated_tenant:
+                    logger.info(
+                        "Tenant auto-activated successfully",
+                        tenant_id=activated_tenant.id,
+                        tenant_name=activated_tenant.name,
+                        channel_id=channel_id[:10] + "..."
+                    )
+                    return TenantContext(activated_tenant)
+
+        logger.debug("No pending tenant matched the signature")
+        return None
+
+    except Exception as e:
+        logger.error("Auto-activation failed", error=str(e))
+        return None
+
+
 # ==================== Webhook 端點 ====================
 
 @app.route("/callback", methods=['POST'])
@@ -156,10 +212,14 @@ def callback():
     channel_id = extract_channel_id(body)
     tenant_context = get_tenant_context(channel_id) if channel_id else None
 
+    # 如果找不到租戶，嘗試自動匹配 pending 租戶
+    if not tenant_context and channel_id:
+        tenant_context = try_auto_activate_tenant(body, signature, channel_id)
+
     # #region agent log
     logger.warning("DEBUG_ROUTING", channel_id=channel_id, tenant_found=tenant_context is not None, mode="multi-tenant" if tenant_context else "default")
     if not tenant_context and channel_id:
-        logger.error("DEBUG_TENANT_NOT_FOUND", webhook_destination=channel_id, hint="Check if this matches line_channel_id in tenant config")
+        logger.info("DEBUG_TENANT_NOT_FOUND", webhook_destination=channel_id, hint="No matching tenant found, falling back to default mode")
     # #endregion
     if tenant_context:
         # 多租戶模式

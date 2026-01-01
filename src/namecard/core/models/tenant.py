@@ -6,9 +6,13 @@ TenantContext for runtime service instances.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from datetime import datetime
 from linebot import LineBotApi
+
+
+# Activation status for LINE Bot auto-detection
+ActivationStatus = Literal["pending", "active", "inactive"]
 
 
 class TenantConfig(BaseModel):
@@ -18,17 +22,29 @@ class TenantConfig(BaseModel):
     name: str = Field(..., description="Display name")
     slug: str = Field(..., description="URL-friendly identifier")
     is_active: bool = Field(default=True, description="Whether tenant is active")
+    activation_status: ActivationStatus = Field(
+        default="pending",
+        description="LINE Bot activation status: pending (awaiting auto-detection), active, inactive"
+    )
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
-    # LINE Bot (decrypted)
-    line_channel_id: str = Field(..., description="LINE Channel ID")
+    # LINE Bot (decrypted) - line_channel_id is optional for auto-detection
+    line_channel_id: Optional[str] = Field(
+        default=None,
+        description="LINE Bot User ID (auto-detected if not provided)"
+    )
     line_channel_access_token: str = Field(..., description="LINE Access Token")
     line_channel_secret: str = Field(..., description="LINE Channel Secret")
 
     # Notion (decrypted)
-    notion_api_key: str = Field(..., description="Notion API Key")
+    notion_api_key: Optional[str] = Field(
+        default=None, description="Tenant-specific Notion API Key"
+    )
     notion_database_id: str = Field(..., description="Notion Database ID")
+    use_shared_notion_api: bool = Field(
+        default=True, description="Use shared Notion API key"
+    )
 
     # Google AI
     google_api_key: Optional[str] = Field(
@@ -52,14 +68,31 @@ class TenantCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     slug: Optional[str] = Field(default=None, max_length=50)
 
-    # LINE Bot
-    line_channel_id: str = Field(..., min_length=1)
+    # LINE Bot - line_channel_id is optional for auto-detection
+    line_channel_id: Optional[str] = Field(
+        default=None,
+        description="LINE Bot User ID (leave empty for auto-detection)"
+    )
     line_channel_access_token: str = Field(..., min_length=1)
     line_channel_secret: str = Field(..., min_length=1)
 
-    # Notion
-    notion_api_key: str = Field(..., min_length=1)
-    notion_database_id: str = Field(..., min_length=1)
+    # Notion - both api_key and database_id are optional
+    notion_api_key: Optional[str] = Field(
+        default=None,
+        description="Tenant-specific Notion API Key (leave empty to use shared)"
+    )
+    use_shared_notion_api: bool = Field(
+        default=True,
+        description="Use shared Notion API key"
+    )
+    notion_database_id: Optional[str] = Field(
+        default=None,
+        description="Notion Database ID (leave empty for auto-creation)"
+    )
+    auto_create_notion_db: bool = Field(
+        default=False,
+        description="Automatically create Notion database for tenant"
+    )
 
     # Google AI (optional)
     google_api_key: Optional[str] = None
@@ -84,6 +117,7 @@ class TenantUpdateRequest(BaseModel):
     # Notion (optional updates)
     notion_api_key: Optional[str] = None
     notion_database_id: Optional[str] = None
+    use_shared_notion_api: Optional[bool] = None
 
     # Google AI
     google_api_key: Optional[str] = None
@@ -154,9 +188,15 @@ class TenantContext:
         """Lazy-loaded Notion Client instance"""
         if self._notion_client is None:
             from src.namecard.infrastructure.storage.notion_client import NotionClient
+            from simple_config import settings
+
+            # Use tenant-specific key or fall back to shared
+            api_key = self.tenant.notion_api_key
+            if self.tenant.use_shared_notion_api or not api_key:
+                api_key = settings.notion_api_key
 
             self._notion_client = NotionClient(
-                api_key=self.tenant.notion_api_key,
+                api_key=api_key,
                 database_id=self.tenant.notion_database_id,
             )
         return self._notion_client

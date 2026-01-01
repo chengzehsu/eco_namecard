@@ -7,17 +7,21 @@ CREATE TABLE IF NOT EXISTS tenants (
     name TEXT NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     is_active INTEGER DEFAULT 1,
+    -- Activation status: 'pending' (awaiting LINE Bot auto-detection), 'active', 'inactive'
+    activation_status TEXT DEFAULT 'pending',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
 
     -- LINE Bot Configuration (encrypted)
-    line_channel_id TEXT NOT NULL UNIQUE,
+    -- line_channel_id is nullable for auto-detection feature
+    line_channel_id TEXT UNIQUE,
     line_channel_access_token_encrypted TEXT NOT NULL,
     line_channel_secret_encrypted TEXT NOT NULL,
 
-    -- Notion Configuration (encrypted)
-    notion_api_key_encrypted TEXT NOT NULL,
+    -- Notion Configuration (encrypted) - api_key optional if using shared
+    notion_api_key_encrypted TEXT,
     notion_database_id TEXT NOT NULL,
+    use_shared_notion_api INTEGER DEFAULT 1,
 
     -- Google AI Configuration (optional - use shared if null)
     google_api_key_encrypted TEXT,
@@ -68,5 +72,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_tenants_line_channel_id ON tenants(line_channel_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
 CREATE INDEX IF NOT EXISTS idx_tenants_is_active ON tenants(is_active);
+CREATE INDEX IF NOT EXISTS idx_tenants_activation_status ON tenants(activation_status);
 CREATE INDEX IF NOT EXISTS idx_usage_stats_tenant_date ON usage_stats(tenant_id, date);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);

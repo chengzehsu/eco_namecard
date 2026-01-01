@@ -337,6 +337,84 @@ class NotionClient:
         except Exception:
             logger.warning("Database not found, please create it manually in Notion")
             return False
+
+    @staticmethod
+    def create_database(
+        api_key: str,
+        tenant_name: str,
+        parent_page_id: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        為租戶創建新的 Notion 資料庫
+
+        Args:
+            api_key: Notion API Key
+            tenant_name: 租戶名稱，用於命名資料庫
+            parent_page_id: 父頁面 ID，預設使用 settings 中的共用頁面
+
+        Returns:
+            新建資料庫的 ID，失敗時返回 None
+        """
+        try:
+            client = Client(auth=api_key)
+            parent_id = parent_page_id or settings.notion_shared_parent_page_id
+
+            # 資料庫名稱：{租戶名稱}的名片盒
+            db_title = f"{tenant_name}的名片盒"
+
+            # 定義資料庫 schema（僅自動填寫欄位）
+            properties = {
+                # 1. Name (title) - 必填，Notion 資料庫必須有一個 title 欄位
+                NotionFields.NAME: {"title": {}},
+                # 2. Email
+                NotionFields.EMAIL: {"email": {}},
+                # 3. 公司名稱
+                NotionFields.COMPANY: {"rich_text": {}},
+                # 4. 電話
+                NotionFields.PHONE: {"phone_number": {}},
+                # 5. 地址
+                NotionFields.ADDRESS: {"rich_text": {}},
+                # 6. 職稱 (select - 讓 Notion 自動創建選項)
+                NotionFields.TITLE: {"select": {"options": []}},
+                # 7. 部門
+                NotionFields.DEPARTMENT: {"rich_text": {}},
+                # 8. 備註
+                NotionFields.NOTES: {"rich_text": {}},
+            }
+
+            # 創建資料庫
+            response = client.databases.create(
+                parent={"type": "page_id", "page_id": parent_id},
+                title=[{"type": "text", "text": {"content": db_title}}],
+                properties=properties
+            )
+
+            database_id = response.get("id")
+            database_url = response.get("url")
+
+            logger.info(
+                "Notion database created successfully",
+                database_id=database_id,
+                database_title=db_title,
+                database_url=database_url,
+                tenant_name=tenant_name,
+                operation="create_database",
+                status="success"
+            )
+
+            return database_id
+
+        except Exception as e:
+            logger.error(
+                "Failed to create Notion database",
+                error=str(e),
+                error_type=type(e).__name__,
+                tenant_name=tenant_name,
+                parent_page_id=parent_id if 'parent_id' in dir() else None,
+                operation="create_database",
+                status="failed"
+            )
+            return None
     
     def get_database_schema(self) -> Dict[str, Any]:
         """獲取資料庫結構"""

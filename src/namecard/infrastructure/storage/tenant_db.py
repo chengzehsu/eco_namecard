@@ -91,6 +91,20 @@ class TenantDatabase:
             """)
             logger.info("Migration: user_stats table created")
 
+        # Add activation_status column if not exists
+        cursor = conn.execute("PRAGMA table_info(tenants)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "activation_status" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN activation_status TEXT DEFAULT 'pending'")
+            # Set existing tenants with line_channel_id to 'active'
+            conn.execute("UPDATE tenants SET activation_status = 'active' WHERE line_channel_id IS NOT NULL AND line_channel_id != ''")
+            logger.info("Migration: activation_status column added")
+
+        # Add use_shared_notion_api column if not exists
+        if "use_shared_notion_api" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN use_shared_notion_api INTEGER DEFAULT 1")
+            logger.info("Migration: use_shared_notion_api column added")
+
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""
         conn.executescript("""
@@ -99,13 +113,15 @@ class TenantDatabase:
                 name TEXT NOT NULL,
                 slug TEXT UNIQUE NOT NULL,
                 is_active INTEGER DEFAULT 1,
+                activation_status TEXT DEFAULT 'pending',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now')),
-                line_channel_id TEXT NOT NULL UNIQUE,
+                line_channel_id TEXT UNIQUE,
                 line_channel_access_token_encrypted TEXT NOT NULL,
                 line_channel_secret_encrypted TEXT NOT NULL,
-                notion_api_key_encrypted TEXT NOT NULL,
+                notion_api_key_encrypted TEXT,
                 notion_database_id TEXT NOT NULL,
+                use_shared_notion_api INTEGER DEFAULT 1,
                 google_api_key_encrypted TEXT,
                 use_shared_google_api INTEGER DEFAULT 1,
                 daily_card_limit INTEGER DEFAULT 50,
@@ -189,29 +205,35 @@ class TenantDatabase:
         tenant_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
 
+        # Determine activation status based on whether line_channel_id is provided
+        line_channel_id = data.get("line_channel_id")
+        activation_status = data.get("activation_status", "active" if line_channel_id else "pending")
+
         with self.get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO tenants (
-                    id, name, slug, is_active, created_at, updated_at,
+                    id, name, slug, is_active, activation_status, created_at, updated_at,
                     line_channel_id, line_channel_access_token_encrypted,
                     line_channel_secret_encrypted, notion_api_key_encrypted,
-                    notion_database_id, google_api_key_encrypted,
+                    notion_database_id, use_shared_notion_api, google_api_key_encrypted,
                     use_shared_google_api, daily_card_limit, batch_size_limit
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     tenant_id,
                     data["name"],
                     data["slug"],
                     1 if data.get("is_active", True) else 0,
+                    activation_status,
                     now,
                     now,
-                    data["line_channel_id"],
+                    line_channel_id,  # Can be None for auto-detection
                     data["line_channel_access_token_encrypted"],
                     data["line_channel_secret_encrypted"],
-                    data["notion_api_key_encrypted"],
+                    data.get("notion_api_key_encrypted"),  # Can be None if using shared
                     data["notion_database_id"],
+                    1 if data.get("use_shared_notion_api", True) else 0,
                     data.get("google_api_key_encrypted"),
                     1 if data.get("use_shared_google_api", True) else 0,
                     data.get("daily_card_limit", 50),
@@ -219,7 +241,7 @@ class TenantDatabase:
                 ),
             )
 
-        logger.info("Tenant created", tenant_id=tenant_id, name=data["name"])
+        logger.info("Tenant created", tenant_id=tenant_id, name=data["name"], activation_status=activation_status)
         return self.get_tenant_by_id(tenant_id)
 
     def get_tenant_by_id(self, tenant_id: str) -> Optional[Dict[str, Any]]:
@@ -262,6 +284,63 @@ class TenantDatabase:
                 )
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_pending_tenants(self) -> List[Dict[str, Any]]:
+        """
+        Get all tenants with pending activation status.
+
+        These are tenants where line_channel_id has not been set yet,
+        waiting for auto-detection via webhook.
+
+        Returns:
+            List of pending tenant data
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM tenants
+                WHERE is_active = 1
+                  AND activation_status = 'pending'
+                  AND (line_channel_id IS NULL OR line_channel_id = '')
+                ORDER BY created_at DESC
+                """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def activate_tenant_with_channel_id(self, tenant_id: str, channel_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Activate a pending tenant by setting its LINE channel ID.
+
+        Args:
+            tenant_id: The tenant ID to activate
+            channel_id: The LINE Bot User ID (destination from webhook)
+
+        Returns:
+            Updated tenant data or None if not found
+        """
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE tenants
+                SET line_channel_id = ?,
+                    activation_status = 'active',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (channel_id, now, tenant_id)
+            )
+
+            if cursor.rowcount > 0:
+                logger.info(
+                    "Tenant activated with channel ID",
+                    tenant_id=tenant_id,
+                    channel_id=channel_id[:10] + "..." if channel_id else None
+                )
+                return self.get_tenant_by_id(tenant_id)
+
+        return None
+
     def update_tenant(self, tenant_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Update tenant data.
@@ -278,10 +357,10 @@ class TenantDatabase:
         values = []
 
         allowed_fields = [
-            "name", "slug", "is_active",
+            "name", "slug", "is_active", "activation_status",
             "line_channel_id",  # Allow updating line_channel_id
             "line_channel_access_token_encrypted", "line_channel_secret_encrypted",
-            "notion_api_key_encrypted", "notion_database_id",
+            "notion_api_key_encrypted", "notion_database_id", "use_shared_notion_api",
             "google_api_key_encrypted", "use_shared_google_api",
             "daily_card_limit", "batch_size_limit"
         ]
@@ -292,6 +371,9 @@ class TenantDatabase:
                     fields.append(f"{field} = ?")
                     values.append(1 if data[field] else 0)
                 elif field == "use_shared_google_api":
+                    fields.append(f"{field} = ?")
+                    values.append(1 if data[field] else 0)
+                elif field == "use_shared_notion_api":
                     fields.append(f"{field} = ?")
                     values.append(1 if data[field] else 0)
                 else:

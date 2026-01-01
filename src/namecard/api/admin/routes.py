@@ -119,14 +119,62 @@ def create_tenant():
     if request.method == "POST":
         try:
             # Get form data
+            from simple_config import settings
+
+            name = request.form.get("name", "").strip()
+            use_shared_notion_api = request.form.get("use_shared_notion_api") == "on"
+            notion_api_key = request.form.get("notion_api_key", "").strip() or None
+            notion_database_id = request.form.get("notion_database_id", "").strip()
+            auto_create_notion_db = request.form.get("auto_create_notion_db") == "on"
+
+            # Determine which API key to use for database creation
+            api_key_for_creation = settings.notion_api_key if use_shared_notion_api else notion_api_key
+
+            # Auto-create Notion database if requested
+            if auto_create_notion_db and not notion_database_id:
+                from src.namecard.infrastructure.storage.notion_client import NotionClient
+
+                if not api_key_for_creation:
+                    flash("請提供 Notion API Key 或勾選使用共用 API Key", "error")
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username")
+                    )
+
+                logger.info("Auto-creating Notion database", tenant_name=name)
+
+                created_db_id = NotionClient.create_database(
+                    api_key=api_key_for_creation,
+                    tenant_name=name
+                )
+
+                if created_db_id:
+                    notion_database_id = created_db_id
+                    logger.info("Notion database created", database_id=created_db_id[:10] + "...")
+                else:
+                    flash("無法自動創建 Notion 資料庫，請檢查 API Key 權限", "error")
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username")
+                    )
+
+            # LINE channel ID is optional (for auto-detection)
+            line_channel_id = request.form.get("line_channel_id", "").strip() or None
+
             tenant_request = TenantCreateRequest(
-                name=request.form.get("name", "").strip(),
+                name=name,
                 slug=request.form.get("slug", "").strip() or None,
-                line_channel_id=request.form.get("line_channel_id", "").strip(),
+                line_channel_id=line_channel_id,
                 line_channel_access_token=request.form.get("line_channel_access_token", "").strip(),
                 line_channel_secret=request.form.get("line_channel_secret", "").strip(),
-                notion_api_key=request.form.get("notion_api_key", "").strip(),
-                notion_database_id=request.form.get("notion_database_id", "").strip(),
+                notion_api_key=notion_api_key,
+                use_shared_notion_api=use_shared_notion_api,
+                notion_database_id=notion_database_id,
+                auto_create_notion_db=auto_create_notion_db,
                 google_api_key=request.form.get("google_api_key", "").strip() or None,
                 use_shared_google_api=request.form.get("use_shared_google_api") == "on",
                 daily_card_limit=int(request.form.get("daily_card_limit", 50)),
@@ -136,7 +184,14 @@ def create_tenant():
             tenant_service = get_tenant_service()
             tenant = tenant_service.create_tenant(tenant_request)
 
-            flash(f"租戶 '{tenant.name}' 建立成功", "success")
+            # Build success message
+            success_msg = f"租戶 '{tenant.name}' 建立成功"
+            if auto_create_notion_db:
+                success_msg += "（Notion 資料庫已自動創建）"
+            if not line_channel_id:
+                success_msg += "。請發送訊息給 LINE Bot 以完成綁定。"
+
+            flash(success_msg, "success")
             return redirect(url_for("admin.list_tenants"))
 
         except Exception as e:

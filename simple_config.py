@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     google_api_key_fallback: Optional[str] = Field(default=None, description="Fallback Google API Key")
     
     # Notion Configuration
-    notion_api_key: str = Field(default="", description="Notion API Key")
-    notion_database_id: str = Field(default="", description="Notion Database ID")
+    notion_api_key: str = Field(default="", description="Shared Notion API Key for all tenants")
+    notion_database_id: str = Field(default="", description="Notion Database ID (for default tenant)")
+    notion_shared_parent_page_id: str = Field(
+        default="2db08f881bb881a997b2c2e8610f84d7",
+        description="Shared parent page ID for auto-creating tenant databases"
+    )
+    # Note: notion_api_key serves as the shared key for tenants who don't have their own
     
     # Application Configuration
     app_port: int = Field(default=5002, alias="PORT")  # Zeabur 使用 PORT 環境變數

@@ -15,7 +15,7 @@
 </div>
 
 <div class="card">
-    <form method="POST" action="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) if is_edit else url_for('admin.create_tenant') }}">
+    <form id="tenant-form" method="POST" action="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) if is_edit else url_for('admin.create_tenant') }}">
 
         <!-- Basic Info -->
         <h2>
@@ -54,14 +54,35 @@
             LINE Bot 設定
         </h2>
 
+        {% if is_edit and tenant.activation_status == 'pending' %}
+        <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 1px solid #f59e0b; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i data-lucide="clock" style="width: 20px; height: 20px; color: #d97706;"></i>
+                <div>
+                    <strong style="color: #92400e;">等待綁定</strong>
+                    <p style="margin: 5px 0 0 0; color: #78350f; font-size: 0.9rem;">
+                        請發送任意訊息給此 LINE Bot，系統將自動完成綁定。
+                    </p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="form-group">
-            <label for="line_channel_id">LINE Channel ID (Bot User ID) *</label>
+            <label for="line_channel_id">LINE Bot User ID {{ '' if not is_edit else '' }}</label>
             <input type="text" id="line_channel_id" name="line_channel_id"
-                   value="{{ tenant.line_channel_id if tenant else '' }}"
-                   required
-                   placeholder="U1234567890abcdef...">
+                   value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}"
+                   placeholder="留空可自動偵測（發送訊息給 Bot 後自動綁定）">
             <small>
-                Bot 的 User ID（格式：U 開頭的 33 字元）。可透過 <code>/debug/last-destination</code> 端點取得。
+                {% if is_edit %}
+                    {% if tenant.line_channel_id %}
+                        ✓ 已綁定
+                    {% else %}
+                        等待自動偵測中...
+                    {% endif %}
+                {% else %}
+                    <strong style="color: var(--accent-purple);">可選填</strong> — 留空則在首次收到訊息時自動綁定 Bot User ID
+                {% endif %}
             </small>
         </div>
 
@@ -87,20 +108,45 @@
             Notion 設定
         </h2>
 
-        <div class="form-group">
-            <label for="notion_api_key">Notion API Key {{ '*' if not is_edit else '' }}</label>
+        <div class="form-group form-check">
+            <input type="checkbox" id="use_shared_notion_api" name="use_shared_notion_api"
+                   {{ 'checked' if (not tenant or tenant.use_shared_notion_api) else '' }}
+                   onchange="toggleNotionApiKey()">
+            <label for="use_shared_notion_api">使用共用 Notion API Key</label>
+            <small style="display: block; margin-left: 26px; color: var(--text-muted);">建議開啟，使用系統的 Notion API</small>
+        </div>
+
+        <div class="form-group" id="notion_api_key_group" {% if not tenant or tenant.use_shared_notion_api %}hidden{% endif %}>
+            <label for="notion_api_key">Notion API Key</label>
             <input type="password" id="notion_api_key" name="notion_api_key"
-                   {{ 'required' if not is_edit else '' }}
-                   placeholder="{{ '已設定 (留空保持不變)' if is_edit else 'secret_xxxxxx...' }}">
+                   placeholder="{{ '已設定 (留空保持不變)' if is_edit and tenant.notion_api_key else 'secret_xxxxxx...' }}">
             <small>在 <a href="https://www.notion.so/my-integrations" target="_blank" style="color: var(--accent-purple);">Notion Integrations</a> 建立並取得</small>
         </div>
 
-        <div class="form-group">
-            <label for="notion_database_id">Notion Database ID *</label>
+        {% if not is_edit %}
+        <div class="form-group form-check">
+            <input type="checkbox" id="auto_create_notion_db" name="auto_create_notion_db" checked
+                   onchange="toggleNotionDbInput()">
+            <label for="auto_create_notion_db">自動創建 Notion 資料庫</label>
+            <small style="display: block; margin-left: 26px; color: var(--text-muted);">
+                系統將自動創建「{租戶名稱}的名片盒」資料庫，包含所有必要欄位
+            </small>
+        </div>
+        {% endif %}
+
+        <div class="form-group" id="notion_database_id_group" {% if not is_edit %}hidden{% endif %}>
+            <label for="notion_database_id">Notion Database ID {{ '*' if is_edit else '' }}</label>
             <input type="text" id="notion_database_id" name="notion_database_id"
-                   value="{{ tenant.notion_database_id if tenant else '' }}" required
+                   value="{{ tenant.notion_database_id if tenant else '' }}"
+                   {% if is_edit %}required{% endif %}
                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-            <small>Database URL 中的 ID 部分，例如：notion.so/myworkspace/<strong style="color: var(--accent-purple);">abc123...</strong>?v=...</small>
+            <small>
+                {% if is_edit %}
+                    Database URL 中的 ID 部分
+                {% else %}
+                    若不自動創建，請填入現有資料庫 ID
+                {% endif %}
+            </small>
         </div>
 
         <!-- Google AI Config -->
@@ -117,7 +163,7 @@
             <small style="display: block; margin-left: 26px; color: var(--text-muted);">建議開啟，使用系統的 Google Gemini API</small>
         </div>
 
-        <div class="form-group" id="google_api_key_group" style="{{ 'display:none' if (not tenant or tenant.use_shared_google_api) else '' }}">
+        <div class="form-group" id="google_api_key_group" {% if not tenant or tenant.use_shared_google_api %}hidden{% endif %}>
             <label for="google_api_key">Google API Key</label>
             <input type="password" id="google_api_key" name="google_api_key"
                    placeholder="{{ '已設定 (留空保持不變)' if is_edit and tenant.google_api_key else 'AIza...' }}">
@@ -145,30 +191,30 @@
                 <small>批次模式中的最大名片數量</small>
             </div>
         </div>
-
-        <!-- Actions -->
-        <div style="margin-top: 30px; display: flex; gap: 10px;">
-            <button type="submit" class="btn btn-primary">
-                <i data-lucide="{{ 'save' if is_edit else 'plus' }}" style="width: 16px; height: 16px;"></i>
-                {{ '儲存變更' if is_edit else '建立租戶' }}
-            </button>
-            <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">
-                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
-                取消
-            </a>
-
-            {% if is_edit %}
-            <form method="POST" action="{{ url_for('admin.delete_tenant', tenant_id=tenant.id) }}"
-                  style="margin-left: auto;"
-                  onsubmit="return confirm('確定要停用此租戶嗎？');">
-                <button type="submit" class="btn btn-danger">
-                    <i data-lucide="pause-circle" style="width: 16px; height: 16px;"></i>
-                    停用租戶
-                </button>
-            </form>
-            {% endif %}
-        </div>
     </form>
+
+    <!-- Actions (outside form to avoid nesting) -->
+    <div style="margin-top: 30px; display: flex; gap: 10px;">
+        <button type="submit" form="tenant-form" class="btn btn-primary">
+            <i data-lucide="{{ 'save' if is_edit else 'plus' }}" style="width: 16px; height: 16px;"></i>
+            {{ '儲存變更' if is_edit else '建立租戶' }}
+        </button>
+        <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">
+            <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            取消
+        </a>
+
+        {% if is_edit %}
+        <form method="POST" action="{{ url_for('admin.delete_tenant', tenant_id=tenant.id) }}"
+              style="margin-left: auto;"
+              onsubmit="return confirm('確定要停用此租戶嗎？');">
+            <button type="submit" class="btn btn-danger">
+                <i data-lucide="pause-circle" style="width: 16px; height: 16px;"></i>
+                停用租戶
+            </button>
+        </form>
+        {% endif %}
+    </div>
 </div>
 
 {% if is_edit %}
@@ -193,7 +239,23 @@
 function toggleGoogleApiKey() {
     const checkbox = document.getElementById('use_shared_google_api');
     const group = document.getElementById('google_api_key_group');
-    group.style.display = checkbox.checked ? 'none' : 'block';
+    group.hidden = checkbox.checked;
+}
+
+function toggleNotionApiKey() {
+    const checkbox = document.getElementById('use_shared_notion_api');
+    const group = document.getElementById('notion_api_key_group');
+    group.hidden = checkbox.checked;
+}
+
+function toggleNotionDbInput() {
+    const checkbox = document.getElementById('auto_create_notion_db');
+    const group = document.getElementById('notion_database_id_group');
+    const input = document.getElementById('notion_database_id');
+    if (checkbox) {
+        group.hidden = checkbox.checked;
+        input.required = !checkbox.checked;
+    }
 }
 </script>
 {% endblock %}

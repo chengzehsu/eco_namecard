@@ -122,7 +122,9 @@ class TenantContext:
         if self._line_bot_api is None:
             token = self.tenant.line_channel_access_token
             # #region agent log
-            import structlog; structlog.get_logger().info("DEBUG_TOKEN_CHECK", tenant_id=self.tenant.id, token_length=len(token) if token else 0, token_empty=not token, token_prefix=token[:20] if token and len(token)>20 else "SHORT_OR_EMPTY")
+            import structlog; structlog.get_logger().warning("DEBUG_TOKEN_CHECK", tenant_id=self.tenant.id, tenant_name=self.tenant.name, token_length=len(token) if token else 0, token_empty=not token)
+            if not token or len(token) < 50:
+                structlog.get_logger().error("DEBUG_TOKEN_INVALID", tenant_id=self.tenant.id, token_length=len(token) if token else 0, hint="Token appears invalid or decryption may have failed")
             # #endregion
             self._line_bot_api = LineBotApi(token)
         return self._line_bot_api

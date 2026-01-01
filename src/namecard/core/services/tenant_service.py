@@ -79,20 +79,19 @@ class TenantService:
         """Decrypt a string"""
         if not ciphertext:
             # #region agent log
-            logger.info("DEBUG_DECRYPT_EMPTY_CIPHERTEXT")
+            logger.warning("DEBUG_DECRYPT_EMPTY_CIPHERTEXT", hint="Encrypted field is empty in database")
             # #endregion
             return ""
         try:
             encrypted = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
             decrypted = self._cipher.decrypt(encrypted)
             result = decrypted.decode("utf-8")
-            # #region agent log
-            logger.info("DEBUG_DECRYPT_SUCCESS", result_length=len(result), result_empty=not result)
+            # #region agent log - removed to reduce noise
             # #endregion
             return result
         except Exception as e:
             # #region agent log
-            logger.info("DEBUG_DECRYPT_FAILED", error=str(e)[:100])
+            logger.error("DEBUG_DECRYPT_FAILED", error=str(e)[:100], hint="SECRET_KEY mismatch or corrupted data")
             # #endregion
             logger.error("Decryption failed", error=str(e))
             return ""

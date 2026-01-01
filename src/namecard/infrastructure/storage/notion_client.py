@@ -80,10 +80,10 @@ class NotionClient:
     def save_business_card(self, card: BusinessCard) -> Optional[str]:
         """
         儲存名片到 Notion 資料庫
-        
+
         Args:
             card: 名片資料
-            
+
         Returns:
             Notion 頁面 URL，失敗時返回 None
         """
@@ -92,16 +92,23 @@ class NotionClient:
                        user_id=card.line_user_id,
                        card_name=card.name,
                        card_company=card.company)
-            
+
             # 準備名片資料
             properties = self._prepare_card_properties(card)
-            
+
+            # 準備頁面內容（圖片）
+            children = self._prepare_page_content(card)
+
             # 建立 Notion 頁面
-            response = self.client.pages.create(
-                parent={"database_id": self.database_id},
-                properties=properties
-            )
-            
+            create_params = {
+                "parent": {"database_id": self.database_id},
+                "properties": properties
+            }
+            if children:
+                create_params["children"] = children
+
+            response = self.client.pages.create(**create_params)
+
             page_url = response.get("url", "")
             page_id = response.get("id", "")
             
@@ -187,6 +194,34 @@ class NotionClient:
 
         # 如果沒有中文或無法提取中文，返回原文
         return text
+
+    def _prepare_page_content(self, card: BusinessCard) -> list:
+        """
+        準備頁面內容（圖片嵌入）
+
+        Args:
+            card: BusinessCard 名片資料
+
+        Returns:
+            Notion blocks 列表，用於頁面內容
+        """
+        children = []
+
+        # 如果有圖片 URL，添加圖片塊
+        if card.image_url:
+            children.append({
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "external",
+                    "external": {
+                        "url": card.image_url
+                    }
+                }
+            })
+            logger.info("Added image to page content", image_url=card.image_url[:50] + "...")
+
+        return children
 
     def _prepare_card_properties(self, card: BusinessCard) -> Dict[str, Any]:
         """

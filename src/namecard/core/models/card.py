@@ -23,6 +23,9 @@ class BusinessCard(BaseModel):
     quality_score: float = Field(0.0, description="資料品質分數", ge=0.0, le=1.0)
     extracted_at: datetime = Field(default_factory=datetime.now, description="提取時間")
     
+    # 圖片相關
+    image_url: Optional[str] = Field(None, description="名片圖片 URL")
+
     # 用戶相關
     line_user_id: str = Field(..., description="LINE 用戶 ID")
     processed: bool = Field(False, description="是否已處理")

@@ -18,6 +18,7 @@ from src.namecard.api.line_bot.flex_templates import (
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
+from src.namecard.infrastructure.storage.image_storage import get_image_storage
 from src.namecard.core.models.card import BusinessCard
 
 logger = structlog.get_logger()
@@ -149,6 +150,20 @@ class UnifiedEventHandler:
             # 處理圖片（現在會拋出具體異常而非返回空列表）
             logger.info("Starting image processing", user_id=user_id)
             cards = self.card_processor.process_image(image_data, user_id)
+
+            # 上傳圖片到 ImgBB（如果有配置）
+            image_url = None
+            image_storage = get_image_storage()
+            if image_storage and cards:
+                try:
+                    image_url = image_storage.upload(image_data)
+                    if image_url:
+                        # 將圖片 URL 設定到所有識別出的名片
+                        for card in cards:
+                            card.image_url = image_url
+                except Exception as e:
+                    logger.warning("Failed to upload image to ImgBB", error=str(e))
+                    # 圖片上傳失敗不影響名片儲存
 
             # 儲存名片
             success_count = 0

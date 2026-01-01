@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     google_api_key: str = Field(default="", description="Google API Key")
     google_api_key_fallback: Optional[str] = Field(default=None, description="Fallback Google API Key")
     
+    # ImgBB Configuration (圖片儲存)
+    imgbb_api_key: Optional[str] = Field(default=None, description="ImgBB API Key for image upload")
+
     # Notion Configuration
     notion_api_key: str = Field(default="", description="Shared Notion API Key for all tenants")
     notion_database_id: str = Field(default="", description="Notion Database ID (for default tenant)")

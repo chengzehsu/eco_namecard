@@ -97,10 +97,13 @@ def get_image_storage() -> Optional[ImageStorage]:
         from simple_config import settings
 
         api_key = getattr(settings, 'imgbb_api_key', None)
+        # #region agent log
+        logger.warning("DEBUG_IMGBB_CONFIG", api_key_exists=bool(api_key), api_key_length=len(api_key) if api_key else 0)
+        # #endregion
         if api_key:
             _image_storage = ImageStorage(api_key)
             logger.info("ImageStorage initialized with ImgBB")
         else:
-            logger.info("ImgBB API key not configured, image upload disabled")
+            logger.warning("ImgBB API key not configured, image upload disabled")
 
     return _image_storage

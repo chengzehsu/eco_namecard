@@ -154,9 +154,15 @@ class UnifiedEventHandler:
             # 上傳圖片到 ImgBB（如果有配置）
             image_url = None
             image_storage = get_image_storage()
+            # #region agent log
+            logger.warning("DEBUG_IMAGE_STORAGE", storage_available=image_storage is not None, cards_count=len(cards) if cards else 0)
+            # #endregion
             if image_storage and cards:
                 try:
                     image_url = image_storage.upload(image_data)
+                    # #region agent log
+                    logger.warning("DEBUG_IMAGE_UPLOAD_RESULT", image_url_exists=bool(image_url), url_preview=image_url[:50] if image_url else None)
+                    # #endregion
                     if image_url:
                         # 將圖片 URL 設定到所有識別出的名片
                         for card in cards:

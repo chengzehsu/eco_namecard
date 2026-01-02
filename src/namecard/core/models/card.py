@@ -44,7 +44,18 @@ class BusinessCard(BaseModel):
             if len(phone_digits) < 8 or len(phone_digits) > 15:
                 return None
         return v
-    
+
+    @validator('name')
+    def clean_name(cls, v):
+        """清理名字中的多餘空白（特別是中文名字）"""
+        if v:
+            v = v.strip()
+            # 移除中文字元之間的空白
+            v = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', v)
+            # 移除多重空白（保留英文名字的單一空白）
+            v = re.sub(r'\s+', ' ', v)
+        return v
+
     @validator('address')
     def normalize_address(cls, v):
         if v:

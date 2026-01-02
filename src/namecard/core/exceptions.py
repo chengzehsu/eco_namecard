@@ -82,9 +82,12 @@ class SafetyFilterBlockedError(AIProcessingError):
     def __init__(self, finish_reason: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         message = f"Image blocked by Gemini safety filter (finish_reason={finish_reason})"
         user_message = (
-            "🛡️ 圖片內容被 AI 安全機制阻擋\n\n"
-            f"原因：{finish_reason or '未知'}\n"
-            "建議：請檢查圖片內容並重新上傳"
+            "📷 無法識別這張圖片\n\n"
+            "可能原因：\n"
+            "• 圖片模糊或光線不足\n"
+            "• 名片被遮擋或不完整\n"
+            "• 圖片內容無法辨識\n\n"
+            "💡 建議：請重新拍攝一張清晰的名片照片"
         )
         super().__init__(message, user_message, details)
 

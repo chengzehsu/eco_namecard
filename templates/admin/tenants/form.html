@@ -54,20 +54,6 @@
             LINE Bot 設定
         </h2>
 
-        {% if is_edit and tenant.activation_status == 'pending' %}
-        <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 1px solid #f59e0b; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="clock" style="width: 20px; height: 20px; color: #d97706;"></i>
-                <div>
-                    <strong style="color: #92400e;">等待綁定</strong>
-                    <p style="margin: 5px 0 0 0; color: #78350f; font-size: 0.9rem;">
-                        請發送任意訊息給此 LINE Bot，系統將自動完成綁定。
-                    </p>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
         <div class="form-group">
             <label for="line_channel_id">LINE Bot User ID {{ '' if not is_edit else '' }}</label>
             <input type="text" id="line_channel_id" name="line_channel_id"

@@ -6,13 +6,9 @@ TenantContext for runtime service instances.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Any, Literal
+from typing import Optional, Any
 from datetime import datetime
 from linebot import LineBotApi
-
-
-# Activation status for LINE Bot auto-detection
-ActivationStatus = Literal["pending", "active", "inactive"]
 
 
 class TenantConfig(BaseModel):
@@ -22,10 +18,6 @@ class TenantConfig(BaseModel):
     name: str = Field(..., description="Display name")
     slug: str = Field(..., description="URL-friendly identifier")
     is_active: bool = Field(default=True, description="Whether tenant is active")
-    activation_status: ActivationStatus = Field(
-        default="pending",
-        description="LINE Bot activation status: pending (awaiting auto-detection), active, inactive"
-    )
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

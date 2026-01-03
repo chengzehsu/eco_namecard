@@ -14,7 +14,7 @@ from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
-from src.namecard.infrastructure.storage.image_storage import get_image_storage
+from src.namecard.infrastructure.storage.image_upload_worker import submit_image_upload
 from src.namecard.api.line_bot.flex_templates import create_card_result_message, create_batch_complete_message
 
 logger = structlog.get_logger()
@@ -150,16 +150,16 @@ class UnifiedEventHandler:
 
             for card in cards:
                 try:
-                    # 儲存到 Notion（不含圖片）
-                    page_url = self.notion_client.save_business_card(card)
+                    # 儲存到 Notion（不含圖片）- 返回 (page_id, page_url)
+                    result = self.notion_client.save_business_card(card)
 
-                    if page_url:
+                    if result:
+                        page_id, page_url = result
                         success_count += 1
                         card.processed = True
                         
-                        # 從 URL 提取頁面 ID（格式：https://notion.so/xxx-PAGE_ID）
-                        if page_url and '-' in page_url:
-                            page_id = page_url.split('-')[-1]
+                        # 直接使用 API 返回的 page_id
+                        if page_id:
                             saved_page_ids.append(page_id)
 
                         # 如果是批次模式，加入批次
@@ -216,31 +216,17 @@ class UnifiedEventHandler:
                 status
             )
 
-            # 非同步上傳圖片到 ImgBB（不阻塞主流程）
+            # 使用 Queue Worker 非同步上傳圖片到 ImgBB
             if success_count > 0 and saved_page_ids:
-                image_storage = get_image_storage()
-                if image_storage:
-                    # 創建回調函數，上傳成功後更新 Notion 頁面
-                    def on_image_uploaded(image_url):
-                        if image_url:
-                            logger.info("Async image upload completed", 
-                                       url=image_url[:50] + "...",
-                                       pages_to_update=len(saved_page_ids))
-                            # 更新所有已儲存的頁面，添加圖片
-                            for page_id in saved_page_ids:
-                                try:
-                                    self.notion_client.update_page_with_image(page_id, image_url)
-                                except Exception as e:
-                                    logger.warning("Failed to update page with image",
-                                                  page_id=page_id[:10] + "...",
-                                                  error=str(e))
-                        else:
-                            logger.warning("Async image upload failed, pages will not have images")
-
-                    # 啟動非同步上傳
-                    image_storage.upload_async(image_data, callback=on_image_uploaded)
-                    logger.info("Started async image upload for saved pages",
-                               page_count=len(saved_page_ids))
+                submit_image_upload(
+                    image_data=image_data,
+                    page_ids=saved_page_ids,
+                    notion_client=self.notion_client,
+                    user_id=user_id
+                )
+                logger.info("Submitted image upload task to worker",
+                           page_count=len(saved_page_ids),
+                           user_id=user_id)
 
         except LineBotApiError as e:
             logger.error("LINE API error in image processing",

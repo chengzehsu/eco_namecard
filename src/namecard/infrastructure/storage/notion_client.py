@@ -1,5 +1,5 @@
 from notion_client import Client
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import structlog
 from datetime import datetime
 import sys
@@ -199,7 +199,7 @@ class NotionClient:
             body=body,
         )
 
-    def save_business_card(self, card: BusinessCard) -> Optional[str]:
+    def save_business_card(self, card: BusinessCard) -> Optional[Tuple[str, str]]:
         """
         儲存名片到 Notion 資料庫
 
@@ -207,7 +207,7 @@ class NotionClient:
             card: 名片資料
 
         Returns:
-            Notion 頁面 URL，失敗時返回 None
+            (page_id, page_url) 元組，失敗時返回 None
         """
         try:
             logger.info(
@@ -265,7 +265,7 @@ class NotionClient:
                 company=card.company,
             )
 
-            return page_url
+            return (page_id, page_url)
 
         except Exception as e:
             logger.error(

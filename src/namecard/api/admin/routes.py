@@ -146,19 +146,33 @@ def create_tenant():
 
             # 3. 使用 LINE Access Token 獲取 Bot User ID
             line_channel_id = request.form.get("line_channel_id", "").strip()
+
+            # 如果用戶填入了值，驗證格式是否正確（應以 U 開頭）
+            if line_channel_id and not line_channel_id.startswith("U"):
+                flash("LINE Bot User ID 格式不正確，應以 U 開頭（例如：Ub09c9be...）。建議留空讓系統自動獲取。", "error")
+                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+
+            # 如果沒有填入，從 LINE API 自動獲取
             if not line_channel_id:
-                # 嘗試從 LINE API 獲取 Bot User ID
                 try:
                     from linebot import LineBotApi
                     temp_line_api = LineBotApi(line_access_token)
                     bot_info = temp_line_api.get_bot_info()
                     line_channel_id = bot_info.user_id
-                    logger.info("AUTO_FETCH_BOT_USER_ID",
+
+                    # 驗證獲取的值格式
+                    if not line_channel_id or not line_channel_id.startswith("U"):
+                        logger.error("INVALID_BOT_USER_ID_FORMAT",
+                                    received_value=line_channel_id)
+                        flash("從 LINE API 獲取的 Bot User ID 格式不正確", "error")
+                        return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+
+                    logger.info("AUTO_FETCH_BOT_USER_ID_SUCCESS",
                                bot_user_id=line_channel_id,
                                bot_name=bot_info.display_name if hasattr(bot_info, 'display_name') else None)
-                    flash(f"已自動獲取 Bot User ID: {line_channel_id[:20]}...", "info")
+                    flash(f"✓ 已自動獲取 Bot User ID: {line_channel_id}", "success")
                 except Exception as line_err:
-                    logger.error("FAILED_TO_FETCH_BOT_USER_ID", error=str(line_err))
+                    logger.error("FAILED_TO_FETCH_BOT_USER_ID", error=str(line_err), error_type=type(line_err).__name__)
                     flash(f"無法自動獲取 Bot User ID，請檢查 Channel Access Token 是否正確: {str(line_err)}", "error")
                     return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 

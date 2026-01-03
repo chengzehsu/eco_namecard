@@ -315,8 +315,16 @@ async function fetchNotionDatabaseInfo() {
             statusDiv.className = 'status-message success';
             let message = `✅ 驗證成功！<br><strong>資料庫名稱:</strong> ${data.database_title}`;
 
+            // 顯示實際讀取到的欄位
+            if (data.actual_fields && data.actual_fields.length > 0) {
+                message += `<br><strong>讀取到 ${data.field_count} 個欄位:</strong> ${data.actual_fields.join(', ')}`;
+            }
+
             if (data.warning) {
                 message += `<br><span class="status-warning">⚠️ ${data.warning}</span>`;
+                if (data.debug_info) {
+                    message += `<br><small>${data.debug_info}</small>`;
+                }
             }
 
             statusDiv.innerHTML = message;

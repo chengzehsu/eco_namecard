@@ -685,11 +685,16 @@ def fetch_notion_database_info():
             required_fields = ["Name", "Email", "公司名稱", "電話"]
             missing_fields = [f for f in required_fields if f not in properties]
 
+            # 取得實際欄位列表（用於 debug）
+            actual_fields = list(properties.keys())
+
             logger.info(
                 "FETCH_NOTION_DB_SUCCESS",
                 database_id=database_id[:15] + "..." if len(database_id) > 15 else database_id,
                 database_title=db_title,
                 has_all_required_fields=len(missing_fields) == 0,
+                actual_field_count=len(actual_fields),
+                actual_fields=actual_fields[:10],  # 只記錄前 10 個
             )
 
             result = {
@@ -697,11 +702,14 @@ def fetch_notion_database_info():
                 "database_title": db_title,
                 "database_url": db_url,
                 "database_id": database_id,
+                "actual_fields": actual_fields,  # 顯示實際讀取到的欄位
+                "field_count": len(actual_fields),
             }
 
             # 如果有缺少欄位，發出警告但不阻止
             if missing_fields:
                 result["warning"] = f"資料庫缺少建議欄位: {', '.join(missing_fields)}"
+                result["debug_info"] = f"實際讀取到 {len(actual_fields)} 個欄位"
 
             return jsonify(result)
 

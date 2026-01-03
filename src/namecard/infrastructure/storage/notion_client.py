@@ -14,11 +14,38 @@ from src.namecard.infrastructure.storage.notion_fields import NotionFields
 
 logger = structlog.get_logger()
 
+# ============================================================================
+# ⚠️ NOTION API 配置 - 請勿隨意修改
+# ============================================================================
+# API 版本: 2025-09-03 (支援 multi-source databases)
+# 參考文件: https://developers.notion.com/docs/upgrade-guide-2025-09-03
+# ============================================================================
+NOTION_API_VERSION = "2025-09-03"
+
+
+def create_notion_client(api_key: str) -> Client:
+    """
+    創建 Notion API Client 的工廠函數
+    
+    ⚠️ 統一使用此函數創建 Client，避免版本號不一致的問題
+    
+    Args:
+        api_key: Notion API Key
+        
+    Returns:
+        Notion Client 實例 (使用 2025-09-03 版本)
+    """
+    return Client(auth=api_key, notion_version=NOTION_API_VERSION)
+
 
 class NotionClient:
     """Notion 資料庫客戶端
 
     支援多租戶模式，可使用自訂的 API Key 和 Database ID。
+    
+    API 版本: 2025-09-03
+    - 使用 data_source_id 進行查詢和創建頁面
+    - 參考: https://developers.notion.com/docs/upgrade-guide-2025-09-03
     """
 
     def __init__(
@@ -37,9 +64,12 @@ class NotionClient:
         self._api_key = api_key or settings.notion_api_key
         self.database_id = database_id or settings.notion_database_id
 
-        # 初始化 Client（使用 SDK 預設版本）
-        self.client = Client(auth=self._api_key)
+        # 使用工廠函數創建 Client (確保版本一致)
+        self.client = create_notion_client(self._api_key)
         self.database_url = f"https://notion.so/{self.database_id.replace('-', '')}"
+        
+        # 2025-09-03 版本需要 data_source_id
+        self.data_source_id: Optional[str] = None
 
         # 緩存資料庫 schema（用於檢查欄位是否存在）
         self._db_schema: Dict[str, Any] = {}
@@ -48,20 +78,54 @@ class NotionClient:
         self._test_connection()
 
     def _test_connection(self) -> None:
-        """測試 Notion 連接並緩存 schema"""
+        """測試 Notion 連接並緩存 schema (2025-09-03 版本)
+        
+        根據升級指南: https://developers.notion.com/docs/upgrade-guide-2025-09-03
+        Step 1: 獲取 data_source_id
+        Step 3: 使用 data_source 端點獲取 schema
+        """
         try:
-            # 嘗試讀取資料庫資訊
-            response = self.client.databases.retrieve(database_id=self.database_id)
-            self._db_schema = response.get("properties", {})
+            # Step 1: 獲取 database 資訊，取得 data_sources 列表
+            db_response = self.client.databases.retrieve(database_id=self.database_id)
+            
+            # 從 database 獲取 data_sources
+            data_sources = db_response.get("data_sources", [])
+            
+            if not data_sources:
+                logger.error(
+                    "⚠️ CRITICAL: No data sources found for database!",
+                    database_id=self.database_id,
+                    response_keys=list(db_response.keys()),
+                )
+                return
+            
+            # 取得第一個 data_source_id（單一來源資料庫只有一個）
+            self.data_source_id = data_sources[0].get("id")
+            
+            logger.info(
+                "Data source ID obtained",
+                database_id=self.database_id[:10] + "...",
+                data_source_id=self.data_source_id[:10] + "..." if self.data_source_id else None,
+                data_source_count=len(data_sources),
+            )
+            
+            # Step 3: 使用 data_source 端點獲取 schema (properties)
+            # GET /v1/data_sources/{data_source_id}
+            ds_response = self.client.request(
+                method="get",
+                path=f"data_sources/{self.data_source_id}",
+            )
+            self._db_schema = ds_response.get("properties", {})
 
             logger.info(
-                "Notion connection established successfully",
+                "Notion connection established successfully (API 2025-09-03)",
                 available_fields=list(self._db_schema.keys()),
             )
 
             logger.info(
                 "Notion database connection established",
                 database_id=self.database_id[:10] + "...",
+                data_source_id=self.data_source_id[:10] + "..." if self.data_source_id else None,
                 operation="connection_test",
                 status="success",
                 field_count=len(self._db_schema),
@@ -70,9 +134,9 @@ class NotionClient:
             # 🔍 詳細記錄每個字段的信息（用於診斷）
             if len(self._db_schema) == 0:
                 logger.error(
-                    "⚠️ CRITICAL: Database schema is EMPTY!",
-                    database_id=self.database_id,
-                    response_keys=list(response.keys()),
+                    "⚠️ CRITICAL: Data source schema is EMPTY!",
+                    data_source_id=self.data_source_id,
+                    response_keys=list(ds_response.keys()),
                 )
             else:
                 for field_name in list(self._db_schema.keys())[:10]:  # 只記錄前10個
@@ -100,6 +164,41 @@ class NotionClient:
         """檢查欄位是否存在於資料庫 schema 中"""
         return field_name in self._db_schema
 
+    def _query_data_source(
+        self,
+        filter: Optional[Dict[str, Any]] = None,
+        sorts: Optional[list] = None,
+        page_size: int = 100,
+    ) -> Dict[str, Any]:
+        """查詢 Data Source (2025-09-03 版本)
+        
+        使用 POST /v1/data_sources/{data_source_id}/query
+        參考: https://developers.notion.com/docs/upgrade-guide-2025-09-03#step-3-migrate-database-endpoints
+        
+        Args:
+            filter: 過濾條件
+            sorts: 排序條件
+            page_size: 每頁數量
+            
+        Returns:
+            查詢結果
+        """
+        if not self.data_source_id:
+            logger.error("Cannot query: data_source_id not available")
+            return {"results": []}
+        
+        body: Dict[str, Any] = {"page_size": page_size}
+        if filter:
+            body["filter"] = filter
+        if sorts:
+            body["sorts"] = sorts
+            
+        return self.client.request(
+            method="post",
+            path=f"data_sources/{self.data_source_id}/query",
+            body=body,
+        )
+
     def save_business_card(self, card: BusinessCard) -> Optional[str]:
         """
         儲存名片到 Notion 資料庫
@@ -124,8 +223,19 @@ class NotionClient:
             # 準備頁面內容（圖片）
             children = self._prepare_page_content(card)
 
-            # 建立 Notion 頁面
-            create_params = {"parent": {"database_id": self.database_id}, "properties": properties}
+            # 建立 Notion 頁面 (2025-09-03: 使用 data_source_id)
+            # 參考: https://developers.notion.com/docs/upgrade-guide-2025-09-03#step-2-provide-data-source-ids
+            if not self.data_source_id:
+                logger.error("Cannot create page: data_source_id not available")
+                return None
+                
+            create_params = {
+                "parent": {
+                    "type": "data_source_id",
+                    "data_source_id": self.data_source_id
+                },
+                "properties": properties
+            }
             if children:
                 create_params["children"] = children
 
@@ -405,8 +515,8 @@ class NotionClient:
             except Exception:
                 pass
             # #endregion
-            # 初始化 Client（使用 SDK 預設版本）
-            client = Client(auth=api_key)
+            # 使用工廠函數創建 Client (2025-09-03)
+            client = create_notion_client(api_key)
             parent_id = parent_page_id or settings.notion_shared_parent_page_id
             # #region agent log
             try:
@@ -600,10 +710,10 @@ class NotionClient:
                 "Searching cards by name", search_name=name, limit=limit, field=NotionFields.NAME
             )
 
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            # 使用 data source 查詢 (2025-09-03)
+            response = self._query_data_source(
                 filter={
-                    "property": NotionFields.NAME,  # 修復: 使用正確的欄位名稱 "Name"
+                    "property": NotionFields.NAME,
                     "title": {"contains": name},
                 },
                 page_size=limit,
@@ -653,10 +763,10 @@ class NotionClient:
                 field=NotionFields.COMPANY,
             )
 
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            # 使用 data source 查詢 (2025-09-03)
+            response = self._query_data_source(
                 filter={
-                    "property": NotionFields.COMPANY,  # 修復: 使用正確的欄位名稱 "公司名稱"
+                    "property": NotionFields.COMPANY,
                     "rich_text": {"contains": company},
                 },
                 page_size=limit,
@@ -688,8 +798,8 @@ class NotionClient:
     def get_user_cards(self, line_user_id: str, limit: int = 50) -> list:
         """獲取特定用戶的所有名片"""
         try:
-            response = self.client.databases.query(
-                database_id=self.database_id,
+            # 使用 data source 查詢 (2025-09-03)
+            response = self._query_data_source(
                 filter={"property": "LINE用戶", "rich_text": {"equals": line_user_id}},
                 sorts=[{"property": "建立時間", "direction": "descending"}],
                 page_size=limit,
@@ -704,13 +814,14 @@ class NotionClient:
     def get_database_stats(self) -> Dict[str, Any]:
         """獲取資料庫統計資訊"""
         try:
-            # 獲取總數（檢查 API 連線）
-            self.client.databases.query(database_id=self.database_id, page_size=1)
+            # 使用 data source 查詢檢查連線 (2025-09-03)
+            self._query_data_source(page_size=1)
 
             # 注意：Notion API 不直接提供總數，這裡只是示例
             stats = {
                 "total_cards": "N/A",  # 需要遍歷所有頁面才能獲得準確數字
                 "database_url": self.database_url,
+                "data_source_id": self.data_source_id,
                 "last_updated": datetime.now().isoformat(),
             }
 

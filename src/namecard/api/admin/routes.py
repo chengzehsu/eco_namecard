@@ -547,17 +547,22 @@ def test_tenant_connection(tenant_id: str):
     except Exception as e:
         results["line"] = {"status": "error", "message": str(e)}
 
-    # Test Notion API
+    # Test Notion API (2025-09-03)
     try:
-        from notion_client import Client
+        from src.namecard.infrastructure.storage.notion_client import create_notion_client
 
-        notion = Client(auth=tenant.notion_api_key)
+        notion = create_notion_client(tenant.notion_api_key)
         db_info = notion.databases.retrieve(database_id=tenant.notion_database_id)
+        
+        # 獲取 data_sources (2025-09-03 版本)
+        data_sources = db_info.get("data_sources", [])
+        
         results["notion"] = {
             "status": "success",
             "database_title": db_info.get("title", [{}])[0].get("plain_text", "OK")
             if db_info.get("title")
             else "OK",
+            "data_source_count": len(data_sources),
         }
     except Exception as e:
         results["notion"] = {"status": "error", "message": str(e)}
@@ -665,11 +670,11 @@ def fetch_notion_database_info():
         if not database_id:
             return jsonify({"success": False, "error": "請提供 Notion Database ID"}), 400
 
-        # 呼叫 Notion API
-        from notion_client import Client
+        # 呼叫 Notion API (2025-09-03)
+        from src.namecard.infrastructure.storage.notion_client import create_notion_client
 
         try:
-            notion = Client(auth=notion_api_key)
+            notion = create_notion_client(notion_api_key)
             db_info = notion.databases.retrieve(database_id=database_id)
 
             # 取得資料庫標題
@@ -679,9 +684,21 @@ def fetch_notion_database_info():
 
             # 取得資料庫 URL
             db_url = db_info.get("url", "")
+            
+            # 2025-09-03: 獲取 data_source_id 和 schema
+            data_sources = db_info.get("data_sources", [])
+            data_source_id = data_sources[0].get("id") if data_sources else None
+            
+            # 從 data_source 獲取 properties (2025-09-03)
+            properties = {}
+            if data_source_id:
+                ds_info = notion.request(
+                    method="get",
+                    path=f"data_sources/{data_source_id}",
+                )
+                properties = ds_info.get("properties", {})
 
             # 驗證必要欄位（Name, Email, 公司名稱, 電話）
-            properties = db_info.get("properties", {})
             required_fields = ["Name", "Email", "公司名稱", "電話"]
             missing_fields = [f for f in required_fields if f not in properties]
 
@@ -691,6 +708,7 @@ def fetch_notion_database_info():
             logger.info(
                 "FETCH_NOTION_DB_SUCCESS",
                 database_id=database_id[:15] + "..." if len(database_id) > 15 else database_id,
+                data_source_id=data_source_id[:15] + "..." if data_source_id else None,
                 database_title=db_title,
                 has_all_required_fields=len(missing_fields) == 0,
                 actual_field_count=len(actual_fields),
@@ -702,6 +720,7 @@ def fetch_notion_database_info():
                 "database_title": db_title,
                 "database_url": db_url,
                 "database_id": database_id,
+                "data_source_id": data_source_id,  # 2025-09-03
                 "actual_fields": actual_fields,  # 顯示實際讀取到的欄位
                 "field_count": len(actual_fields),
             }

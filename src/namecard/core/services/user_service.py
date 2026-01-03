@@ -1,8 +1,13 @@
 from typing import Dict, Optional, Any
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import structlog
 import json
 from ..models.card import ProcessingStatus, BatchProcessResult
+
+# 台灣時區
+TW_TZ = ZoneInfo("Asia/Taipei")
+RESET_HOUR = 4  # 台灣時間 04:00 重置
 
 logger = structlog.get_logger()
 
@@ -88,12 +93,28 @@ class UserService:
                 self._user_sessions[user_id] = ProcessingStatus(user_id=user_id)
             status = self._user_sessions[user_id]
 
-        # 檢查是否需要重置每日使用量
-        now = datetime.now()
-        if now.date() > status.usage_reset_date.date():
+        # 檢查是否需要重置每日使用量（台灣時間 04:00 重置）
+        now_tw = datetime.now(TW_TZ)
+
+        # 計算今天的重置時間點
+        if now_tw.hour >= RESET_HOUR:
+            today_reset = now_tw.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+        else:
+            # 凌晨 04:00 之前，重置時間點是昨天的 04:00
+            today_reset = (now_tw - timedelta(days=1)).replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+
+        # 將 usage_reset_date 轉換為台灣時間比較
+        try:
+            reset_date_tw = status.usage_reset_date.astimezone(TW_TZ)
+        except (ValueError, TypeError):
+            # 如果沒有時區資訊，假設是 UTC 並轉換
+            reset_date_tw = status.usage_reset_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(TW_TZ)
+
+        # 如果上次重置時間早於今天的重置時間點，則重置
+        if reset_date_tw < today_reset:
             status.daily_usage = 0
-            status.usage_reset_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            logger.info("Reset daily usage", user_id=user_id)
+            status.usage_reset_date = today_reset
+            logger.info("Reset daily usage at 04:00 TW time", user_id=user_id)
             # 重置後儲存到 Redis
             if self.use_redis:
                 self._save_status_to_redis(user_id, status)

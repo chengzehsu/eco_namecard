@@ -5,15 +5,17 @@
 """
 
 import structlog
-from typing import Optional
+from typing import Optional, Union
 from linebot import LineBotApi
-from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
+from linebot.models import TextSendMessage, FlexSendMessage, QuickReply, QuickReplyButton, MessageAction
 from linebot.exceptions import LineBotApiError
 
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
+from src.namecard.infrastructure.storage.image_storage import get_image_storage
+from src.namecard.api.line_bot.flex_templates import create_card_result_message, create_batch_complete_message
 
 logger = structlog.get_logger()
 
@@ -136,9 +138,27 @@ class UnifiedEventHandler:
                 )
                 return
 
+            # 上傳圖片到 ImgBB（如果有配置）
+            image_url = None
+            image_storage = get_image_storage()
+            if image_storage:
+                try:
+                    image_url = image_storage.upload(image_data)
+                    if image_url:
+                        logger.info("Image uploaded to ImgBB", url=image_url[:50] + "...")
+                    else:
+                        logger.warning("Image upload returned None")
+                except Exception as e:
+                    logger.warning("Image upload failed, continuing without image", error=str(e))
+
             # 處理圖片（現在會拋出具體異常而非返回空列表）
             logger.info("Starting image processing", user_id=user_id)
             cards = self.card_processor.process_image(image_data, user_id)
+
+            # 設置圖片 URL 到每張名片
+            if image_url:
+                for card in cards:
+                    card.image_url = image_url
 
             # 儲存名片
             success_count = 0
@@ -332,33 +352,44 @@ class UnifiedEventHandler:
         error_messages: list,
         status
     ) -> None:
-        """發送處理結果訊息"""
+        """發送處理結果訊息（使用 Flex Message）"""
         total = len(cards)
 
         if success_count > 0:
-            # 成功訊息
-            if total == 1:
-                card = cards[0]
-                result_text = f"""✅ 名片識別成功！
+            try:
+                # 使用 Flex Message 發送漂亮的卡片
+                flex_message = create_card_result_message(
+                    cards=cards,
+                    is_batch_mode=status.is_batch_mode,
+                    batch_progress=status.current_batch.total_cards if status.is_batch_mode and status.current_batch else None
+                )
+                self._send_flex_message(reply_token, flex_message)
+                logger.info("Sent Flex Message result", cards_count=len(cards))
+            except Exception as e:
+                # Flex Message 失敗時 fallback 到純文字
+                logger.warning("Flex Message failed, falling back to text", error=str(e))
+                if total == 1:
+                    card = cards[0]
+                    result_text = f"""✅ 名片識別成功！
 
 姓名：{card.name or '未識別'}
 公司：{card.company or '未識別'}
 職稱：{card.title or '未識別'}
 電話：{card.phone or '未識別'}
 Email：{card.email or '未識別'}"""
-            else:
-                result_text = f"""✅ 識別完成！
+                else:
+                    result_text = f"""✅ 識別完成！
 
 成功：{success_count} 張
 失敗：{failed_count} 張
 總計：{total} 張"""
 
-            # 批次模式提示
-            if status.is_batch_mode:
-                batch = status.current_batch
-                result_text += f"\n\n📦 批次進度：{batch.total_cards} 張"
+                # 批次模式提示
+                if status.is_batch_mode:
+                    batch = status.current_batch
+                    result_text += f"\n\n📦 批次進度：{batch.total_cards} 張"
 
-            self._send_reply(reply_token, result_text)
+                self._send_reply(reply_token, result_text)
 
         elif failed_count > 0:
             # 全部失敗
@@ -369,6 +400,26 @@ Email：{card.email or '未識別'}"""
         """發送錯誤訊息"""
         self._send_reply(reply_token, error_msg)
 
+    def _send_flex_message(
+        self,
+        reply_token: str,
+        flex_message: FlexSendMessage
+    ) -> None:
+        """
+        發送 Flex Message
+
+        Args:
+            reply_token: 回覆 token
+            flex_message: FlexSendMessage 實例
+        """
+        try:
+            self.line_bot_api.reply_message(reply_token, flex_message)
+        except LineBotApiError as e:
+            logger.error("Failed to send flex message",
+                        error=str(e),
+                        reply_token=reply_token[:20] + "...")
+            raise
+
     def _send_reply(
         self,
         reply_token: str,
@@ -376,7 +427,7 @@ Email：{card.email or '未識別'}"""
         quick_reply: Optional[QuickReply] = None
     ) -> None:
         """
-        統一的回覆發送方法
+        統一的回覆發送方法（純文字）
 
         Args:
             reply_token: 回覆 token

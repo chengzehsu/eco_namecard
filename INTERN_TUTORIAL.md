@@ -2080,11 +2080,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    # 注意：Zeabur 透過 Git 集成自動部署，不需要特別的 action
+    # 只要 push 到 main 分支，Zeabur 就會自動偵測並部署
     - name: Deploy to Zeabur
-      uses: zeabur/deploy-action@v1
-      with:
-        service-id: ${{ secrets.ZEABUR_SERVICE_ID }}
-        api-token: ${{ secrets.ZEABUR_API_TOKEN }}
+      run: |
+        echo "🚀 Deployment to Zeabur..."
+        echo "📝 Zeabur auto-deploys on push to main branch"
+        echo "✅ GitHub Actions completed - Zeabur deployment in progress"
 
   health-check:
     runs-on: ubuntu-latest
@@ -2092,9 +2094,13 @@ jobs:
     if: github.ref == 'refs/heads/main'
     
     steps:
+    - name: Wait for Zeabur deployment
+      run: |
+        echo "⏳ 等待 Zeabur 部署完成..."
+        sleep 120  # 等待 2 分鐘讓 Zeabur 完成部署
+        
     - name: Health Check
       run: |
-        sleep 30  # 等待部署完成
         curl -f https://eco-namecard.zeabur.app/health || exit 1
         echo "✅ Health check passed"
 ```

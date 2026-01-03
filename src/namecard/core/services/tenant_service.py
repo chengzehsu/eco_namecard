@@ -165,19 +165,16 @@ class TenantService:
         # Generate slug if not provided
         slug = request.slug or self._generate_slug(request.name)
 
-        # Generate placeholder line_channel_id if not provided (for auto-detection)
+        # 使用提供的 line_channel_id（通常由 LINE API 自動獲取）
         line_channel_id = request.line_channel_id
-        logger.info("DEBUG_LINE_CHANNEL_ID_IN_SERVICE",
-                   received_value=line_channel_id,
-                   is_none=line_channel_id is None,
-                   is_empty_string=line_channel_id == "" if line_channel_id is not None else False)
-
         if not line_channel_id or line_channel_id.strip() == "":
+            # Fallback: 如果沒有提供，生成佔位符（不應該發生，因為現在會自動獲取）
             line_channel_id = f"pending_{uuid_module.uuid4().hex[:16]}"
-            logger.info("Generated placeholder line_channel_id for auto-detection",
-                       line_channel_id=line_channel_id)
+            logger.warning("Generated placeholder line_channel_id (should not happen)",
+                          line_channel_id=line_channel_id)
         else:
-            logger.info("Using provided line_channel_id", line_channel_id=line_channel_id[:20] + "..." if len(line_channel_id) > 20 else line_channel_id)
+            logger.info("Using line_channel_id from LINE API",
+                       line_channel_id=line_channel_id[:20] + "..." if len(line_channel_id) > 20 else line_channel_id)
 
         # Prepare encrypted data
         data = {

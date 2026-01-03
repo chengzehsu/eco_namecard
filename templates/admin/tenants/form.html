@@ -55,19 +55,19 @@
         </h2>
 
         <div class="form-group">
-            <label for="line_channel_id">LINE Bot User ID {{ '' if not is_edit else '' }}</label>
+            <label for="line_channel_id">LINE Bot User ID</label>
             <input type="text" id="line_channel_id" name="line_channel_id"
                    value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}"
-                   placeholder="留空可自動偵測（發送訊息給 Bot 後自動綁定）">
+                   placeholder="留空將自動從 LINE API 獲取">
             <small>
                 {% if is_edit %}
                     {% if tenant.line_channel_id %}
-                        ✓ 已綁定
+                        ✓ 已綁定: {{ tenant.line_channel_id[:20] }}...
                     {% else %}
-                        等待自動偵測中...
+                        尚未綁定
                     {% endif %}
                 {% else %}
-                    <strong style="color: var(--accent-purple);">可選填</strong> — 留空則在首次收到訊息時自動綁定 Bot User ID
+                    <strong style="color: var(--accent-green);">💡 自動獲取</strong> — 系統會使用 Channel Access Token 自動從 LINE API 獲取 Bot User ID
                 {% endif %}
             </small>
         </div>

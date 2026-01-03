@@ -144,7 +144,25 @@ def create_tenant():
                 flash("請填寫 LINE Channel Secret", "error")
                 return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 
-            # 3. 驗證 Notion API Key
+            # 3. 使用 LINE Access Token 獲取 Bot User ID
+            line_channel_id = request.form.get("line_channel_id", "").strip()
+            if not line_channel_id:
+                # 嘗試從 LINE API 獲取 Bot User ID
+                try:
+                    from linebot import LineBotApi
+                    temp_line_api = LineBotApi(line_access_token)
+                    bot_info = temp_line_api.get_bot_info()
+                    line_channel_id = bot_info.user_id
+                    logger.info("AUTO_FETCH_BOT_USER_ID",
+                               bot_user_id=line_channel_id,
+                               bot_name=bot_info.display_name if hasattr(bot_info, 'display_name') else None)
+                    flash(f"已自動獲取 Bot User ID: {line_channel_id[:20]}...", "info")
+                except Exception as line_err:
+                    logger.error("FAILED_TO_FETCH_BOT_USER_ID", error=str(line_err))
+                    flash(f"無法自動獲取 Bot User ID，請檢查 Channel Access Token 是否正確: {str(line_err)}", "error")
+                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+
+            # 4. 驗證 Notion API Key
             if use_shared_notion_api:
                 notion_api_key = settings.notion_api_key
                 if not notion_api_key:
@@ -199,18 +217,11 @@ def create_tenant():
                 return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 
             # Build tenant request (with pre-validated data)
-            # 擷取 line_channel_id 並記錄
-            form_line_channel_id = request.form.get("line_channel_id", "").strip()
-            logger.info("DEBUG_LINE_CHANNEL_ID_FROM_FORM",
-                       raw_value=request.form.get("line_channel_id"),
-                       stripped_value=form_line_channel_id,
-                       is_empty=not form_line_channel_id)
-
             try:
                 tenant_request = TenantCreateRequest(
                     name=tenant_name,
                     slug=request.form.get("slug", "").strip() or None,
-                    line_channel_id=form_line_channel_id or None,
+                    line_channel_id=line_channel_id,  # 使用自動獲取或用戶填入的值
                     line_channel_access_token=line_access_token,
                     line_channel_secret=line_secret,
                     notion_api_key=notion_api_key if not use_shared_notion_api else None,

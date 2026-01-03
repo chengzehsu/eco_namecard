@@ -165,16 +165,16 @@ class TenantService:
         # Generate slug if not provided
         slug = request.slug or self._generate_slug(request.name)
 
-        # 使用提供的 line_channel_id（通常由 LINE API 自動獲取）
+        # Bot User ID 必須由前端透過 API 獲取並驗證
         line_channel_id = request.line_channel_id
         if not line_channel_id or line_channel_id.strip() == "":
-            # Fallback: 如果沒有提供，生成佔位符（不應該發生，因為現在會自動獲取）
-            line_channel_id = f"pending_{uuid_module.uuid4().hex[:16]}"
-            logger.warning("Generated placeholder line_channel_id (should not happen)",
-                          line_channel_id=line_channel_id)
-        else:
-            logger.info("Using line_channel_id from LINE API",
-                       line_channel_id=line_channel_id[:20] + "..." if len(line_channel_id) > 20 else line_channel_id)
+            raise ValueError("line_channel_id is required - must be fetched via fetch_bot_user_id API")
+
+        if not line_channel_id.startswith("U"):
+            raise ValueError(f"Invalid line_channel_id format: must start with 'U', got '{line_channel_id[:10]}...'")
+
+        logger.info("Creating tenant with Bot User ID",
+                   line_channel_id=line_channel_id[:20] + "..." if len(line_channel_id) > 20 else line_channel_id)
 
         # Prepare encrypted data
         data = {

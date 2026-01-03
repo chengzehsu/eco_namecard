@@ -55,25 +55,7 @@
         </h2>
 
         <div class="form-group">
-            <label for="line_channel_id">LINE Bot User ID</label>
-            <input type="text" id="line_channel_id" name="line_channel_id"
-                   value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}"
-                   placeholder="留空將自動從 LINE API 獲取">
-            <small>
-                {% if is_edit %}
-                    {% if tenant.line_channel_id %}
-                        ✓ 已綁定: {{ tenant.line_channel_id[:20] }}...
-                    {% else %}
-                        尚未綁定
-                    {% endif %}
-                {% else %}
-                    <strong style="color: var(--accent-green);">💡 自動獲取</strong> — 系統會使用 Channel Access Token 自動從 LINE API 獲取 Bot User ID
-                {% endif %}
-            </small>
-        </div>
-
-        <div class="form-group">
-            <label for="line_channel_access_token">Channel Access Token {{ '*' if not is_edit else '' }}</label>
+            <label for="line_channel_access_token">Channel Access Token *</label>
             <input type="password" id="line_channel_access_token" name="line_channel_access_token"
                    {{ 'required' if not is_edit else '' }}
                    placeholder="{{ '已設定 (留空保持不變)' if is_edit else '在 LINE Developers Console 取得' }}">
@@ -81,11 +63,42 @@
         </div>
 
         <div class="form-group">
-            <label for="line_channel_secret">Channel Secret {{ '*' if not is_edit else '' }}</label>
+            <label for="line_channel_secret">Channel Secret *</label>
             <input type="password" id="line_channel_secret" name="line_channel_secret"
                    {{ 'required' if not is_edit else '' }}
                    placeholder="{{ '已設定 (留空保持不變)' if is_edit else '在 LINE Developers Console 取得' }}">
             <small>Messaging API → Channel secret</small>
+        </div>
+
+        {% if not is_edit %}
+        <!-- 獲取 Bot User ID 按鈕 -->
+        <div class="form-group">
+            <button type="button" id="fetch-bot-id-btn" class="btn btn-secondary" onclick="fetchBotUserId()" style="margin-bottom: 10px;">
+                <i data-lucide="search" style="width: 16px; height: 16px;"></i>
+                獲取 Bot User ID
+            </button>
+            <div id="fetch-status" style="display: none; padding: 10px; border-radius: 6px; margin-top: 10px;"></div>
+        </div>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="line_channel_id">LINE Bot User ID {{ '*' if not is_edit else '' }}</label>
+            <input type="text" id="line_channel_id" name="line_channel_id"
+                   value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}"
+                   {% if not is_edit %}readonly{% endif %}
+                   placeholder="{% if is_edit %}{{ tenant.line_channel_id if tenant.line_channel_id else '尚未設定' }}{% else %}點擊上方按鈕獲取{% endif %}"
+                   style="{% if not is_edit %}background: var(--bg-secondary); cursor: not-allowed;{% endif %}">
+            <small>
+                {% if is_edit %}
+                    {% if tenant.line_channel_id %}
+                        ✓ 已綁定
+                    {% else %}
+                        尚未綁定
+                    {% endif %}
+                {% else %}
+                    請先填入 Channel Access Token，然後點擊「獲取 Bot User ID」按鈕
+                {% endif %}
+            </small>
         </div>
 
         <!-- Notion Config -->
@@ -181,7 +194,8 @@
 
     <!-- Actions (outside form to avoid nesting) -->
     <div style="margin-top: 30px; display: flex; gap: 10px;">
-        <button type="submit" form="tenant-form" class="btn btn-primary">
+        <button type="submit" form="tenant-form" id="submit-btn" class="btn btn-primary"
+                {% if not is_edit %}disabled title="請先獲取 Bot User ID"{% endif %}>
             <i data-lucide="{{ 'save' if is_edit else 'plus' }}" style="width: 16px; height: 16px;"></i>
             {{ '儲存變更' if is_edit else '建立租戶' }}
         </button>
@@ -243,5 +257,98 @@ function toggleNotionDbInput() {
         input.required = !checkbox.checked;
     }
 }
+
+// 獲取 Bot User ID
+async function fetchBotUserId() {
+    const accessToken = document.getElementById('line_channel_access_token').value.trim();
+    const statusDiv = document.getElementById('fetch-status');
+    const botIdInput = document.getElementById('line_channel_id');
+    const fetchBtn = document.getElementById('fetch-bot-id-btn');
+    const submitBtn = document.getElementById('submit-btn');
+
+    // 驗證 Access Token 是否已填入
+    if (!accessToken) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
+        statusDiv.style.color = 'var(--accent-red, #dc2626)';
+        statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
+        statusDiv.innerHTML = '⚠️ 請先填入 Channel Access Token';
+        return;
+    }
+
+    // 顯示載入狀態
+    fetchBtn.disabled = true;
+    fetchBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 獲取中...';
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'var(--bg-secondary)';
+    statusDiv.style.color = 'var(--text-primary)';
+    statusDiv.style.border = '1px solid var(--border-color)';
+    statusDiv.innerHTML = '⏳ 正在連接 LINE API...';
+
+    try {
+        const response = await fetch('{{ url_for("admin.fetch_bot_user_id") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                access_token: accessToken
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // 成功獲取
+            botIdInput.value = data.bot_user_id;
+            statusDiv.style.background = 'var(--accent-green-bg, #dcfce7)';
+            statusDiv.style.color = 'var(--accent-green, #16a34a)';
+            statusDiv.style.border = '1px solid var(--accent-green, #16a34a)';
+            statusDiv.innerHTML = `✓ 成功獲取！<br><strong>Bot User ID:</strong> ${data.bot_user_id}<br><strong>Bot 名稱:</strong> ${data.bot_name || '(未設定)'}`;
+
+            // 啟用提交按鈕
+            submitBtn.disabled = false;
+            submitBtn.title = '';
+
+            // 更新按鈕狀態
+            fetchBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已獲取';
+            fetchBtn.style.background = 'var(--accent-green)';
+            fetchBtn.style.borderColor = 'var(--accent-green)';
+            fetchBtn.style.color = 'white';
+        } else {
+            // 獲取失敗
+            statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
+            statusDiv.style.color = 'var(--accent-red, #dc2626)';
+            statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
+            statusDiv.innerHTML = `❌ 獲取失敗：${data.error}`;
+
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新獲取';
+        }
+    } catch (error) {
+        statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
+        statusDiv.style.color = 'var(--accent-red, #dc2626)';
+        statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
+        statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
+
+        fetchBtn.disabled = false;
+        fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新獲取';
+    }
+
+    // 重新初始化 Lucide 圖標
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
+// 添加 CSS 動畫
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+`;
+document.head.appendChild(style);
 </script>
 {% endblock %}

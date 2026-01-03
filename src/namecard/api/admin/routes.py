@@ -144,37 +144,19 @@ def create_tenant():
                 flash("請填寫 LINE Channel Secret", "error")
                 return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 
-            # 3. 使用 LINE Access Token 獲取 Bot User ID
+            # 3. 驗證 Bot User ID（必須已透過按鈕獲取）
             line_channel_id = request.form.get("line_channel_id", "").strip()
 
-            # 如果用戶填入了值，驗證格式是否正確（應以 U 開頭）
-            if line_channel_id and not line_channel_id.startswith("U"):
-                flash("LINE Bot User ID 格式不正確，應以 U 開頭（例如：Ub09c9be...）。建議留空讓系統自動獲取。", "error")
+            # Bot User ID 必須存在且以 U 開頭
+            if not line_channel_id:
+                flash("請先點擊「獲取 Bot User ID」按鈕獲取 Bot User ID", "error")
                 return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 
-            # 如果沒有填入，從 LINE API 自動獲取
-            if not line_channel_id:
-                try:
-                    from linebot import LineBotApi
-                    temp_line_api = LineBotApi(line_access_token)
-                    bot_info = temp_line_api.get_bot_info()
-                    line_channel_id = bot_info.user_id
+            if not line_channel_id.startswith("U"):
+                flash("LINE Bot User ID 格式不正確，必須以 U 開頭。請重新點擊「獲取 Bot User ID」按鈕。", "error")
+                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 
-                    # 驗證獲取的值格式
-                    if not line_channel_id or not line_channel_id.startswith("U"):
-                        logger.error("INVALID_BOT_USER_ID_FORMAT",
-                                    received_value=line_channel_id)
-                        flash("從 LINE API 獲取的 Bot User ID 格式不正確", "error")
-                        return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
-
-                    logger.info("AUTO_FETCH_BOT_USER_ID_SUCCESS",
-                               bot_user_id=line_channel_id,
-                               bot_name=bot_info.display_name if hasattr(bot_info, 'display_name') else None)
-                    flash(f"✓ 已自動獲取 Bot User ID: {line_channel_id}", "success")
-                except Exception as line_err:
-                    logger.error("FAILED_TO_FETCH_BOT_USER_ID", error=str(line_err), error_type=type(line_err).__name__)
-                    flash(f"無法自動獲取 Bot User ID，請檢查 Channel Access Token 是否正確: {str(line_err)}", "error")
-                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+            logger.info("BOT_USER_ID_VALIDATED", bot_user_id=line_channel_id)
 
             # 4. 驗證 Notion API Key
             if use_shared_notion_api:
@@ -517,6 +499,71 @@ def api_stats():
     tenant_service = get_tenant_service()
     stats = tenant_service.get_overall_stats()
     return jsonify(stats)
+
+
+# ==================== LINE Bot API ====================
+
+@admin_bp.route("/api/fetch-bot-user-id", methods=["POST"])
+@login_required
+def fetch_bot_user_id():
+    """
+    使用 Channel Access Token 獲取 Bot User ID
+
+    這個 API 用於在新增租戶時驗證 LINE 憑證並獲取 Bot User ID。
+    """
+    try:
+        access_token = request.json.get("access_token", "").strip()
+
+        if not access_token:
+            return jsonify({
+                "success": False,
+                "error": "請提供 Channel Access Token"
+            }), 400
+
+        # 呼叫 LINE API 獲取 bot info
+        from linebot import LineBotApi
+        from linebot.exceptions import LineBotApiError
+
+        try:
+            line_api = LineBotApi(access_token)
+            bot_info = line_api.get_bot_info()
+
+            bot_user_id = bot_info.user_id
+            bot_name = bot_info.display_name if hasattr(bot_info, 'display_name') else None
+
+            # 驗證 Bot User ID 格式
+            if not bot_user_id or not bot_user_id.startswith("U"):
+                return jsonify({
+                    "success": False,
+                    "error": "無法獲取有效的 Bot User ID"
+                }), 400
+
+            logger.info("FETCH_BOT_USER_ID_SUCCESS",
+                       bot_user_id=bot_user_id,
+                       bot_name=bot_name)
+
+            return jsonify({
+                "success": True,
+                "bot_user_id": bot_user_id,
+                "bot_name": bot_name
+            })
+
+        except LineBotApiError as line_err:
+            error_msg = str(line_err)
+            if "401" in error_msg or "Invalid" in error_msg.lower():
+                error_msg = "Channel Access Token 無效或已過期"
+            logger.error("FETCH_BOT_USER_ID_LINE_ERROR", error=str(line_err))
+            return jsonify({
+                "success": False,
+                "error": error_msg
+            }), 400
+
+    except Exception as e:
+        logger.error("FETCH_BOT_USER_ID_ERROR", error=str(e))
+        return jsonify({
+            "success": False,
+            "error": f"獲取失敗: {str(e)}"
+        }), 500
 
 
 # ==================== Extended Statistics API ====================

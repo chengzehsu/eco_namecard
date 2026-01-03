@@ -119,13 +119,40 @@ class TenantService:
         self._cache[key] = (data, time.time())
 
     def _invalidate_cache(self, tenant_id: Optional[str] = None):
-        """Invalidate cache for a tenant or all tenants"""
+        """
+        Invalidate cache for a tenant or all tenants.
+
+        When tenant_id is provided, clears ALL related cache keys:
+        - tenant:id:{tenant_id}
+        - tenant:slug:{slug}
+        - tenant:channel:{channel_id}
+        """
         if tenant_id:
-            keys_to_delete = [k for k in self._cache if tenant_id in k]
+            # Get tenant data to find all related cache keys
+            tenant_row = self.db.get_tenant_by_id(tenant_id)
+
+            keys_to_delete = []
+
+            if tenant_row:
+                # Explicitly clear all known cache key patterns
+                keys_to_delete.append(f"tenant:id:{tenant_id}")
+                keys_to_delete.append(f"tenant:slug:{tenant_row['slug']}")
+                keys_to_delete.append(f"tenant:channel:{tenant_row['line_channel_id']}")
+
+                logger.info(
+                    "Invalidating all tenant caches", tenant_id=tenant_id, cache_keys=keys_to_delete
+                )
+            else:
+                # Fallback: delete any key containing tenant_id
+                keys_to_delete = [k for k in self._cache if tenant_id in k]
+
             for key in keys_to_delete:
-                del self._cache[key]
+                if key in self._cache:
+                    del self._cache[key]
+                    logger.debug("Cache invalidated", cache_key=key)
         else:
             self._cache.clear()
+            logger.debug("All cache cleared")
 
     def _row_to_config(self, row: Dict[str, Any]) -> TenantConfig:
         """Convert database row to TenantConfig with decrypted credentials"""
@@ -134,15 +161,21 @@ class TenantService:
             name=row["name"],
             slug=row["slug"],
             is_active=bool(row["is_active"]),
-            created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else datetime.now(),
-            updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else datetime.now(),
+            created_at=datetime.fromisoformat(row["created_at"])
+            if row.get("created_at")
+            else datetime.now(),
+            updated_at=datetime.fromisoformat(row["updated_at"])
+            if row.get("updated_at")
+            else datetime.now(),
             line_channel_id=row["line_channel_id"],
             line_channel_access_token=self._decrypt(row["line_channel_access_token_encrypted"]),
             line_channel_secret=self._decrypt(row["line_channel_secret_encrypted"]),
             notion_api_key=self._decrypt(row["notion_api_key_encrypted"]),
             notion_database_id=row["notion_database_id"],
             use_shared_notion_api=bool(row.get("use_shared_notion_api", 1)),
-            google_api_key=self._decrypt(row["google_api_key_encrypted"]) if row.get("google_api_key_encrypted") else None,
+            google_api_key=self._decrypt(row["google_api_key_encrypted"])
+            if row.get("google_api_key_encrypted")
+            else None,
             use_shared_google_api=bool(row.get("use_shared_google_api", 1)),
             daily_card_limit=row.get("daily_card_limit", 50),
             batch_size_limit=row.get("batch_size_limit", 10),
@@ -168,13 +201,21 @@ class TenantService:
         # Bot User ID 必須由前端透過 API 獲取並驗證
         line_channel_id = request.line_channel_id
         if not line_channel_id or line_channel_id.strip() == "":
-            raise ValueError("line_channel_id is required - must be fetched via fetch_bot_user_id API")
+            raise ValueError(
+                "line_channel_id is required - must be fetched via fetch_bot_user_id API"
+            )
 
         if not line_channel_id.startswith("U"):
-            raise ValueError(f"Invalid line_channel_id format: must start with 'U', got '{line_channel_id[:10]}...'")
+            raise ValueError(
+                f"Invalid line_channel_id format: must start with 'U', got '{line_channel_id[:10]}...'"
+            )
 
-        logger.info("Creating tenant with Bot User ID",
-                   line_channel_id=line_channel_id[:20] + "..." if len(line_channel_id) > 20 else line_channel_id)
+        logger.info(
+            "Creating tenant with Bot User ID",
+            line_channel_id=line_channel_id[:20] + "..."
+            if len(line_channel_id) > 20
+            else line_channel_id,
+        )
 
         # Prepare encrypted data
         data = {
@@ -184,10 +225,14 @@ class TenantService:
             "line_channel_id": line_channel_id,
             "line_channel_access_token_encrypted": self._encrypt(request.line_channel_access_token),
             "line_channel_secret_encrypted": self._encrypt(request.line_channel_secret),
-            "notion_api_key_encrypted": self._encrypt(request.notion_api_key) if request.notion_api_key else "",
+            "notion_api_key_encrypted": self._encrypt(request.notion_api_key)
+            if request.notion_api_key
+            else "",
             "notion_database_id": request.notion_database_id,
             "use_shared_notion_api": request.use_shared_notion_api,
-            "google_api_key_encrypted": self._encrypt(request.google_api_key) if request.google_api_key else None,
+            "google_api_key_encrypted": self._encrypt(request.google_api_key)
+            if request.google_api_key
+            else None,
             "use_shared_google_api": request.use_shared_google_api,
             "daily_card_limit": request.daily_card_limit,
             "batch_size_limit": request.batch_size_limit,
@@ -270,7 +315,9 @@ class TenantService:
         if request.is_active is not None:
             data["is_active"] = request.is_active
         if request.line_channel_access_token is not None:
-            data["line_channel_access_token_encrypted"] = self._encrypt(request.line_channel_access_token)
+            data["line_channel_access_token_encrypted"] = self._encrypt(
+                request.line_channel_access_token
+            )
         if request.line_channel_secret is not None:
             data["line_channel_secret_encrypted"] = self._encrypt(request.line_channel_secret)
         if request.notion_api_key is not None:
@@ -280,7 +327,9 @@ class TenantService:
         if request.use_shared_notion_api is not None:
             data["use_shared_notion_api"] = request.use_shared_notion_api
         if request.google_api_key is not None:
-            data["google_api_key_encrypted"] = self._encrypt(request.google_api_key) if request.google_api_key else None
+            data["google_api_key_encrypted"] = (
+                self._encrypt(request.google_api_key) if request.google_api_key else None
+            )
         if request.use_shared_google_api is not None:
             data["use_shared_google_api"] = request.use_shared_google_api
         if request.daily_card_limit is not None:
@@ -296,6 +345,16 @@ class TenantService:
         self._invalidate_cache(tenant_id)
 
         tenant = self._row_to_config(row)
+
+        # VERIFICATION: Log critical updates for debugging
+        if request.notion_database_id is not None:
+            logger.warning(
+                "TENANT_NOTION_DB_UPDATED",
+                tenant_id=tenant_id,
+                new_db_id=tenant.notion_database_id[:15] + "...",
+                operation="update_verified",
+            )
+
         logger.info("Tenant updated", tenant_id=tenant_id)
         return tenant
 
@@ -316,15 +375,21 @@ class TenantService:
             logger.info("Tenant deleted", tenant_id=tenant_id, soft_delete=soft_delete)
         return result
 
-    def record_usage(self, tenant_id: str, cards_processed: int = 0,
-                     cards_saved: int = 0, api_calls: int = 0, errors: int = 0):
+    def record_usage(
+        self,
+        tenant_id: str,
+        cards_processed: int = 0,
+        cards_saved: int = 0,
+        api_calls: int = 0,
+        errors: int = 0,
+    ):
         """Record usage statistics"""
         self.db.record_usage(
             tenant_id=tenant_id,
             cards_processed=cards_processed,
             cards_saved=cards_saved,
             api_calls=api_calls,
-            errors=errors
+            errors=errors,
         )
 
     def get_tenant_stats(self, tenant_id: str, days: int = 30) -> List[Dict[str, Any]]:
@@ -341,15 +406,21 @@ class TenantService:
 
     # ==================== Extended Statistics ====================
 
-    def record_user_usage(self, tenant_id: str, line_user_id: str,
-                          cards_processed: int = 0, cards_saved: int = 0, errors: int = 0):
+    def record_user_usage(
+        self,
+        tenant_id: str,
+        line_user_id: str,
+        cards_processed: int = 0,
+        cards_saved: int = 0,
+        errors: int = 0,
+    ):
         """Record usage statistics for a specific user"""
         self.db.record_user_usage(
             tenant_id=tenant_id,
             line_user_id=line_user_id,
             cards_processed=cards_processed,
             cards_saved=cards_saved,
-            errors=errors
+            errors=errors,
         )
 
     def get_tenant_monthly_stats(self, tenant_id: str, months: int = 12) -> List[Dict[str, Any]]:
@@ -360,7 +431,9 @@ class TenantService:
         """Get yearly aggregated stats for a tenant"""
         return self.db.get_tenant_stats_yearly(tenant_id, years)
 
-    def get_tenant_stats_by_range(self, tenant_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    def get_tenant_stats_by_range(
+        self, tenant_id: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
         """Get stats for a tenant within a date range"""
         return self.db.get_tenant_stats_range(tenant_id, start_date, end_date)
 
@@ -379,7 +452,9 @@ class TenantService:
         """Get aggregated stats for all users of a tenant"""
         return self.db.get_tenant_users_stats(tenant_id, days)
 
-    def get_top_users(self, tenant_id: str, limit: int = 10, days: int = 30) -> List[Dict[str, Any]]:
+    def get_top_users(
+        self, tenant_id: str, limit: int = 10, days: int = 30
+    ) -> List[Dict[str, Any]]:
         """Get top users by usage for a tenant"""
         return self.db.get_top_users(tenant_id, limit, days)
 
@@ -407,12 +482,18 @@ class TenantService:
         pending = []
         for row in rows:
             # Pending tenants are those that are inactive OR have placeholder channel_id
-            if not row["is_active"] or (row["line_channel_id"] and row["line_channel_id"].startswith("pending_")):
+            if not row["is_active"] or (
+                row["line_channel_id"] and row["line_channel_id"].startswith("pending_")
+            ):
                 pending.append(self._row_to_config(row))
-        logger.info("get_pending_tenants called", total_tenants=len(rows), pending_count=len(pending))
+        logger.info(
+            "get_pending_tenants called", total_tenants=len(rows), pending_count=len(pending)
+        )
         return pending
 
-    def activate_tenant_with_channel_id(self, tenant_id: str, channel_id: str) -> Optional[TenantConfig]:
+    def activate_tenant_with_channel_id(
+        self, tenant_id: str, channel_id: str
+    ) -> Optional[TenantConfig]:
         """
         Activate a tenant and bind it to a specific LINE channel ID.
 
@@ -440,9 +521,11 @@ class TenantService:
         self._invalidate_cache(tenant_id)
 
         tenant = self._row_to_config(row)
-        logger.info("Tenant activated with channel_id",
-                   tenant_id=tenant_id,
-                   channel_id=channel_id[:10] + "...")
+        logger.info(
+            "Tenant activated with channel_id",
+            tenant_id=tenant_id,
+            channel_id=channel_id[:10] + "...",
+        )
         return tenant
 
 

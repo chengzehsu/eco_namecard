@@ -24,11 +24,12 @@ admin_bp = Blueprint(
     __name__,
     url_prefix="/admin",
     template_folder=os.path.join(_project_root, "templates/admin"),
-    static_folder=os.path.join(_project_root, "static/admin")
+    static_folder=os.path.join(_project_root, "static/admin"),
 )
 
 
 # ==================== Authentication Routes ====================
+
 
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
@@ -61,6 +62,7 @@ def logout():
 
 # ==================== Dashboard ====================
 
+
 @admin_bp.route("/")
 @login_required
 def dashboard():
@@ -76,7 +78,10 @@ def dashboard():
 
     # Get extended stats for the period (with default values)
     all_tenants_summary = tenant_service.get_all_tenants_summary(days=days) or {
-        "total_processed": 0, "total_saved": 0, "total_errors": 0, "active_tenants": 0
+        "total_processed": 0,
+        "total_saved": 0,
+        "total_errors": 0,
+        "active_tenants": 0,
     }
 
     try:
@@ -92,11 +97,12 @@ def dashboard():
         tenant_stats=tenant_stats,
         all_tenants_summary=all_tenants_summary,
         current_period=period,
-        admin_username=session.get("admin_username")
+        admin_username=session.get("admin_username"),
     )
 
 
 # ==================== Tenant Management ====================
+
 
 @admin_bp.route("/tenants")
 @login_required
@@ -106,9 +112,7 @@ def list_tenants():
     tenants = tenant_service.list_tenants(include_inactive=True)
 
     return render_template(
-        "tenants/list.html",
-        tenants=tenants,
-        admin_username=session.get("admin_username")
+        "tenants/list.html", tenants=tenants, admin_username=session.get("admin_username")
     )
 
 
@@ -132,17 +136,32 @@ def create_tenant():
             # 1. 驗證必填欄位
             if not tenant_name:
                 flash("請填寫租戶名稱", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
 
             # 2. 驗證 LINE 憑證
             line_access_token = request.form.get("line_channel_access_token", "").strip()
             line_secret = request.form.get("line_channel_secret", "").strip()
             if not line_access_token:
                 flash("請填寫 LINE Channel Access Token", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
             if not line_secret:
                 flash("請填寫 LINE Channel Secret", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
 
             # 3. 驗證 Bot User ID（必須已透過按鈕獲取）
             line_channel_id = request.form.get("line_channel_id", "").strip()
@@ -150,11 +169,21 @@ def create_tenant():
             # Bot User ID 必須存在且以 U 開頭
             if not line_channel_id:
                 flash("請先點擊「獲取 Bot User ID」按鈕獲取 Bot User ID", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
 
             if not line_channel_id.startswith("U"):
                 flash("LINE Bot User ID 格式不正確，必須以 U 開頭。請重新點擊「獲取 Bot User ID」按鈕。", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
 
             logger.info("BOT_USER_ID_VALIDATED", bot_user_id=line_channel_id)
 
@@ -163,18 +192,33 @@ def create_tenant():
                 notion_api_key = settings.notion_api_key
                 if not notion_api_key:
                     flash("系統共用 Notion API Key 尚未設定，請聯繫管理員或取消勾選「使用共用 API Key」", "error")
-                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username"),
+                    )
             else:
                 notion_api_key = request.form.get("notion_api_key", "").strip()
                 if not notion_api_key:
                     flash("請提供 Notion API Key 或勾選使用共用 API Key", "error")
-                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username"),
+                    )
 
             # 4. 驗證自動建立 Notion DB 的前提條件
             if auto_create_notion_db:
                 if not settings.notion_shared_parent_page_id:
                     flash("系統共用 Parent Page ID 尚未設定，無法自動創建資料庫", "error")
-                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username"),
+                    )
 
             # Determine Notion Database ID
             notion_database_id = request.form.get("notion_database_id", "").strip()
@@ -187,30 +231,48 @@ def create_tenant():
                     "Auto-creating Notion database for tenant",
                     tenant_name=tenant_name,
                     use_shared_notion_api=use_shared_notion_api,
-                    parent_page_id=settings.notion_shared_parent_page_id
+                    parent_page_id=settings.notion_shared_parent_page_id,
                 )
 
                 try:
                     created_db_id = NotionClient.create_database(
                         api_key=notion_api_key,
                         tenant_name=tenant_name,
-                        parent_page_id=settings.notion_shared_parent_page_id
+                        parent_page_id=settings.notion_shared_parent_page_id,
                     )
                 except Exception as notion_err:
                     logger.error("Notion database creation failed", error=str(notion_err))
                     flash(f"無法創建 Notion 資料庫: {str(notion_err)}", "error")
-                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username"),
+                    )
 
                 if not created_db_id:
-                    flash("無法創建 Notion 資料庫，請檢查：\n1. Notion API Key 是否有效\n2. Parent Page 是否已分享給 Integration", "error")
-                    return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                    flash(
+                        "無法創建 Notion 資料庫，請檢查：\n1. Notion API Key 是否有效\n2. Parent Page 是否已分享給 Integration",
+                        "error",
+                    )
+                    return render_template(
+                        "tenants/form.html",
+                        tenant=None,
+                        is_edit=False,
+                        admin_username=session.get("admin_username"),
+                    )
 
                 notion_database_id = created_db_id
                 logger.info("Notion database created successfully", database_id=created_db_id)
 
             elif not notion_database_id:
                 flash("請提供 Notion Database ID 或勾選自動創建", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
 
             # Build tenant request (with pre-validated data)
             try:
@@ -237,7 +299,12 @@ def create_tenant():
                     msg = err.get("msg", "驗證失敗")
                     error_msgs.append(f"{field}: {msg}")
                 flash(f"表單驗證失敗: {'; '.join(error_msgs)}", "error")
-                return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username"),
+                )
 
             tenant_service = get_tenant_service()
             tenant = tenant_service.create_tenant(tenant_request)
@@ -254,6 +321,7 @@ def create_tenant():
             flash(f"資料驗證失敗: {str(ve)}", "error")
         except Exception as e:
             import traceback
+
             logger.error("Failed to create tenant", error=str(e), traceback=traceback.format_exc())
             # Provide more user-friendly error messages
             error_msg = str(e)
@@ -273,7 +341,7 @@ def create_tenant():
         "tenants/form.html",
         tenant=None,
         is_edit=False,
-        admin_username=session.get("admin_username")
+        admin_username=session.get("admin_username"),
     )
 
 
@@ -336,8 +404,16 @@ def edit_tenant(tenant_id: str):
 
             if update_data:
                 update_request = TenantUpdateRequest(**update_data)
-                tenant_service.update_tenant(tenant_id, update_request)
-                flash("租戶更新成功", "success")
+                updated_tenant = tenant_service.update_tenant(tenant_id, update_request)
+
+                # Show verification for critical fields
+                if "notion_database_id" in update_data:
+                    flash(
+                        f"✓ 租戶更新成功 - Notion DB ID: {updated_tenant.notion_database_id[:10]}...",
+                        "success",
+                    )
+                else:
+                    flash("租戶更新成功", "success")
             else:
                 flash("沒有變更", "info")
 
@@ -351,7 +427,7 @@ def edit_tenant(tenant_id: str):
         "tenants/form.html",
         tenant=tenant,
         is_edit=True,
-        admin_username=session.get("admin_username")
+        admin_username=session.get("admin_username"),
     )
 
 
@@ -412,9 +488,14 @@ def tenant_stats(tenant_id: str):
     # Get comprehensive stats (with default values to prevent None errors)
     stats = tenant_service.get_tenant_stats(tenant_id, days=days) or []
     summary = tenant_service.get_tenant_stats_summary(tenant_id, days=days) or {
-        "total_processed": 0, "total_saved": 0, "total_errors": 0,
-        "total_api_calls": 0, "active_days": 0, "avg_daily_processed": 0,
-        "success_rate": 0, "error_rate": 0
+        "total_processed": 0,
+        "total_saved": 0,
+        "total_errors": 0,
+        "total_api_calls": 0,
+        "active_days": 0,
+        "avg_daily_processed": 0,
+        "success_rate": 0,
+        "error_rate": 0,
     }
     monthly_stats = tenant_service.get_tenant_monthly_stats(tenant_id, months=12) or []
     user_count = tenant_service.get_user_count(tenant_id, days=days) or 0
@@ -429,11 +510,12 @@ def tenant_stats(tenant_id: str):
         user_count=user_count,
         top_users=top_users,
         current_period=period,
-        admin_username=session.get("admin_username")
+        admin_username=session.get("admin_username"),
     )
 
 
 # ==================== API Endpoints ====================
+
 
 @admin_bp.route("/api/tenants/<tenant_id>/test", methods=["POST"])
 @login_required
@@ -448,18 +530,19 @@ def test_tenant_connection(tenant_id: str):
     results = {
         "line": {"status": "unknown"},
         "notion": {"status": "unknown"},
-        "google": {"status": "unknown"}
+        "google": {"status": "unknown"},
     }
 
     # Test LINE Bot API
     try:
         from linebot import LineBotApi
+
         line_api = LineBotApi(tenant.line_channel_access_token)
         # Get bot info to verify token
         bot_info = line_api.get_bot_info()
         results["line"] = {
             "status": "success",
-            "bot_name": bot_info.display_name if hasattr(bot_info, 'display_name') else "OK"
+            "bot_name": bot_info.display_name if hasattr(bot_info, "display_name") else "OK",
         }
     except Exception as e:
         results["line"] = {"status": "error", "message": str(e)}
@@ -467,11 +550,14 @@ def test_tenant_connection(tenant_id: str):
     # Test Notion API
     try:
         from notion_client import Client
+
         notion = Client(auth=tenant.notion_api_key)
         db_info = notion.databases.retrieve(database_id=tenant.notion_database_id)
         results["notion"] = {
             "status": "success",
-            "database_title": db_info.get("title", [{}])[0].get("plain_text", "OK") if db_info.get("title") else "OK"
+            "database_title": db_info.get("title", [{}])[0].get("plain_text", "OK")
+            if db_info.get("title")
+            else "OK",
         }
     except Exception as e:
         results["notion"] = {"status": "error", "message": str(e)}
@@ -480,6 +566,7 @@ def test_tenant_connection(tenant_id: str):
     if tenant.google_api_key and not tenant.use_shared_google_api:
         try:
             import google.generativeai as genai
+
             genai.configure(api_key=tenant.google_api_key)
             model = genai.GenerativeModel("gemini-1.5-flash")
             # Simple test
@@ -503,6 +590,7 @@ def api_stats():
 
 # ==================== LINE Bot API ====================
 
+
 @admin_bp.route("/api/fetch-bot-user-id", methods=["POST"])
 @login_required
 def fetch_bot_user_id():
@@ -515,10 +603,7 @@ def fetch_bot_user_id():
         access_token = request.json.get("access_token", "").strip()
 
         if not access_token:
-            return jsonify({
-                "success": False,
-                "error": "請提供 Channel Access Token"
-            }), 400
+            return jsonify({"success": False, "error": "請提供 Channel Access Token"}), 400
 
         # 呼叫 LINE API 獲取 bot info
         from linebot import LineBotApi
@@ -529,44 +614,30 @@ def fetch_bot_user_id():
             bot_info = line_api.get_bot_info()
 
             bot_user_id = bot_info.user_id
-            bot_name = bot_info.display_name if hasattr(bot_info, 'display_name') else None
+            bot_name = bot_info.display_name if hasattr(bot_info, "display_name") else None
 
             # 驗證 Bot User ID 格式
             if not bot_user_id or not bot_user_id.startswith("U"):
-                return jsonify({
-                    "success": False,
-                    "error": "無法獲取有效的 Bot User ID"
-                }), 400
+                return jsonify({"success": False, "error": "無法獲取有效的 Bot User ID"}), 400
 
-            logger.info("FETCH_BOT_USER_ID_SUCCESS",
-                       bot_user_id=bot_user_id,
-                       bot_name=bot_name)
+            logger.info("FETCH_BOT_USER_ID_SUCCESS", bot_user_id=bot_user_id, bot_name=bot_name)
 
-            return jsonify({
-                "success": True,
-                "bot_user_id": bot_user_id,
-                "bot_name": bot_name
-            })
+            return jsonify({"success": True, "bot_user_id": bot_user_id, "bot_name": bot_name})
 
         except LineBotApiError as line_err:
             error_msg = str(line_err)
             if "401" in error_msg or "Invalid" in error_msg.lower():
                 error_msg = "Channel Access Token 無效或已過期"
             logger.error("FETCH_BOT_USER_ID_LINE_ERROR", error=str(line_err))
-            return jsonify({
-                "success": False,
-                "error": error_msg
-            }), 400
+            return jsonify({"success": False, "error": error_msg}), 400
 
     except Exception as e:
         logger.error("FETCH_BOT_USER_ID_ERROR", error=str(e))
-        return jsonify({
-            "success": False,
-            "error": f"獲取失敗: {str(e)}"
-        }), 500
+        return jsonify({"success": False, "error": f"獲取失敗: {str(e)}"}), 500
 
 
 # ==================== Extended Statistics API ====================
+
 
 @admin_bp.route("/api/tenants/<tenant_id>/stats/summary")
 @login_required
@@ -643,7 +714,4 @@ def api_tenant_users(tenant_id: str):
     users = tenant_service.get_top_users(tenant_id, limit, days)
     user_count = tenant_service.get_user_count(tenant_id, days)
 
-    return jsonify({
-        "users": users,
-        "total_users": user_count
-    })
+    return jsonify({"users": users, "total_users": user_count})

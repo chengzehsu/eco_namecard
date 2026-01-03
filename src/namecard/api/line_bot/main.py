@@ -206,52 +206,65 @@ def try_auto_activate_tenant(body: str, signature: str, channel_id: str) -> Opti
     Returns:
         啟用成功的 TenantContext，否則 None
     """
-    # #region agent log
-    _debug_log("A", "main.py:try_auto_activate_tenant:entry", "AUTO_ACTIVATE_ENTRY", {"channel_id": channel_id[:10] + "..."})
-    # #endregion
+    # 記錄嘗試自動啟用
+    logger.warning("AUTO_ACTIVATE_ATTEMPT", channel_id=channel_id[:20] + "...")
+
     try:
         tenant_service = get_tenant_service()
-        # #region agent log
-        _debug_log("A", "main.py:try_auto_activate_tenant:before_get_pending", "BEFORE_GET_PENDING_TENANTS", {"has_method": hasattr(tenant_service, 'get_pending_tenants')})
-        # #endregion
         pending_tenants = tenant_service.get_pending_tenants()
 
+        logger.warning("AUTO_ACTIVATE_PENDING_COUNT",
+                      pending_count=len(pending_tenants),
+                      pending_ids=[t.id[:8] + "..." for t in pending_tenants] if pending_tenants else [])
+
         if not pending_tenants:
-            logger.debug("No pending tenants to match")
+            logger.warning("AUTO_ACTIVATE_NO_PENDING", message="No pending tenants to match")
             return None
 
-        logger.info("Attempting auto-activation", pending_count=len(pending_tenants), channel_id=channel_id[:10] + "...")
+        logger.warning("AUTO_ACTIVATE_CHECKING", pending_count=len(pending_tenants), channel_id=channel_id[:20] + "...")
 
         for tenant in pending_tenants:
+            logger.warning("AUTO_ACTIVATE_CHECKING_TENANT",
+                          tenant_id=tenant.id[:8] + "...",
+                          tenant_name=tenant.name,
+                          has_secret=bool(tenant.line_channel_secret),
+                          secret_length=len(tenant.line_channel_secret) if tenant.line_channel_secret else 0)
+
             # 使用該租戶的 channel_secret 驗證簽名
-            if security_service.validate_line_signature(body, signature, tenant.line_channel_secret):
+            try:
+                is_valid = security_service.validate_line_signature(body, signature, tenant.line_channel_secret)
+                logger.warning("AUTO_ACTIVATE_SIGNATURE_CHECK",
+                              tenant_id=tenant.id[:8] + "...",
+                              is_valid=is_valid)
+            except Exception as sig_err:
+                logger.error("AUTO_ACTIVATE_SIGNATURE_ERROR",
+                            tenant_id=tenant.id[:8] + "...",
+                            error=str(sig_err))
+                continue
+
+            if is_valid:
                 # 簽名驗證成功！這個 Bot 屬於這個租戶
-                logger.info(
-                    "Auto-activation signature match found",
-                    tenant_id=tenant.id,
-                    tenant_name=tenant.name
-                )
+                logger.warning("AUTO_ACTIVATE_MATCH_FOUND",
+                              tenant_id=tenant.id,
+                              tenant_name=tenant.name)
 
                 # 啟用租戶並綁定 channel_id
                 activated_tenant = tenant_service.activate_tenant_with_channel_id(tenant.id, channel_id)
 
                 if activated_tenant:
-                    logger.info(
-                        "Tenant auto-activated successfully",
-                        tenant_id=activated_tenant.id,
-                        tenant_name=activated_tenant.name,
-                        channel_id=channel_id[:10] + "..."
-                    )
+                    logger.warning("AUTO_ACTIVATE_SUCCESS",
+                                  tenant_id=activated_tenant.id,
+                                  tenant_name=activated_tenant.name,
+                                  new_channel_id=channel_id[:20] + "...")
                     return TenantContext(activated_tenant)
+                else:
+                    logger.error("AUTO_ACTIVATE_UPDATE_FAILED", tenant_id=tenant.id)
 
-        logger.debug("No pending tenant matched the signature")
+        logger.warning("AUTO_ACTIVATE_NO_MATCH", message="No pending tenant matched the signature")
         return None
 
     except Exception as e:
-        # #region agent log
-        _debug_log("A", "main.py:try_auto_activate_tenant:exception", "AUTO_ACTIVATE_EXCEPTION", {"error": str(e), "error_type": type(e).__name__})
-        # #endregion
-        logger.error("Auto-activation failed", error=str(e))
+        logger.error("AUTO_ACTIVATE_EXCEPTION", error=str(e), error_type=type(e).__name__)
         return None
 
 

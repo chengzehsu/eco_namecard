@@ -16,7 +16,7 @@ class TestImageStorage:
         """應能用 API key 初始化"""
         storage = ImageStorage(api_key="test_key")
         assert storage.api_key == "test_key"
-        assert storage.upload_url == "https://api.imgbb.com/1/upload"
+        assert storage.base_url == "https://api.imgbb.com/1/upload"
 
     def test_upload_without_api_key(self):
         """沒有 API key 時應回傳 None"""
@@ -84,9 +84,9 @@ class TestImageStorage:
         image_data = b"test_image_bytes"
         storage.upload(image_data)
 
-        # 驗證呼叫參數
+        # 驗證呼叫參數（key 現在放在 URL 中）
         call_args = mock_post.call_args
-        assert call_args[1]["data"]["key"] == "my_api_key"
+        assert "key=my_api_key" in call_args[0][0]  # URL 中包含 key
         assert call_args[1]["data"]["image"] == base64.b64encode(image_data).decode("utf-8")
 
 

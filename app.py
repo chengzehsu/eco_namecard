@@ -32,6 +32,7 @@ def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = Non
         print(f"DEBUG_LOG: {json.dumps(log_entry) if 'log_entry' in dir() else message}")
 
 _debug_log("A", "app.py:1", "APP_STARTUP_BEGIN", {"step": "imports", "debug_log_path": _DEBUG_LOG_PATH})
+print(f"[DEBUG] APP_STARTUP_BEGIN - debug_log_path={_DEBUG_LOG_PATH}", flush=True)
 # #endregion
 
 # #region agent log
@@ -209,6 +210,7 @@ except Exception as e:
 
 # #region agent log
 _debug_log("A", "app.py:startup_complete", "APP_STARTUP_COMPLETE", {"ready_for_gunicorn": True})
+print("[DEBUG] APP_STARTUP_COMPLETE - ready_for_gunicorn=True", flush=True)
 # #endregion
 
 # ===========================================================

@@ -160,15 +160,24 @@ class TenantService:
         Returns:
             Created TenantConfig
         """
+        import uuid as uuid_module
+
         # Generate slug if not provided
         slug = request.slug or self._generate_slug(request.name)
+
+        # Generate placeholder line_channel_id if not provided (for auto-detection)
+        line_channel_id = request.line_channel_id
+        if not line_channel_id or line_channel_id.strip() == "":
+            line_channel_id = f"pending_{uuid_module.uuid4().hex[:16]}"
+            logger.info("Generated placeholder line_channel_id for auto-detection",
+                       line_channel_id=line_channel_id)
 
         # Prepare encrypted data
         data = {
             "name": request.name,
             "slug": slug,
             "is_active": True,
-            "line_channel_id": request.line_channel_id,
+            "line_channel_id": line_channel_id,
             "line_channel_access_token_encrypted": self._encrypt(request.line_channel_access_token),
             "line_channel_secret_encrypted": self._encrypt(request.line_channel_secret),
             "notion_api_key_encrypted": self._encrypt(request.notion_api_key) if request.notion_api_key else "",

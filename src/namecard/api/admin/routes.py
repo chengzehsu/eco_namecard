@@ -120,6 +120,17 @@ def create_tenant():
         try:
             from simple_config import settings
 
+            # #region agent log
+            import json as _json, time as _time
+            _debug_path = '/Users/user/Ecofirst_namecard/.cursor/debug.log'
+            def _log_debug(hyp, loc, msg, data):
+                try:
+                    with open(_debug_path, 'a') as f:
+                        f.write(_json.dumps({"hypothesisId": hyp, "location": loc, "message": msg, "data": data, "timestamp": int(_time.time() * 1000)}) + '\n')
+                except: pass
+            _log_debug("F", "routes.py:create_tenant:start", "CREATE_TENANT_POST_RECEIVED", {"form_keys": list(request.form.keys())})
+            # #endregion
+
             # Read checkbox values
             auto_create_notion_db = request.form.get("auto_create_notion_db") == "on"
             use_shared_notion_api = request.form.get("use_shared_notion_api") == "on"
@@ -146,6 +157,10 @@ def create_tenant():
             if auto_create_notion_db:
                 # Auto-create Notion database
                 from src.namecard.infrastructure.storage.notion_client import NotionClient
+
+                # #region agent log
+                import json; open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "E", "location": "routes.py:create_tenant:before_create_db", "message": "About to create Notion DB", "data": {"tenant_name": tenant_name, "use_shared_notion_api": use_shared_notion_api, "notion_api_key_prefix": notion_api_key[:15] + "..." if notion_api_key else None, "parent_page_id": settings.notion_shared_parent_page_id, "settings_notion_api_key_prefix": settings.notion_api_key[:15] + "..." if settings.notion_api_key else None}, "timestamp": __import__('time').time()}) + '\n')
+                # #endregion
 
                 logger.info(
                     "Auto-creating Notion database for tenant",
@@ -198,8 +213,21 @@ def create_tenant():
                 batch_size_limit=int(request.form.get("batch_size_limit", 10)),
             )
 
+            # #region agent log
+            _log_debug("F", "routes.py:create_tenant:before_service", "BEFORE_CREATE_TENANT_SERVICE", {
+                "tenant_name": tenant_name,
+                "line_channel_id": request.form.get("line_channel_id", "")[:20] if request.form.get("line_channel_id") else None,
+                "notion_database_id": notion_database_id[:20] if notion_database_id else None,
+                "auto_create_notion_db": auto_create_notion_db
+            })
+            # #endregion
+
             tenant_service = get_tenant_service()
             tenant = tenant_service.create_tenant(tenant_request)
+
+            # #region agent log
+            _log_debug("F", "routes.py:create_tenant:success", "TENANT_CREATED_SUCCESS", {"tenant_id": tenant.id, "tenant_name": tenant.name})
+            # #endregion
 
             if auto_create_notion_db:
                 flash(f"租戶 '{tenant.name}' 建立成功，Notion 資料庫已自動創建", "success")
@@ -208,6 +236,10 @@ def create_tenant():
             return redirect(url_for("admin.list_tenants"))
 
         except Exception as e:
+            # #region agent log
+            import traceback as _tb
+            _log_debug("F", "routes.py:create_tenant:exception", "CREATE_TENANT_EXCEPTION", {"error": str(e), "traceback": _tb.format_exc()[:500]})
+            # #endregion
             logger.error("Failed to create tenant", error=str(e))
             flash(f"建立失敗: {str(e)}", "error")
 

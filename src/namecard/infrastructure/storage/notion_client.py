@@ -391,8 +391,14 @@ class NotionClient:
             新建資料庫的 ID，失敗時返回 None
         """
         try:
+            # #region agent log
+            import json; open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "D", "location": "notion_client.py:create_database:entry", "message": "create_database called", "data": {"api_key_prefix": api_key[:15] + "..." if api_key else None, "tenant_name": tenant_name, "parent_page_id_arg": parent_page_id, "settings_parent_page_id": settings.notion_shared_parent_page_id}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
             client = Client(auth=api_key)
             parent_id = parent_page_id or settings.notion_shared_parent_page_id
+            # #region agent log
+            import json; open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "D", "location": "notion_client.py:create_database:after_parent_id", "message": "parent_id resolved", "data": {"final_parent_id": parent_id, "used_arg": parent_page_id is not None}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
 
             # 資料庫名稱：{租戶名稱}的名片盒
             db_title = f"{tenant_name}的名片盒"
@@ -417,6 +423,18 @@ class NotionClient:
                 NotionFields.NOTES: {"rich_text": {}},
             }
 
+            # #region agent log
+            import json; open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "A,B,C", "location": "notion_client.py:create_database:before_api_call", "message": "About to call Notion API", "data": {"parent_id": parent_id, "db_title": db_title, "properties_keys": list(properties.keys())}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
+            
+            # #region agent log - Try to verify page access first
+            try:
+                page_check = client.pages.retrieve(page_id=parent_id)
+                open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "A,B", "location": "notion_client.py:create_database:page_check", "message": "Parent page accessible", "data": {"page_id": parent_id, "page_title": page_check.get("properties", {}).get("title", {})}, "timestamp": __import__('time').time()}) + '\n')
+            except Exception as page_err:
+                open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "A,B", "location": "notion_client.py:create_database:page_check_failed", "message": "Parent page NOT accessible", "data": {"page_id": parent_id, "error": str(page_err), "error_type": type(page_err).__name__}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
+
             # 創建資料庫
             response = client.databases.create(
                 parent={"type": "page_id", "page_id": parent_id},
@@ -440,6 +458,9 @@ class NotionClient:
             return database_id
 
         except Exception as e:
+            # #region agent log
+            import json; open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "A,B,C", "location": "notion_client.py:create_database:exception", "message": "Exception caught", "data": {"error": str(e), "error_type": type(e).__name__, "parent_id": parent_id if 'parent_id' in locals() else None, "api_key_prefix": api_key[:15] + "..." if api_key else None}, "timestamp": __import__('time').time()}) + '\n')
+            # #endregion
             logger.error(
                 "Failed to create Notion database",
                 error=str(e),

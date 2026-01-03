@@ -135,10 +135,17 @@
 
         <div class="form-group" id="notion_database_id_group" {% if not is_edit %}hidden{% endif %}>
             <label for="notion_database_id">Notion Database ID {{ '*' if is_edit else '' }}</label>
-            <input type="text" id="notion_database_id" name="notion_database_id"
-                   value="{{ tenant.notion_database_id if tenant else '' }}"
-                   {% if is_edit %}required{% endif %}
-                   placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            <div class="input-with-button">
+                <input type="text" id="notion_database_id" name="notion_database_id"
+                       value="{{ tenant.notion_database_id if tenant else '' }}"
+                       {% if is_edit %}required{% endif %}
+                       placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                <button type="button" onclick="fetchNotionDatabaseInfo()" class="btn btn-secondary">
+                    <i data-lucide="search" style="width: 16px; height: 16px;"></i>
+                    驗證資料庫
+                </button>
+            </div>
+            <div id="notion_db_status" class="status-message"></div>
             <small>
                 {% if is_edit %}
                     Database URL 中的 ID 部分
@@ -255,6 +262,91 @@ function toggleNotionDbInput() {
     if (checkbox) {
         group.hidden = checkbox.checked;
         input.required = !checkbox.checked;
+    }
+}
+
+// 驗證 Notion Database
+async function fetchNotionDatabaseInfo() {
+    const databaseIdInput = document.getElementById('notion_database_id');
+    const notionApiKeyInput = document.getElementById('notion_api_key');
+    const useSharedApiCheckbox = document.getElementById('use_shared_notion_api');
+    const statusDiv = document.getElementById('notion_db_status');
+    const verifyBtn = event.target.closest('button');
+
+    const databaseId = databaseIdInput.value.trim();
+    const notionApiKey = notionApiKeyInput ? notionApiKeyInput.value.trim() : '';
+    const useSharedApi = useSharedApiCheckbox ? useSharedApiCheckbox.checked : false;
+
+    // 驗證輸入
+    if (!databaseId) {
+        statusDiv.className = 'status-message error';
+        statusDiv.innerHTML = '❌ 請先填寫 Database ID';
+        return;
+    }
+
+    if (!useSharedApi && !notionApiKey) {
+        statusDiv.className = 'status-message error';
+        statusDiv.innerHTML = '❌ 請先填寫 Notion API Key 或勾選使用共用 API Key';
+        return;
+    }
+
+    // 顯示載入狀態
+    statusDiv.className = 'status-message info';
+    statusDiv.innerHTML = '⏳ 正在驗證 Notion Database...';
+    verifyBtn.disabled = true;
+    verifyBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 驗證中...';
+
+    try {
+        const response = await fetch('{{ url_for("admin.fetch_notion_database_info") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                database_id: databaseId,
+                notion_api_key: notionApiKey,
+                use_shared_api: useSharedApi,
+            }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            statusDiv.className = 'status-message success';
+            let message = `✅ 驗證成功！<br><strong>資料庫名稱:</strong> ${data.database_title}`;
+
+            if (data.warning) {
+                message += `<br><span class="status-warning">⚠️ ${data.warning}</span>`;
+            }
+
+            statusDiv.innerHTML = message;
+
+            // 自動填入正確的 database_id（無 hyphens）
+            databaseIdInput.value = data.database_id;
+
+            // 更新按鈕狀態
+            verifyBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已驗證';
+            verifyBtn.style.background = 'var(--accent-green)';
+            verifyBtn.style.borderColor = 'var(--accent-green)';
+            verifyBtn.style.color = 'white';
+        } else {
+            statusDiv.className = 'status-message error';
+            statusDiv.innerHTML = `❌ 驗證失敗：${data.error}`;
+
+            verifyBtn.disabled = false;
+            verifyBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新驗證';
+        }
+    } catch (error) {
+        statusDiv.className = 'status-message error';
+        statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
+
+        verifyBtn.disabled = false;
+        verifyBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新驗證';
+    }
+
+    // 重新初始化 Lucide 圖標
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
     }
 }
 

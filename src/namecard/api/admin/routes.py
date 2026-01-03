@@ -636,6 +636,99 @@ def fetch_bot_user_id():
         return jsonify({"success": False, "error": f"獲取失敗: {str(e)}"}), 500
 
 
+@admin_bp.route("/api/fetch-notion-database-info", methods=["POST"])
+@login_required
+def fetch_notion_database_info():
+    """
+    驗證 Notion API Key 和 Database ID，取得資料庫名稱
+
+    用於在新增/編輯租戶時驗證 Notion 設定
+    """
+    try:
+        # 取得參數
+        notion_api_key = request.json.get("notion_api_key", "").strip()
+        database_id = request.json.get("database_id", "").strip()
+        use_shared_api = request.json.get("use_shared_api", False)
+
+        # 如果使用共用 API Key
+        if use_shared_api:
+            from simple_config import settings
+
+            notion_api_key = settings.notion_api_key
+            if not notion_api_key:
+                return jsonify({"success": False, "error": "系統共用 Notion API Key 尚未設定"}), 400
+
+        # 驗證必填欄位
+        if not notion_api_key:
+            return jsonify({"success": False, "error": "請提供 Notion API Key 或勾選使用共用 API Key"}), 400
+
+        if not database_id:
+            return jsonify({"success": False, "error": "請提供 Notion Database ID"}), 400
+
+        # 呼叫 Notion API
+        from notion_client import Client
+
+        try:
+            notion = Client(auth=notion_api_key, notion_version="2025-09-03")
+            db_info = notion.databases.retrieve(database_id=database_id)
+
+            # 取得資料庫標題
+            db_title = "未命名資料庫"
+            if db_info.get("title") and len(db_info["title"]) > 0:
+                db_title = db_info["title"][0].get("plain_text", "未命名資料庫")
+
+            # 取得資料庫 URL
+            db_url = db_info.get("url", "")
+
+            # 驗證必要欄位（Name, Email, 公司名稱, 電話）
+            properties = db_info.get("properties", {})
+            required_fields = ["Name", "Email", "公司名稱", "電話"]
+            missing_fields = [f for f in required_fields if f not in properties]
+
+            logger.info(
+                "FETCH_NOTION_DB_SUCCESS",
+                database_id=database_id[:15] + "..." if len(database_id) > 15 else database_id,
+                database_title=db_title,
+                has_all_required_fields=len(missing_fields) == 0,
+            )
+
+            result = {
+                "success": True,
+                "database_title": db_title,
+                "database_url": db_url,
+                "database_id": database_id,
+            }
+
+            # 如果有缺少欄位，發出警告但不阻止
+            if missing_fields:
+                result["warning"] = f"資料庫缺少建議欄位: {', '.join(missing_fields)}"
+
+            return jsonify(result)
+
+        except Exception as notion_err:
+            error_msg = str(notion_err)
+
+            # 根據錯誤類型提供友善訊息
+            if "Could not find database" in error_msg:
+                error_msg = "找不到此資料庫 ID，請確認：\n1. Database ID 是否正確\n2. 該資料庫是否已分享給 Integration"
+            elif "Unauthorized" in error_msg or "401" in error_msg:
+                error_msg = "Notion API Key 無效或已過期"
+            elif "invalid_request" in error_msg:
+                error_msg = "Database ID 格式不正確"
+
+            logger.error(
+                "FETCH_NOTION_DB_ERROR",
+                error=str(notion_err),
+                database_id=database_id[:15] + "..." if database_id else None,
+            )
+
+            return jsonify({"success": False, "error": error_msg}), 400
+
+    except Exception as e:
+        logger.error("FETCH_NOTION_DB_EXCEPTION", error=str(e))
+        return jsonify({"success": False, "error": f"驗證失敗: {str(e)}"}), 500
+
+
 # ==================== Extended Statistics API ====================
 
 

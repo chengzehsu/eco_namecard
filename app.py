@@ -11,13 +11,39 @@ LINE Bot 名片管理系統 - 主啟動文件（多租戶版）
 import os
 import sys
 import structlog
+import json
 from datetime import datetime
 
 # 添加項目根目錄到 Python 路徑
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# #region agent log
+import os as _os_for_debug
+_DEBUG_LOG_PATH = _os_for_debug.path.join(_os_for_debug.path.dirname(_os_for_debug.path.abspath(__file__)), ".cursor", "debug.log")
+_os_for_debug.makedirs(_os_for_debug.path.dirname(_DEBUG_LOG_PATH), exist_ok=True)
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = None):
+    try:
+        import json, time
+        log_entry = {"hypothesisId": hypothesis_id, "location": location, "message": message, "data": data or {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session"}
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except Exception as e:
+        # 如果無法寫入文件，至少打印到 stdout（Zeabur 會捕獲）
+        print(f"DEBUG_LOG: {json.dumps(log_entry) if 'log_entry' in dir() else message}")
+
+_debug_log("A", "app.py:1", "APP_STARTUP_BEGIN", {"step": "imports", "debug_log_path": _DEBUG_LOG_PATH})
+# #endregion
+
+# #region agent log
+_debug_log("A", "app.py:import_config", "IMPORTING_CONFIG", {})
+# #endregion
+
 # 導入配置和主應用
 from simple_config import settings
+
+# #region agent log
+_debug_log("A", "app.py:config_loaded", "CONFIG_LOADED", {"port": settings.app_port, "flask_env": settings.flask_env, "line_token_set": bool(settings.line_channel_access_token), "notion_key_set": bool(settings.notion_api_key)})
+# #endregion
 
 # 設置日誌
 structlog.configure(
@@ -70,8 +96,21 @@ else:
     logger.info("Services using in-memory backend (Redis not available)",
                services=["UserService", "SecurityService"])
 
+# #region agent log
+_debug_log("B", "app.py:before_main_import", "IMPORTING_LINE_BOT_MAIN", {})
+# #endregion
+
 # 導入主應用（在 Redis 初始化之後）
-from src.namecard.api.line_bot.main import app
+try:
+    from src.namecard.api.line_bot.main import app
+    # #region agent log
+    _debug_log("B", "app.py:main_imported", "LINE_BOT_MAIN_IMPORTED_OK", {})
+    # #endregion
+except Exception as _import_err:
+    # #region agent log
+    _debug_log("B", "app.py:main_import_failed", "LINE_BOT_MAIN_IMPORT_FAILED", {"error": str(_import_err), "error_type": type(_import_err).__name__})
+    # #endregion
+    raise
 
 # ==================== 多租戶管理後台設定 ====================
 
@@ -83,12 +122,22 @@ app.secret_key = admin_secret_key
 from src.namecard.api.admin import admin_bp
 app.register_blueprint(admin_bp)
 
+# #region agent log
+_debug_log("C", "app.py:before_tenant_db", "INITIALIZING_TENANT_DB", {})
+# #endregion
+
 # 初始化租戶資料庫
 from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
 try:
     tenant_db = get_tenant_db()
+    # #region agent log
+    _debug_log("C", "app.py:tenant_db_ok", "TENANT_DB_INITIALIZED_OK", {"db_path": tenant_db.db_path})
+    # #endregion
     logger.info("Tenant database initialized", db_path=tenant_db.db_path)
 except Exception as e:
+    # #region agent log
+    _debug_log("C", "app.py:tenant_db_failed", "TENANT_DB_INIT_FAILED", {"error": str(e), "error_type": type(e).__name__})
+    # #endregion
     logger.warning("Failed to initialize tenant database", error=str(e))
 
 # 初始化管理員認證（會自動建立初始管理員）
@@ -100,6 +149,9 @@ except Exception as e:
     logger.warning("Failed to initialize admin auth", error=str(e))
 
 logger.info("Multi-tenant admin panel enabled", admin_url="/admin")
+
+# #region agent log
+_debug_log("A", "app.py:admin_panel_enabled", "ADMIN_PANEL_ENABLED", {})
 
 # 自動創建預設租戶（從環境變數）
 def init_default_tenant():
@@ -146,8 +198,18 @@ def init_default_tenant():
 
 try:
     init_default_tenant()
+    # #region agent log
+    _debug_log("A", "app.py:default_tenant_init", "DEFAULT_TENANT_INIT_COMPLETED", {})
+    # #endregion
 except Exception as e:
+    # #region agent log
+    _debug_log("A", "app.py:default_tenant_init_failed", "DEFAULT_TENANT_INIT_FAILED", {"error": str(e), "error_type": type(e).__name__})
+    # #endregion
     logger.warning("Default tenant initialization skipped", error=str(e))
+
+# #region agent log
+_debug_log("A", "app.py:startup_complete", "APP_STARTUP_COMPLETE", {"ready_for_gunicorn": True})
+# #endregion
 
 # ===========================================================
 

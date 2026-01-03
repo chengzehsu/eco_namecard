@@ -31,17 +31,65 @@ from src.namecard.core.services.tenant_service import get_tenant_service
 
 logger = structlog.get_logger()
 
+# #region agent log
+import os as _os_for_debug
+_DEBUG_LOG_PATH = _os_for_debug.path.join(_os_for_debug.path.dirname(_os_for_debug.path.abspath(__file__)), "../../../../.cursor", "debug.log")
+try:
+    _os_for_debug.makedirs(_os_for_debug.path.dirname(_DEBUG_LOG_PATH), exist_ok=True)
+except Exception:
+    pass
+def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = None):
+    try:
+        import json, time
+        log_entry = {"hypothesisId": hypothesis_id, "location": location, "message": message, "data": data or {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session"}
+        with open(_DEBUG_LOG_PATH, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except Exception:
+        # 如果無法寫入文件，打印到 stdout
+        import json
+        print(f"DEBUG_LOG: {json.dumps({'h': hypothesis_id, 'l': location, 'm': message, 'd': data})}")
+
+_debug_log("D", "main.py:module_start", "LINE_BOT_MAIN_MODULE_START", {})
+# #endregion
+
 app = Flask(__name__)
 
 # ==================== 預設單租戶服務 (向後相容) ====================
 
+# #region agent log
+_debug_log("D", "main.py:before_linebot_init", "INITIALIZING_DEFAULT_LINEBOT", {
+    "token_length": len(settings.line_channel_access_token) if settings.line_channel_access_token else 0,
+    "secret_length": len(settings.line_channel_secret) if settings.line_channel_secret else 0,
+    "token_empty": not settings.line_channel_access_token,
+    "secret_empty": not settings.line_channel_secret
+})
+# #endregion
+
 # 初始化預設 LINE Bot (使用全域設定)
-default_line_bot_api = LineBotApi(settings.line_channel_access_token)
-default_handler = WebhookHandler(settings.line_channel_secret)
+try:
+    default_line_bot_api = LineBotApi(settings.line_channel_access_token)
+    default_handler = WebhookHandler(settings.line_channel_secret)
+    # #region agent log
+    _debug_log("D", "main.py:linebot_init_ok", "DEFAULT_LINEBOT_INITIALIZED_OK", {})
+    # #endregion
+except Exception as _linebot_err:
+    # #region agent log
+    _debug_log("D", "main.py:linebot_init_failed", "DEFAULT_LINEBOT_INIT_FAILED", {"error": str(_linebot_err), "error_type": type(_linebot_err).__name__})
+    # #endregion
+    raise
 
 # 初始化預設服務
-default_card_processor = CardProcessor()
-default_notion_client = NotionClient()
+try:
+    default_card_processor = CardProcessor()
+    default_notion_client = NotionClient()
+    # #region agent log
+    _debug_log("D", "main.py:services_init_ok", "DEFAULT_SERVICES_INITIALIZED_OK", {})
+    # #endregion
+except Exception as _services_err:
+    # #region agent log
+    _debug_log("D", "main.py:services_init_failed", "DEFAULT_SERVICES_INIT_FAILED", {"error": str(_services_err), "error_type": type(_services_err).__name__})
+    # #endregion
+    raise
 
 # 預設事件處理器
 default_event_handler = UnifiedEventHandler(
@@ -455,11 +503,20 @@ def handle_image_message_event(event):
 @app.route("/health", methods=['GET'])
 def health_check():
     """健康檢查端點"""
+    # #region agent log
+    _debug_log("E", "main.py:health_check", "HEALTH_CHECK_CALLED", {})
+    # #endregion
     try:
         tenant_service = get_tenant_service()
         stats = tenant_service.get_overall_stats()
         tenant_count = stats.get("total_tenants", 0)
-    except Exception:
+        # #region agent log
+        _debug_log("E", "main.py:health_check_ok", "HEALTH_CHECK_OK", {"tenant_count": tenant_count})
+        # #endregion
+    except Exception as e:
+        # #region agent log
+        _debug_log("E", "main.py:health_check_error", "HEALTH_CHECK_ERROR", {"error": str(e), "error_type": type(e).__name__})
+        # #endregion
         tenant_count = 0
 
     return jsonify({

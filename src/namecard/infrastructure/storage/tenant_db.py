@@ -111,7 +111,7 @@ class TenantDatabase:
                 line_channel_id TEXT NOT NULL UNIQUE,
                 line_channel_access_token_encrypted TEXT NOT NULL,
                 line_channel_secret_encrypted TEXT NOT NULL,
-                notion_api_key_encrypted TEXT NOT NULL,
+                notion_api_key_encrypted TEXT,
                 notion_database_id TEXT NOT NULL,
                 use_shared_notion_api INTEGER DEFAULT 1,
                 google_api_key_encrypted TEXT,

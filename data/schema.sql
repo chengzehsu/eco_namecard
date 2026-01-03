@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     line_channel_secret_encrypted TEXT NOT NULL,
 
     -- Notion Configuration (encrypted)
-    notion_api_key_encrypted TEXT NOT NULL,
+    notion_api_key_encrypted TEXT,
     notion_database_id TEXT NOT NULL,
 
     -- Notion API Configuration (optional - use shared if null)

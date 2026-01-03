@@ -14,9 +14,6 @@ from src.namecard.infrastructure.storage.notion_fields import NotionFields
 
 logger = structlog.get_logger()
 
-# Notion API 版本 - 2025-09-03 是目前最新版本
-NOTION_API_VERSION = "2025-09-03"
-
 
 class NotionClient:
     """Notion 資料庫客戶端
@@ -40,8 +37,8 @@ class NotionClient:
         self._api_key = api_key or settings.notion_api_key
         self.database_id = database_id or settings.notion_database_id
 
-        # 使用最新 API 版本初始化 Client
-        self.client = Client(auth=self._api_key, notion_version=NOTION_API_VERSION)
+        # 初始化 Client（使用 SDK 預設版本）
+        self.client = Client(auth=self._api_key)
         self.database_url = f"https://notion.so/{self.database_id.replace('-', '')}"
 
         # 緩存資料庫 schema（用於檢查欄位是否存在）
@@ -408,8 +405,8 @@ class NotionClient:
             except Exception:
                 pass
             # #endregion
-            # 使用最新 API 版本初始化 Client
-            client = Client(auth=api_key, notion_version=NOTION_API_VERSION)
+            # 初始化 Client（使用 SDK 預設版本）
+            client = Client(auth=api_key)
             parent_id = parent_page_id or settings.notion_shared_parent_page_id
             # #region agent log
             try:

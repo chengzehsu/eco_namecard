@@ -669,7 +669,7 @@ def fetch_notion_database_info():
         from notion_client import Client
 
         try:
-            notion = Client(auth=notion_api_key, notion_version="2025-09-03")
+            notion = Client(auth=notion_api_key)
             db_info = notion.databases.retrieve(database_id=database_id)
 
             # 取得資料庫標題

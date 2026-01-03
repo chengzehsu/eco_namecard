@@ -378,6 +378,60 @@ class TenantService:
         """Get summary statistics across all tenants"""
         return self.db.get_all_tenants_summary(days)
 
+    # ==================== Auto-Activation Support ====================
+
+    def get_pending_tenants(self) -> List[TenantConfig]:
+        """
+        Get all pending (inactive) tenants that can be auto-activated.
+
+        These are tenants that have been created but not yet activated
+        because their line_channel_id hasn't been confirmed.
+
+        Returns:
+            List of inactive TenantConfig objects
+        """
+        rows = self.db.list_tenants(include_inactive=True)
+        pending = []
+        for row in rows:
+            # Pending tenants are those that are inactive OR have placeholder channel_id
+            if not row["is_active"] or (row["line_channel_id"] and row["line_channel_id"].startswith("pending_")):
+                pending.append(self._row_to_config(row))
+        logger.info("get_pending_tenants called", total_tenants=len(rows), pending_count=len(pending))
+        return pending
+
+    def activate_tenant_with_channel_id(self, tenant_id: str, channel_id: str) -> Optional[TenantConfig]:
+        """
+        Activate a tenant and bind it to a specific LINE channel ID.
+
+        This is used during auto-activation when a webhook is received
+        from an unknown channel that matches a pending tenant's signature.
+
+        Args:
+            tenant_id: The tenant ID to activate
+            channel_id: The LINE Bot User ID (destination) to bind
+
+        Returns:
+            Updated TenantConfig or None if not found
+        """
+        # Update the tenant with the new channel_id and activate it
+        data = {
+            "is_active": True,
+            "line_channel_id": channel_id,
+        }
+
+        row = self.db.update_tenant(tenant_id, data)
+        if not row:
+            return None
+
+        # Invalidate cache
+        self._invalidate_cache(tenant_id)
+
+        tenant = self._row_to_config(row)
+        logger.info("Tenant activated with channel_id",
+                   tenant_id=tenant_id,
+                   channel_id=channel_id[:10] + "...")
+        return tenant
+
 
 # Global service instance
 _service_instance: Optional[TenantService] = None

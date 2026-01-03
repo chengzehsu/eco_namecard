@@ -206,8 +206,14 @@ def try_auto_activate_tenant(body: str, signature: str, channel_id: str) -> Opti
     Returns:
         啟用成功的 TenantContext，否則 None
     """
+    # #region agent log
+    _debug_log("A", "main.py:try_auto_activate_tenant:entry", "AUTO_ACTIVATE_ENTRY", {"channel_id": channel_id[:10] + "..."})
+    # #endregion
     try:
         tenant_service = get_tenant_service()
+        # #region agent log
+        _debug_log("A", "main.py:try_auto_activate_tenant:before_get_pending", "BEFORE_GET_PENDING_TENANTS", {"has_method": hasattr(tenant_service, 'get_pending_tenants')})
+        # #endregion
         pending_tenants = tenant_service.get_pending_tenants()
 
         if not pending_tenants:
@@ -242,6 +248,9 @@ def try_auto_activate_tenant(body: str, signature: str, channel_id: str) -> Opti
         return None
 
     except Exception as e:
+        # #region agent log
+        _debug_log("A", "main.py:try_auto_activate_tenant:exception", "AUTO_ACTIVATE_EXCEPTION", {"error": str(e), "error_type": type(e).__name__})
+        # #endregion
         logger.error("Auto-activation failed", error=str(e))
         return None
 
@@ -289,6 +298,9 @@ def callback():
                    tenant_name=tenant_context.tenant_name)
         return process_multi_tenant(body, signature, tenant_context)
     else:
+        # #region agent log
+        _debug_log("D", "main.py:callback:default_mode", "FALLING_BACK_TO_DEFAULT", {"default_event_handler_exists": default_event_handler is not None, "default_line_bot_api_exists": default_line_bot_api is not None})
+        # #endregion
         # 向後相容：使用預設配置
         logger.info("Default mode (no tenant found)")
         return process_default(body, signature)
@@ -470,6 +482,15 @@ def process_events_manually(body: str):
 
     使用預設的事件處理器。
     """
+    # #region agent log
+    _debug_log("D", "main.py:process_events_manually", "PROCESS_EVENTS_MANUALLY_CALLED", {"default_event_handler_is_none": default_event_handler is None})
+    # #endregion
+    if default_event_handler is None:
+        # #region agent log
+        _debug_log("D", "main.py:process_events_manually:no_handler", "DEFAULT_EVENT_HANDLER_IS_NONE", {"error": "Cannot process events without handler"})
+        # #endregion
+        logger.error("Cannot process events: default_event_handler is None")
+        return
     process_events_with_handler(body, default_event_handler, default_line_bot_api)
 
 

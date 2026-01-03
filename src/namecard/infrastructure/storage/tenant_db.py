@@ -287,7 +287,7 @@ class TenantDatabase:
         values = []
 
         allowed_fields = [
-            "name", "slug", "is_active",
+            "name", "slug", "is_active", "line_channel_id",
             "line_channel_access_token_encrypted", "line_channel_secret_encrypted",
             "notion_api_key_encrypted", "notion_database_id", "use_shared_notion_api",
             "google_api_key_encrypted", "use_shared_google_api",

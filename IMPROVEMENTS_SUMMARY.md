@@ -397,7 +397,7 @@ if confidence_score < 0.2:
 
 - [ ] **健康檢查**
   ```bash
-  curl https://namecard-app.zeabur.app/health
+  curl https://namecard-app-sjc.zeabur.app/health
   # 應該返回 200 OK
   ```
 

@@ -89,7 +89,7 @@ https://github.com/chengzehsu/Ecofirst_namecard
 設置完成後，每次推送到 `main` 分支都會自動：
 
 1. **執行測試和品質檢查**
-2. **部署到 Zeabur** (namecard-app.zeabur.app)
+2. **部署到 Zeabur** (namecard-app-sjc.zeabur.app)
 3. **驗證部署成功**
 
 ### 6. 檢查部署狀態
@@ -99,7 +99,7 @@ https://github.com/chengzehsu/Ecofirst_namecard
 - 查看最新的 workflow 執行狀態
 
 **Zeabur 部署**:
-- 前往：https://namecard-app.zeabur.app/health
+- 前往：https://namecard-app-sjc.zeabur.app/health
 - 預期回應：`{"status":"healthy",...}`
 
 ## 🚨 常見問題
@@ -131,13 +131,13 @@ git remote add origin https://github.com/chengzehsu/Ecofirst_namecard.git
 - [ ] ✅ 代碼成功推送到 GitHub
 - [ ] ✅ GitHub Actions Secrets 設置完成
 - [ ] ✅ 第一次 workflow 執行成功
-- [ ] ✅ https://namecard-app.zeabur.app/health 回應正常
+- [ ] ✅ https://namecard-app-sjc.zeabur.app/health 回應正常
 
 ## 🎉 完成後的下一步
 
 1. **配置 LINE Bot Webhook**:
    ```
-   URL: https://namecard-app.zeabur.app/callback
+   URL: https://namecard-app-sjc.zeabur.app/callback
    ```
 
 2. **設置 Notion 資料庫** (參考 DEPLOYMENT.md)

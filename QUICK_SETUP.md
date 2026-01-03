@@ -65,12 +65,12 @@ git push -u origin main
 
 設置完成後：
 - GitHub Actions 會自動執行
-- 您的應用會部署到: https://namecard-app.zeabur.app
-- 健康檢查: https://namecard-app.zeabur.app/health
+- 您的應用會部署到: https://namecard-app-sjc.zeabur.app
+- 健康檢查: https://namecard-app-sjc.zeabur.app/health
 
 ## 🎉 成功後的下一步
 
-1. **設置 LINE Webhook**: `https://namecard-app.zeabur.app/callback`
+1. **設置 LINE Webhook**: `https://namecard-app-sjc.zeabur.app/callback`
 2. **配置 Notion 資料庫** (參考 DEPLOYMENT.md)
 3. **開始測試您的 LINE Bot**
 

@@ -4,7 +4,7 @@
 
 ```bash
 # 1. 檢查系統是否正常
-curl https://namecard-app.zeabur.app/health
+curl https://namecard-app-sjc.zeabur.app/health
 
 # 2. 測試 LINE Bot
 發送「help」到 LINE Bot
@@ -62,9 +62,9 @@ git push -f origin main
 
 ## 🔗 重要連結
 
-- 健康檢查: https://namecard-app.zeabur.app/health
-- Notion 欄位: https://namecard-app.zeabur.app/debug/notion  
-- 系統設定: https://namecard-app.zeabur.app/test
+- 健康檢查: https://namecard-app-sjc.zeabur.app/health
+- Notion 欄位: https://namecard-app-sjc.zeabur.app/debug/notion  
+- 系統設定: https://namecard-app-sjc.zeabur.app/test
 - 完整指南: 看 MAINTENANCE.md
 
 ---

@@ -2,7 +2,7 @@
 
 ## 🎯 **整合方式選擇**
 
-由於你目前使用 `namecard-app.zeabur.app`，有三種方式可以整合 Cloudflare：
+由於你目前使用 `namecard-app-sjc.zeabur.app`，有三種方式可以整合 Cloudflare：
 
 ### 方式 1: 自定義域名 (推薦) ⭐
 - 使用自己的域名
@@ -169,7 +169,7 @@ Proxy: 🟠 Proxied ✅
 
 Type: CNAME
 Name: namecard
-Content: namecard-app.zeabur.app
+Content: namecard-app-sjc.zeabur.app
 Proxy: 🟠 Proxied ✅
 ```
 
@@ -276,7 +276,7 @@ python cloudflare-monitor.py your-domain.com --test all
 #### 步驟 2: 更新 Webhook URL
 ```bash
 # 原始 URL
-https://namecard-app.zeabur.app/callback
+https://namecard-app-sjc.zeabur.app/callback
 
 # 新的 URL
 https://your-domain.com/callback

@@ -2,7 +2,7 @@
 
 ## 📝 部署清單
 
-您的 LINE Bot 將部署到：**https://namecard-app.zeabur.app**
+您的 LINE Bot 將部署到：**https://namecard-app-sjc.zeabur.app**
 
 ⚠️ **重要**: 需要在 Zeabur Dashboard 中手動連接 GitHub Repository 才能觸發自動部署！
 
@@ -50,7 +50,7 @@ DEBUG=False
 1. 前往 [LINE Developer Console](https://developers.line.biz/)
 2. 選擇您的 LINE Bot
 3. 在 **Messaging API** 設定中：
-   - **Webhook URL**: `https://namecard-app.zeabur.app/callback`
+   - **Webhook URL**: `https://namecard-app-sjc.zeabur.app/callback`
    - **Use webhook**: 啟用
    - **Verify**: 點擊驗證（部署完成後）
 
@@ -139,10 +139,10 @@ git push origin main
 
 ```bash
 # 健康檢查
-curl https://namecard-app.zeabur.app/health
+curl https://namecard-app-sjc.zeabur.app/health
 
 # 服務測試  
-curl https://namecard-app.zeabur.app/test
+curl https://namecard-app-sjc.zeabur.app/test
 
 # 預期回應
 # {"status":"healthy","service":"LINE Bot 名片識別系統",...}
@@ -218,8 +218,8 @@ curl https://namecard-app.zeabur.app/test
 ## 🎉 完成！
 
 設定完成後，您的 LINE Bot 將在：
-- **服務地址**: https://namecard-app.zeabur.app
-- **健康檢查**: https://namecard-app.zeabur.app/health
-- **Webhook**: https://namecard-app.zeabur.app/callback
+- **服務地址**: https://namecard-app-sjc.zeabur.app
+- **健康檢查**: https://namecard-app-sjc.zeabur.app/health
+- **Webhook**: https://namecard-app-sjc.zeabur.app/callback
 
 祝您使用愉快！🚀

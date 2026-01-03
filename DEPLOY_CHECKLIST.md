@@ -2,9 +2,9 @@
 
 ## 🎯 您的部署資訊
 
-- **應用地址**: https://namecard-app.zeabur.app
-- **LINE Webhook**: https://namecard-app.zeabur.app/callback
-- **健康檢查**: https://namecard-app.zeabur.app/health
+- **應用地址**: https://namecard-app-sjc.zeabur.app
+- **LINE Webhook**: https://namecard-app-sjc.zeabur.app/callback
+- **健康檢查**: https://namecard-app-sjc.zeabur.app/health
 
 ## 📋 部署前檢查
 
@@ -32,7 +32,7 @@
 
 ### 3. LINE Developer Console
 
-- [ ] Webhook URL 設為：`https://namecard-app.zeabur.app/callback`
+- [ ] Webhook URL 設為：`https://namecard-app-sjc.zeabur.app/callback`
 - [ ] 啟用 "Use webhook"
 - [ ] 關閉 "Auto-reply messages" 和 "Greeting messages"
 
@@ -49,7 +49,7 @@
 ```bash
 # 1. 推送代碼
 git add .
-git commit -m "feat: 配置部署到 namecard-app.zeabur.app"
+git commit -m "feat: 配置部署到 namecard-app-sjc.zeabur.app"
 git push origin main
 
 # 2. 等待 GitHub Actions 完成
@@ -66,7 +66,7 @@ git push origin main
 ### 1. 健康檢查
 
 ```bash
-curl https://namecard-app.zeabur.app/health
+curl https://namecard-app-sjc.zeabur.app/health
 ```
 
 預期回應：
@@ -82,7 +82,7 @@ curl https://namecard-app.zeabur.app/health
 ### 2. 服務測試
 
 ```bash
-curl https://namecard-app.zeabur.app/test
+curl https://namecard-app-sjc.zeabur.app/test
 ```
 
 ### 3. LINE Bot 功能測試

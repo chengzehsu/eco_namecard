@@ -111,7 +111,7 @@
 
 4. **等待部署完成**
    ```
-   約 2-5 分鐘 → 檢查 https://namecard-app.zeabur.app/health
+   約 2-5 分鐘 → 檢查 https://namecard-app-sjc.zeabur.app/health
    ```
 
 ## 🔒 安全考量

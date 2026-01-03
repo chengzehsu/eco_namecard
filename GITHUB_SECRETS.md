@@ -64,7 +64,7 @@ If you want to add coverage reporting or deployment tracking later:
 **For Zeabur deployment issues:**
 - Check Zeabur Dashboard for deployment status
 - Zeabur auto-deploys independent of GitHub Actions
-- App URL: https://namecard-app.zeabur.app
+- App URL: https://namecard-app-sjc.zeabur.app
 
 ---
 

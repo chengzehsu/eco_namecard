@@ -120,7 +120,7 @@ git commit -m "feat: 初始化 LINE Bot 名片系統"
 git push origin main
 
 # 在 Zeabur Dashboard 設置環境變數
-# 設置 LINE Webhook URL: https://namecard-app.zeabur.app/callback
+# 設置 LINE Webhook URL: https://namecard-app-sjc.zeabur.app/callback
 ```
 
 **📋 詳細部署步驟請參考：[DEPLOYMENT.md](DEPLOYMENT.md)**

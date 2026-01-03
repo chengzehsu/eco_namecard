@@ -121,13 +121,15 @@ def create_tenant():
             from simple_config import settings
 
             # #region agent log
-            import json as _json, time as _time
-            _debug_path = '/Users/user/Ecofirst_namecard/.cursor/debug.log'
+            import json as _json, time as _time, os as _os
+            _debug_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '../../../../.cursor/debug.log')
             def _log_debug(hyp, loc, msg, data):
                 try:
+                    _os.makedirs(_os.path.dirname(_debug_path), exist_ok=True)
                     with open(_debug_path, 'a') as f:
                         f.write(_json.dumps({"hypothesisId": hyp, "location": loc, "message": msg, "data": data, "timestamp": int(_time.time() * 1000)}) + '\n')
-                except: pass
+                except Exception:
+                    pass  # Silently fail in production
             _log_debug("F", "routes.py:create_tenant:start", "CREATE_TENANT_POST_RECEIVED", {"form_keys": list(request.form.keys())})
             # #endregion
 
@@ -159,7 +161,9 @@ def create_tenant():
                 from src.namecard.infrastructure.storage.notion_client import NotionClient
 
                 # #region agent log
-                import json; open('/Users/user/Ecofirst_namecard/.cursor/debug.log', 'a').write(json.dumps({"hypothesisId": "E", "location": "routes.py:create_tenant:before_create_db", "message": "About to create Notion DB", "data": {"tenant_name": tenant_name, "use_shared_notion_api": use_shared_notion_api, "notion_api_key_prefix": notion_api_key[:15] + "..." if notion_api_key else None, "parent_page_id": settings.notion_shared_parent_page_id, "settings_notion_api_key_prefix": settings.notion_api_key[:15] + "..." if settings.notion_api_key else None}, "timestamp": __import__('time').time()}) + '\n')
+                try:
+                    _log_debug("E", "routes.py:create_tenant:before_create_db", "About to create Notion DB", {"tenant_name": tenant_name, "use_shared_notion_api": use_shared_notion_api, "parent_page_id": settings.notion_shared_parent_page_id})
+                except Exception: pass
                 # #endregion
 
                 logger.info(

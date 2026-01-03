@@ -7,20 +7,19 @@ CREATE TABLE IF NOT EXISTS tenants (
     name TEXT NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     is_active INTEGER DEFAULT 1,
-    -- Activation status: 'pending' (awaiting LINE Bot auto-detection), 'active', 'inactive'
-    activation_status TEXT DEFAULT 'pending',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
 
     -- LINE Bot Configuration (encrypted)
-    -- line_channel_id is nullable for auto-detection feature
-    line_channel_id TEXT UNIQUE,
+    line_channel_id TEXT NOT NULL UNIQUE,
     line_channel_access_token_encrypted TEXT NOT NULL,
     line_channel_secret_encrypted TEXT NOT NULL,
 
-    -- Notion Configuration (encrypted) - api_key optional if using shared
-    notion_api_key_encrypted TEXT,
+    -- Notion Configuration (encrypted)
+    notion_api_key_encrypted TEXT NOT NULL,
     notion_database_id TEXT NOT NULL,
+
+    -- Notion API Configuration (optional - use shared if null)
     use_shared_notion_api INTEGER DEFAULT 1,
 
     -- Google AI Configuration (optional - use shared if null)
@@ -68,38 +67,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     FOREIGN KEY (target_tenant_id) REFERENCES tenants(id)
 );
 
--- User statistics table (per user per day)
-CREATE TABLE IF NOT EXISTS user_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant_id TEXT NOT NULL,
-    line_user_id TEXT NOT NULL,
-    date TEXT NOT NULL,
-    cards_processed INTEGER DEFAULT 0,
-    cards_saved INTEGER DEFAULT 0,
-    errors INTEGER DEFAULT 0,
-    UNIQUE(tenant_id, line_user_id, date)
-);
-
--- LINE users table (user profile information)
-CREATE TABLE IF NOT EXISTS line_users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant_id TEXT NOT NULL,
-    line_user_id TEXT NOT NULL,
-    display_name TEXT,
-    picture_url TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(tenant_id, line_user_id)
-);
-
 -- Indexes for faster lookups
 CREATE INDEX IF NOT EXISTS idx_tenants_line_channel_id ON tenants(line_channel_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
 CREATE INDEX IF NOT EXISTS idx_tenants_is_active ON tenants(is_active);
-CREATE INDEX IF NOT EXISTS idx_tenants_activation_status ON tenants(activation_status);
 CREATE INDEX IF NOT EXISTS idx_usage_stats_tenant_date ON usage_stats(tenant_id, date);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
-CREATE INDEX IF NOT EXISTS idx_user_stats_tenant ON user_stats(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
-CREATE INDEX IF NOT EXISTS idx_line_users_tenant ON line_users(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_line_users_user ON line_users(line_user_id);

@@ -76,21 +76,21 @@ class TenantCreateRequest(BaseModel):
     line_channel_access_token: str = Field(..., min_length=1)
     line_channel_secret: str = Field(..., min_length=1)
 
-    # Notion - both api_key and database_id are optional
+    # Notion
     notion_api_key: Optional[str] = Field(
         default=None,
         description="Tenant-specific Notion API Key (leave empty to use shared)"
+    )
+    notion_database_id: Optional[str] = Field(
+        default=None,
+        description="Notion Database ID (auto-created if not provided)"
     )
     use_shared_notion_api: bool = Field(
         default=True,
         description="Use shared Notion API key"
     )
-    notion_database_id: Optional[str] = Field(
-        default=None,
-        description="Notion Database ID (leave empty for auto-creation)"
-    )
     auto_create_notion_db: bool = Field(
-        default=False,
+        default=True,
         description="Automatically create Notion database for tenant"
     )
 

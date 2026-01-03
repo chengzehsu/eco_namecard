@@ -78,21 +78,12 @@ class TenantService:
     def _decrypt(self, ciphertext: str) -> str:
         """Decrypt a string"""
         if not ciphertext:
-            # #region agent log
-            logger.warning("DEBUG_DECRYPT_EMPTY_CIPHERTEXT", hint="Encrypted field is empty in database")
-            # #endregion
             return ""
         try:
             encrypted = base64.urlsafe_b64decode(ciphertext.encode("utf-8"))
             decrypted = self._cipher.decrypt(encrypted)
-            result = decrypted.decode("utf-8")
-            # #region agent log - removed to reduce noise
-            # #endregion
-            return result
+            return decrypted.decode("utf-8")
         except Exception as e:
-            # #region agent log
-            logger.error("DEBUG_DECRYPT_FAILED", error=str(e)[:100], hint="SECRET_KEY mismatch or corrupted data")
-            # #endregion
             logger.error("Decryption failed", error=str(e))
             return ""
 
@@ -143,13 +134,12 @@ class TenantService:
             name=row["name"],
             slug=row["slug"],
             is_active=bool(row["is_active"]),
-            activation_status=row.get("activation_status", "pending"),
             created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else datetime.now(),
             updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else datetime.now(),
-            line_channel_id=row.get("line_channel_id"),  # Can be None for pending tenants
+            line_channel_id=row["line_channel_id"],
             line_channel_access_token=self._decrypt(row["line_channel_access_token_encrypted"]),
             line_channel_secret=self._decrypt(row["line_channel_secret_encrypted"]),
-            notion_api_key=self._decrypt(row["notion_api_key_encrypted"]) if row.get("notion_api_key_encrypted") else None,
+            notion_api_key=self._decrypt(row["notion_api_key_encrypted"]),
             notion_database_id=row["notion_database_id"],
             use_shared_notion_api=bool(row.get("use_shared_notion_api", 1)),
             google_api_key=self._decrypt(row["google_api_key_encrypted"]) if row.get("google_api_key_encrypted") else None,
@@ -173,19 +163,15 @@ class TenantService:
         # Generate slug if not provided
         slug = request.slug or self._generate_slug(request.name)
 
-        # Determine activation status
-        activation_status = "active" if request.line_channel_id else "pending"
-
         # Prepare encrypted data
         data = {
             "name": request.name,
             "slug": slug,
             "is_active": True,
-            "activation_status": activation_status,
-            "line_channel_id": request.line_channel_id,  # Can be None for auto-detection
+            "line_channel_id": request.line_channel_id,
             "line_channel_access_token_encrypted": self._encrypt(request.line_channel_access_token),
             "line_channel_secret_encrypted": self._encrypt(request.line_channel_secret),
-            "notion_api_key_encrypted": self._encrypt(request.notion_api_key) if request.notion_api_key else None,
+            "notion_api_key_encrypted": self._encrypt(request.notion_api_key) if request.notion_api_key else "",
             "notion_database_id": request.notion_database_id,
             "use_shared_notion_api": request.use_shared_notion_api,
             "google_api_key_encrypted": self._encrypt(request.google_api_key) if request.google_api_key else None,
@@ -197,7 +183,7 @@ class TenantService:
         row = self.db.create_tenant(data)
         tenant = self._row_to_config(row)
 
-        logger.info("Tenant created", tenant_id=tenant.id, name=tenant.name, activation_status=activation_status)
+        logger.info("Tenant created", tenant_id=tenant.id, name=tenant.name)
         return tenant
 
     def get_tenant_by_id(self, tenant_id: str) -> Optional[TenantConfig]:
@@ -270,14 +256,12 @@ class TenantService:
             data["name"] = request.name
         if request.is_active is not None:
             data["is_active"] = request.is_active
-        if request.line_channel_id is not None:
-            data["line_channel_id"] = request.line_channel_id
         if request.line_channel_access_token is not None:
             data["line_channel_access_token_encrypted"] = self._encrypt(request.line_channel_access_token)
         if request.line_channel_secret is not None:
             data["line_channel_secret_encrypted"] = self._encrypt(request.line_channel_secret)
         if request.notion_api_key is not None:
-            data["notion_api_key_encrypted"] = self._encrypt(request.notion_api_key) if request.notion_api_key else None
+            data["notion_api_key_encrypted"] = self._encrypt(request.notion_api_key)
         if request.notion_database_id is not None:
             data["notion_database_id"] = request.notion_database_id
         if request.use_shared_notion_api is not None:
@@ -393,94 +377,6 @@ class TenantService:
     def get_all_tenants_summary(self, days: int = 30) -> Dict[str, Any]:
         """Get summary statistics across all tenants"""
         return self.db.get_all_tenants_summary(days)
-
-    # ==================== LINE User Operations ====================
-
-    def save_line_user(self, tenant_id: str, line_user_id: str,
-                       display_name: Optional[str] = None,
-                       picture_url: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Save or update LINE user information.
-
-        Args:
-            tenant_id: Tenant ID
-            line_user_id: LINE user ID
-            display_name: User's display name
-            picture_url: User's profile picture URL
-
-        Returns:
-            User data dict
-        """
-        return self.db.upsert_line_user(tenant_id, line_user_id, display_name, picture_url)
-
-    def get_line_user(self, tenant_id: str, line_user_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get LINE user information.
-
-        Args:
-            tenant_id: Tenant ID
-            line_user_id: LINE user ID
-
-        Returns:
-            User data dict or None if not found
-        """
-        return self.db.get_line_user(tenant_id, line_user_id)
-
-    def get_line_users(self, tenant_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all LINE users for a tenant.
-
-        Args:
-            tenant_id: Tenant ID
-
-        Returns:
-            List of user data dicts
-        """
-        return self.db.get_line_users_by_tenant(tenant_id)
-
-    # ==================== Pending Tenant Operations ====================
-
-    def get_pending_tenants(self) -> List[TenantConfig]:
-        """
-        Get all tenants with pending activation status.
-
-        These are tenants awaiting LINE Bot auto-detection.
-
-        Returns:
-            List of pending TenantConfig objects
-        """
-        rows = self.db.get_pending_tenants()
-        return [self._row_to_config(row) for row in rows]
-
-    def activate_tenant_with_channel_id(self, tenant_id: str, channel_id: str) -> Optional[TenantConfig]:
-        """
-        Activate a pending tenant by setting its LINE channel ID.
-
-        This is called when a webhook is received and matched to a pending tenant
-        via channel secret signature verification.
-
-        Args:
-            tenant_id: The tenant ID to activate
-            channel_id: The LINE Bot User ID (destination from webhook)
-
-        Returns:
-            Updated TenantConfig or None if not found
-        """
-        row = self.db.activate_tenant_with_channel_id(tenant_id, channel_id)
-        if not row:
-            return None
-
-        # Invalidate cache
-        self._invalidate_cache(tenant_id)
-
-        tenant = self._row_to_config(row)
-        logger.info(
-            "Tenant activated via auto-detection",
-            tenant_id=tenant_id,
-            tenant_name=tenant.name,
-            channel_id=channel_id[:10] + "..." if channel_id else None
-        )
-        return tenant
 
 
 # Global service instance

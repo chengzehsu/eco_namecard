@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     notion_api_key: str = Field(default="", description="Shared Notion API Key for all tenants")
     notion_database_id: str = Field(default="", description="Notion Database ID (for default tenant)")
     notion_shared_parent_page_id: str = Field(
-        default="2db08f881bb881a997b2c2e8610f84d7",
+        default="2dd08f881bb8804795fec46e6d02672b",
         description="Shared parent page ID for auto-creating tenant databases"
     )
     # Note: notion_api_key serves as the shared key for tenants who don't have their own

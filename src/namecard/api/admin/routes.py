@@ -118,23 +118,20 @@ def create_tenant():
     """Create new tenant"""
     if request.method == "POST":
         try:
-            # Get form data
             from simple_config import settings
 
-            name = request.form.get("name", "").strip()
-            use_shared_notion_api = request.form.get("use_shared_notion_api") == "on"
-            notion_api_key = request.form.get("notion_api_key", "").strip() or None
-            notion_database_id = request.form.get("notion_database_id", "").strip()
+            # Read checkbox values
             auto_create_notion_db = request.form.get("auto_create_notion_db") == "on"
+            use_shared_notion_api = request.form.get("use_shared_notion_api") == "on"
 
-            # Determine which API key to use for database creation
-            api_key_for_creation = settings.notion_api_key if use_shared_notion_api else notion_api_key
+            tenant_name = request.form.get("name", "").strip()
 
-            # Auto-create Notion database if requested
-            if auto_create_notion_db and not notion_database_id:
-                from src.namecard.infrastructure.storage.notion_client import NotionClient
-
-                if not api_key_for_creation:
+            # Determine which Notion API key to use
+            if use_shared_notion_api:
+                notion_api_key = settings.notion_api_key
+            else:
+                notion_api_key = request.form.get("notion_api_key", "").strip()
+                if not notion_api_key:
                     flash("請提供 Notion API Key 或勾選使用共用 API Key", "error")
                     return render_template(
                         "tenants/form.html",
@@ -143,18 +140,28 @@ def create_tenant():
                         admin_username=session.get("admin_username")
                     )
 
-                logger.info("Auto-creating Notion database", tenant_name=name)
+            # Determine Notion Database ID
+            notion_database_id = request.form.get("notion_database_id", "").strip()
 
-                created_db_id = NotionClient.create_database(
-                    api_key=api_key_for_creation,
-                    tenant_name=name
+            if auto_create_notion_db:
+                # Auto-create Notion database
+                from src.namecard.infrastructure.storage.notion_client import NotionClient
+
+                logger.info(
+                    "Auto-creating Notion database for tenant",
+                    tenant_name=tenant_name,
+                    use_shared_notion_api=use_shared_notion_api,
+                    parent_page_id=settings.notion_shared_parent_page_id
                 )
 
-                if created_db_id:
-                    notion_database_id = created_db_id
-                    logger.info("Notion database created", database_id=created_db_id[:10] + "...")
-                else:
-                    flash("無法自動創建 Notion 資料庫，請檢查 API Key 權限", "error")
+                created_db_id = NotionClient.create_database(
+                    api_key=notion_api_key,
+                    tenant_name=tenant_name,
+                    parent_page_id=settings.notion_shared_parent_page_id
+                )
+
+                if not created_db_id:
+                    flash("無法創建 Notion 資料庫，請檢查 API Key 權限或 Parent Page 設定", "error")
                     return render_template(
                         "tenants/form.html",
                         tenant=None,
@@ -162,18 +169,28 @@ def create_tenant():
                         admin_username=session.get("admin_username")
                     )
 
-            # LINE channel ID is optional (for auto-detection)
-            line_channel_id = request.form.get("line_channel_id", "").strip() or None
+                notion_database_id = created_db_id
+                logger.info("Notion database created successfully", database_id=created_db_id)
 
+            elif not notion_database_id:
+                flash("請提供 Notion Database ID 或勾選自動創建", "error")
+                return render_template(
+                    "tenants/form.html",
+                    tenant=None,
+                    is_edit=False,
+                    admin_username=session.get("admin_username")
+                )
+
+            # Build tenant request
             tenant_request = TenantCreateRequest(
-                name=name,
+                name=tenant_name,
                 slug=request.form.get("slug", "").strip() or None,
-                line_channel_id=line_channel_id,
+                line_channel_id=request.form.get("line_channel_id", "").strip() or None,
                 line_channel_access_token=request.form.get("line_channel_access_token", "").strip(),
                 line_channel_secret=request.form.get("line_channel_secret", "").strip(),
-                notion_api_key=notion_api_key,
-                use_shared_notion_api=use_shared_notion_api,
+                notion_api_key=notion_api_key if not use_shared_notion_api else None,
                 notion_database_id=notion_database_id,
+                use_shared_notion_api=use_shared_notion_api,
                 auto_create_notion_db=auto_create_notion_db,
                 google_api_key=request.form.get("google_api_key", "").strip() or None,
                 use_shared_google_api=request.form.get("use_shared_google_api") == "on",
@@ -184,14 +201,10 @@ def create_tenant():
             tenant_service = get_tenant_service()
             tenant = tenant_service.create_tenant(tenant_request)
 
-            # Build success message
-            success_msg = f"租戶 '{tenant.name}' 建立成功"
             if auto_create_notion_db:
-                success_msg += "（Notion 資料庫已自動創建）"
-            if not line_channel_id:
-                success_msg += "。請發送訊息給 LINE Bot 以完成綁定。"
-
-            flash(success_msg, "success")
+                flash(f"租戶 '{tenant.name}' 建立成功，Notion 資料庫已自動創建", "success")
+            else:
+                flash(f"租戶 '{tenant.name}' 建立成功", "success")
             return redirect(url_for("admin.list_tenants"))
 
         except Exception as e:
@@ -229,11 +242,6 @@ def edit_tenant(tenant_id: str):
             is_active = request.form.get("is_active") == "on"
             if is_active != tenant.is_active:
                 update_data["is_active"] = is_active
-
-            # LINE Channel ID - always check for updates
-            line_channel_id = request.form.get("line_channel_id", "").strip()
-            if line_channel_id and line_channel_id != tenant.line_channel_id:
-                update_data["line_channel_id"] = line_channel_id
 
             # Credential fields - only update if provided
             line_token = request.form.get("line_channel_access_token", "").strip()
@@ -515,76 +523,4 @@ def api_tenant_users(tenant_id: str):
     return jsonify({
         "users": users,
         "total_users": user_count
-    })
-
-
-@admin_bp.route("/api/tenants/<tenant_id>/users/sync-profiles", methods=["POST"])
-@login_required
-def sync_user_profiles(tenant_id: str):
-    """Sync LINE user profiles for existing users (fetch names and avatars)"""
-    from linebot import LineBotApi
-    from linebot.exceptions import LineBotApiError
-    
-    tenant_service = get_tenant_service()
-    tenant = tenant_service.get_tenant_by_id(tenant_id)
-    
-    if not tenant:
-        return jsonify({"error": "Tenant not found"}), 404
-    
-    # 獲取所有有使用記錄但沒有 profile 的用戶
-    user_stats = tenant_service.get_tenant_users_stats(tenant_id, days=365)
-    users_without_profile = [
-        user for user in user_stats 
-        if not user.get("display_name") and user.get("line_user_id")
-    ]
-    
-    if not users_without_profile:
-        return jsonify({
-            "message": "所有用戶已有 profile 資訊",
-            "synced": 0,
-            "failed": 0
-        })
-    
-    # 初始化 LINE Bot API
-    try:
-        line_bot_api = LineBotApi(tenant.line_channel_access_token)
-    except Exception as e:
-        logger.error("Failed to initialize LINE Bot API", error=str(e))
-        return jsonify({"error": "Failed to initialize LINE Bot API"}), 500
-    
-    synced = 0
-    failed = 0
-    errors = []
-    
-    # 為每個用戶獲取 profile
-    for user_stat in users_without_profile[:50]:  # 限制一次最多 50 個
-        user_id = user_stat.get("line_user_id")
-        if not user_id:
-            continue
-            
-        try:
-            profile = line_bot_api.get_profile(user_id)
-            tenant_service.save_line_user(
-                tenant_id=tenant_id,
-                line_user_id=user_id,
-                display_name=profile.display_name,
-                picture_url=profile.picture_url
-            )
-            synced += 1
-        except LineBotApiError as e:
-            # 某些情況下無法獲取（如用戶未加好友、已封鎖等）
-            failed += 1
-            errors.append(f"User {user_id[:12]}...: {str(e)}")
-            logger.debug("Could not get user profile", user_id=user_id, error=str(e))
-        except Exception as e:
-            failed += 1
-            errors.append(f"User {user_id[:12]}...: {str(e)}")
-            logger.warning("Failed to sync user profile", user_id=user_id, error=str(e))
-    
-    return jsonify({
-        "message": f"已同步 {synced} 個用戶 profile",
-        "synced": synced,
-        "failed": failed,
-        "total": len(users_without_profile),
-        "errors": errors[:10]  # 只返回前 10 個錯誤
     })

@@ -138,42 +138,29 @@ class UnifiedEventHandler:
                 )
                 return
 
-            # 上傳圖片到 ImgBB（如果有配置）
-            image_url = None
-            image_storage = get_image_storage()
-            if image_storage:
-                try:
-                    image_url = image_storage.upload(image_data)
-                    if image_url:
-                        logger.info("Image uploaded to ImgBB", url=image_url[:50] + "...")
-                    else:
-                        logger.warning("Image upload returned None")
-                except Exception as e:
-                    logger.warning("Image upload failed, continuing without image", error=str(e))
-
             # 處理圖片（現在會拋出具體異常而非返回空列表）
             logger.info("Starting image processing", user_id=user_id)
             cards = self.card_processor.process_image(image_data, user_id)
 
-            # 設置圖片 URL 到每張名片
-            if image_url:
-                for card in cards:
-                    card.image_url = image_url
-
-            # 儲存名片
+            # 儲存名片（先不含圖片，稍後非同步更新）
             success_count = 0
             failed_count = 0
             error_messages = []
+            saved_page_ids = []  # 記錄成功儲存的頁面 ID
 
             for card in cards:
                 try:
-                    # 儲存到 Notion
-                    saved = self.notion_client.save_business_card(card)
+                    # 儲存到 Notion（不含圖片）
+                    page_url = self.notion_client.save_business_card(card)
 
-                    if saved:
+                    if page_url:
                         success_count += 1
-                        # 標記為已處理
                         card.processed = True
+                        
+                        # 從 URL 提取頁面 ID（格式：https://notion.so/xxx-PAGE_ID）
+                        if page_url and '-' in page_url:
+                            page_id = page_url.split('-')[-1]
+                            saved_page_ids.append(page_id)
 
                         # 如果是批次模式，加入批次
                         if status.is_batch_mode:
@@ -219,7 +206,7 @@ class UnifiedEventHandler:
                 except Exception as e:
                     logger.warning("Failed to record usage stats", error=str(e))
 
-            # 生成回應訊息
+            # 先回覆用戶（不等待圖片上傳）
             self._send_processing_result(
                 reply_token,
                 cards,
@@ -228,6 +215,32 @@ class UnifiedEventHandler:
                 error_messages,
                 status
             )
+
+            # 非同步上傳圖片到 ImgBB（不阻塞主流程）
+            if success_count > 0 and saved_page_ids:
+                image_storage = get_image_storage()
+                if image_storage:
+                    # 創建回調函數，上傳成功後更新 Notion 頁面
+                    def on_image_uploaded(image_url):
+                        if image_url:
+                            logger.info("Async image upload completed", 
+                                       url=image_url[:50] + "...",
+                                       pages_to_update=len(saved_page_ids))
+                            # 更新所有已儲存的頁面，添加圖片
+                            for page_id in saved_page_ids:
+                                try:
+                                    self.notion_client.update_page_with_image(page_id, image_url)
+                                except Exception as e:
+                                    logger.warning("Failed to update page with image",
+                                                  page_id=page_id[:10] + "...",
+                                                  error=str(e))
+                        else:
+                            logger.warning("Async image upload failed, pages will not have images")
+
+                    # 啟動非同步上傳
+                    image_storage.upload_async(image_data, callback=on_image_uploaded)
+                    logger.info("Started async image upload for saved pages",
+                               page_count=len(saved_page_ids))
 
         except LineBotApiError as e:
             logger.error("LINE API error in image processing",

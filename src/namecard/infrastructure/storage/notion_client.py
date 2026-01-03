@@ -876,3 +876,42 @@ class NotionClient:
         except Exception as e:
             logger.error("Notion connection test failed", error=str(e))
             return False
+
+    def update_page_with_image(self, page_id: str, image_url: str) -> bool:
+        """
+        更新已存在的 Notion 頁面，添加圖片內容
+
+        Args:
+            page_id: Notion 頁面 ID
+            image_url: 圖片 URL
+
+        Returns:
+            成功返回 True，失敗返回 False
+        """
+        try:
+            # 創建圖片區塊
+            image_block = {
+                "object": "block",
+                "type": "image",
+                "image": {
+                    "type": "external",
+                    "external": {"url": image_url}
+                }
+            }
+
+            # 使用 Notion API 添加子區塊到頁面
+            self.client.blocks.children.append(
+                block_id=page_id,
+                children=[image_block]
+            )
+
+            logger.info("Image added to Notion page",
+                       page_id=page_id[:10] + "...",
+                       image_url=image_url[:50] + "...")
+            return True
+
+        except Exception as e:
+            logger.error("Failed to update page with image",
+                        error=str(e),
+                        page_id=page_id[:10] + "...")
+            return False

@@ -199,11 +199,18 @@ def create_tenant():
                 return render_template("tenants/form.html", tenant=None, is_edit=False, admin_username=session.get("admin_username"))
 
             # Build tenant request (with pre-validated data)
+            # 擷取 line_channel_id 並記錄
+            form_line_channel_id = request.form.get("line_channel_id", "").strip()
+            logger.info("DEBUG_LINE_CHANNEL_ID_FROM_FORM",
+                       raw_value=request.form.get("line_channel_id"),
+                       stripped_value=form_line_channel_id,
+                       is_empty=not form_line_channel_id)
+
             try:
                 tenant_request = TenantCreateRequest(
                     name=tenant_name,
                     slug=request.form.get("slug", "").strip() or None,
-                    line_channel_id=request.form.get("line_channel_id", "").strip() or None,
+                    line_channel_id=form_line_channel_id or None,
                     line_channel_access_token=line_access_token,
                     line_channel_secret=line_secret,
                     notion_api_key=notion_api_key if not use_shared_notion_api else None,

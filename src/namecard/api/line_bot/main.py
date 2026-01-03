@@ -26,7 +26,7 @@ from src.namecard.infrastructure.storage.notion_client import NotionClient
 from src.namecard.api.line_bot.event_handler import UnifiedEventHandler
 
 # 多租戶支援
-from src.namecard.core.models.tenant import TenantConfig, TenantContext
+from src.namecard.core.models.tenant import TenantContext
 from src.namecard.core.services.tenant_service import get_tenant_service
 
 logger = structlog.get_logger()

@@ -275,9 +275,10 @@ class NotionClient:
         # 1. Name (title) - 必填
         properties[NotionFields.NAME] = {"title": [{"text": {"content": card.name or "未知姓名"}}]}
 
-        # 2. Email (email)
-        if card.email and "@" in card.email and self._field_exists(NotionFields.EMAIL):
+        # 2. Email (email) - 直接嘗試保存
+        if card.email and "@" in card.email:
             properties[NotionFields.EMAIL] = {"email": card.email}
+            logger.info("Email field added to properties", email=card.email[:20])
 
         # 3. 備註 (rich_text) - 收集額外資訊
         additional_info = []
@@ -295,16 +296,18 @@ class NotionClient:
             additional_info.append(f"傳真: {card.fax}")
 
         # 4. 公司名稱 (rich_text) - 提取主公司名稱
-        if card.company and self._field_exists(NotionFields.COMPANY):
+        if card.company:
             # 拆分公司名稱，取第一個部分作為主公司名稱
             company_parts = card.company.split()
             main_company = company_parts[0] if company_parts else card.company
 
             properties[NotionFields.COMPANY] = {"rich_text": [{"text": {"content": main_company}}]}
+            logger.info("Company field added to properties", company=main_company)
 
         # 5. 地址 (rich_text)
-        if card.address and self._field_exists(NotionFields.ADDRESS):
+        if card.address:
             properties[NotionFields.ADDRESS] = {"rich_text": [{"text": {"content": card.address}}]}
+            logger.info("Address field added to properties", address=card.address[:30])
 
         # 注意：以下欄位刻意保留空白，供人工填寫
         # - NotionFields.DECISION_INFLUENCE (決策影響力)
@@ -315,40 +318,41 @@ class NotionClient:
         # 這些欄位需要業務人員根據實際情況評估和填寫
 
         # 6. 職稱 (select) - 清理後存入，讓 Notion 自動創建新選項
-        if card.title and self._field_exists(NotionFields.TITLE):
+        if card.title:
             cleaned_title = self._clean_title_or_department(card.title)
             if cleaned_title:
                 properties[NotionFields.TITLE] = {"select": {"name": cleaned_title}}
                 logger.info(
-                    "Title saved to Notion",
+                    "Title field added to properties",
                     card_name=card.name,
                     original_title=card.title,
                     cleaned_title=cleaned_title,
                 )
 
         # 7. 部門 (rich_text) - 清理後存入
-        if card.department and self._field_exists(NotionFields.DEPARTMENT):
+        if card.department:
             cleaned_department = self._clean_title_or_department(card.department)
             if cleaned_department:
                 properties[NotionFields.DEPARTMENT] = {
                     "rich_text": [{"text": {"content": cleaned_department}}]
                 }
                 logger.info(
-                    "Department saved to Notion",
+                    "Department field added to properties",
                     card_name=card.name,
                     original_department=card.department,
                     cleaned_department=cleaned_department,
                 )
 
         # 8. 電話 (phone_number)
-        if card.phone and self._field_exists(NotionFields.PHONE):
+        if card.phone:
             properties[NotionFields.PHONE] = {"phone_number": card.phone}
+            logger.info("Phone field added to properties", phone=card.phone)
 
-        # 9. 備註 (rich_text) - 如果有額外資訊且欄位存在，放入備註欄位
-        if additional_info and self._field_exists(NotionFields.NOTES):
-            properties[NotionFields.NOTES] = {
-                "rich_text": [{"text": {"content": " | ".join(additional_info)}}]
-            }
+        # 9. 備註 (rich_text) - 如果有額外資訊，放入備註欄位
+        if additional_info:
+            notes_content = " | ".join(additional_info)
+            properties[NotionFields.NOTES] = {"rich_text": [{"text": {"content": notes_content}}]}
+            logger.info("Notes field added to properties", notes_preview=notes_content[:50])
 
         return properties
 
@@ -703,8 +707,8 @@ class NotionClient:
     def get_database_stats(self) -> Dict[str, Any]:
         """獲取資料庫統計資訊"""
         try:
-            # 獲取總數
-            response = self.client.databases.query(database_id=self.database_id, page_size=1)
+            # 獲取總數（檢查 API 連線）
+            self.client.databases.query(database_id=self.database_id, page_size=1)
 
             # 注意：Notion API 不直接提供總數，這裡只是示例
             stats = {

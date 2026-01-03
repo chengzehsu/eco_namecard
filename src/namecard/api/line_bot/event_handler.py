@@ -5,7 +5,7 @@
 """
 
 import structlog
-from typing import Optional, Callable
+from typing import Optional
 from linebot import LineBotApi
 from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 from linebot.exceptions import LineBotApiError
@@ -14,7 +14,6 @@ from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
-from src.namecard.core.models.card import BusinessCard
 
 logger = structlog.get_logger()
 
@@ -253,7 +252,7 @@ class UnifiedEventHandler:
 
     def _start_batch_mode(self, user_id: str, reply_token: str) -> None:
         """開始批次模式"""
-        batch_result = user_service.start_batch_mode(user_id)
+        user_service.start_batch_mode(user_id)
 
         self._send_reply(
             reply_token,

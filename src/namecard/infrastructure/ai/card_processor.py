@@ -3,13 +3,11 @@ from PIL import Image
 import io
 import json
 import structlog
-from typing import List, Optional, Dict, Any, Tuple
-import base64
+from typing import List, Optional, Tuple
 import sys
 import os
 import time
 from dataclasses import dataclass
-from contextlib import contextmanager
 from functools import wraps
 import traceback
 

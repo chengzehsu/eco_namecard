@@ -372,3 +372,10 @@ input:focus:not(:focus-visible) {
     color: #f59e0b;
     margin-top: 4px;
 }
+
+/* Read-only input styling */
+.readonly-input {
+    background: var(--bg-secondary);
+    cursor: not-allowed;
+    opacity: 0.8;
+}

@@ -1,8 +1,7 @@
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import structlog
-import json
 from ..models.card import ProcessingStatus, BatchProcessResult
 
 # 台灣時區

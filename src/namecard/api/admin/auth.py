@@ -8,7 +8,7 @@ import os
 import bcrypt
 from functools import wraps
 from typing import Optional, Dict, Any
-from flask import session, redirect, url_for, request
+from flask import session, redirect, url_for
 import structlog
 
 from src.namecard.infrastructure.storage.tenant_db import get_tenant_db

@@ -85,9 +85,9 @@
             <label for="line_channel_id">LINE Bot User ID {{ '*' if not is_edit else '' }}</label>
             <input type="text" id="line_channel_id" name="line_channel_id"
                    value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}"
-                   {% if not is_edit %}readonly{% endif %}
-                   placeholder="{% if is_edit %}{{ tenant.line_channel_id if tenant.line_channel_id else '尚未設定' }}{% else %}點擊上方按鈕獲取{% endif %}"
-                   style="{% if not is_edit %}background: var(--bg-secondary); cursor: not-allowed;{% endif %}">
+                   {{ 'readonly' if not is_edit else '' }}
+                   placeholder="{{ (tenant.line_channel_id if tenant.line_channel_id else '尚未設定') if is_edit else '點擊上方按鈕獲取' }}"
+                   class="{{ 'readonly-input' if not is_edit else '' }}">
             <small>
                 {% if is_edit %}
                     {% if tenant.line_channel_id %}

@@ -20,23 +20,6 @@ from simple_config import settings
 from src.namecard.core.exceptions import (
     NamecardException,
     get_user_friendly_message,
-    # AI 相關異常
-    APIKeyInvalidError,
-    APIQuotaExceededError,
-    SafetyFilterBlockedError,
-    LowQualityCardError,
-    IncompleteCardDataError,
-    LowResolutionImageError,
-    JSONParsingError,
-    EmptyAIResponseError,
-    NetworkError,
-    APITimeoutError,
-    # Notion 相關異常
-    NotionUnauthorizedError,
-    NotionDatabaseNotFoundError,
-    NotionSchemaError,
-    NotionRateLimitError,
-    NotionNetworkError,
 )
 
 logger = structlog.get_logger()

@@ -568,8 +568,8 @@ def test_tenant_connection(tenant_id: str):
             import google.generativeai as genai
 
             genai.configure(api_key=tenant.google_api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            # Simple test
+            # 驗證 API key（創建 model 實例來測試）
+            _ = genai.GenerativeModel("gemini-1.5-flash")
             results["google"] = {"status": "success", "message": "API key valid"}
         except Exception as e:
             results["google"] = {"status": "error", "message": str(e)}

@@ -193,8 +193,6 @@ class TenantService:
         Returns:
             Created TenantConfig
         """
-        import uuid as uuid_module
-
         # Generate slug if not provided
         slug = request.slug or self._generate_slug(request.name)
 

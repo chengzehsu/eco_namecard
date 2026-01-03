@@ -516,32 +516,28 @@ def handle_image_message_event(event):
 @app.route("/health", methods=['GET'])
 def health_check():
     """健康檢查端點 - 極簡版本，確保永遠成功"""
-    # #region agent log
-    print("[HEALTH] Health check called", flush=True)
-    # #endregion
+    import traceback
+    import resource
+    
+    try:
+        # 獲取記憶體使用情況
+        mem_usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024  # MB
+        print(f"[HEALTH] Check called - Memory: {mem_usage:.1f}MB", flush=True)
+    except Exception:
+        mem_usage = 0
     
     # 極簡回應，不做任何可能失敗的操作
     try:
-        # 嘗試獲取租戶數量，但失敗也不影響健康狀態
-        tenant_count = 0
-        try:
-            tenant_service = get_tenant_service()
-            stats = tenant_service.get_overall_stats()
-            tenant_count = stats.get("total_tenants", 0)
-        except Exception as e:
-            print(f"[HEALTH] Stats fetch failed (non-critical): {e}", flush=True)
-        
         return jsonify({
             "status": "healthy",
             "service": "LINE Bot Namecard System",
-            "version": "3.0.0",
-            "multi_tenant": True,
-            "active_tenants": tenant_count,
+            "version": "3.0.1",
+            "memory_mb": round(mem_usage, 1),
             "timestamp": str(datetime.now())
         })
     except Exception as e:
         # 即使 jsonify 失敗，也返回純文字 200
-        print(f"[HEALTH] Error in health check: {e}", flush=True)
+        print(f"[HEALTH] Error: {e}\n{traceback.format_exc()}", flush=True)
         return "OK", 200
 
 

@@ -130,7 +130,7 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 
 **Zeabur** (`zeabur.json`)
 
-- Production deployment to namecard-app-sjc.zeabur.app
+- Production deployment to eco-namecard.zeabur.app
 - Environment variables for external services
 - Health check endpoint: `/health`
 
@@ -146,7 +146,7 @@ Target coverage: 70% minimum, 90%+ for core business logic.
 
 **LINE Bot**
 
-- Webhook URL: https://namecard-app-sjc.zeabur.app/callback
+- Webhook URL: https://eco-namecard.zeabur.app/callback
 - Rich messaging with Quick Reply buttons
 - Batch mode with progress tracking
 
@@ -216,9 +216,9 @@ The system provides 14 detailed error types with user-friendly messages designed
 
 **Debug Endpoints**:
 
-- Health check: https://namecard-app-sjc.zeabur.app/health
-- Notion fields: https://namecard-app-sjc.zeabur.app/debug/notion
-- Config check: https://namecard-app-sjc.zeabur.app/test
+- Health check: https://eco-namecard.zeabur.app/health
+- Notion fields: https://eco-namecard.zeabur.app/debug/notion
+- Config check: https://eco-namecard.zeabur.app/test
 - CI/CD: https://github.com/chengzehsu/eco_namecard/actions
 
 **Emergency Recovery**:
@@ -228,7 +228,7 @@ The system provides 14 detailed error types with user-friendly messages designed
 - Rollback: `git reset --hard HEAD~1`
 
 Repository: https://github.com/chengzehsu/eco_namecard
-Deployment: https://namecard-app-sjc.zeabur.app
+Deployment: https://eco-namecard.zeabur.app
 
 ## Multi-Tenant Management System
 
@@ -238,7 +238,7 @@ Deployment: https://namecard-app-sjc.zeabur.app
 
 ### Admin Panel
 
-**管理後台 URL**: https://namecard-app-sjc.zeabur.app/admin
+**管理後台 URL**: https://eco-namecard.zeabur.app/admin
 
 **功能**:
 
@@ -302,7 +302,7 @@ Deployment: https://namecard-app-sjc.zeabur.app
    - 點擊「測試連線」確認設定正確
 
 4. **設定 LINE Webhook**:
-   - 在 LINE Developers Console 設定 Webhook URL: `https://namecard-app-sjc.zeabur.app/callback`
+   - 在 LINE Developers Console 設定 Webhook URL: `https://eco-namecard.zeabur.app/callback`
    - 所有租戶使用相同的 URL
 
 ### Multi-Tenant Environment Variables

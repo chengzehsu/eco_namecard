@@ -8,7 +8,7 @@
 - [x] GitHub Repository 設為 Public
 - [x] Zeabur 服務創建成功
 - [x] 代碼成功部署到 Zeabur
-- [x] 應用 URL: https://namecard-app-sjc.zeabur.app
+- [x] 應用 URL: https://eco-namecard.zeabur.app
 
 ### 2. 🔧 需要完成的設置
 
@@ -47,7 +47,7 @@ DEBUG=False
 
 ### 檢查應用健康狀態
 ```bash
-curl https://namecard-app-sjc.zeabur.app/health
+curl https://eco-namecard.zeabur.app/health
 ```
 
 **預期成功回應**:
@@ -62,7 +62,7 @@ curl https://namecard-app-sjc.zeabur.app/health
 
 ### 檢查服務配置
 ```bash
-curl https://namecard-app-sjc.zeabur.app/test
+curl https://eco-namecard.zeabur.app/test
 ```
 
 **預期成功回應**:
@@ -86,7 +86,7 @@ curl https://namecard-app-sjc.zeabur.app/test
 
 2. **設置 Webhook URL**
    ```
-   https://namecard-app-sjc.zeabur.app/callback
+   https://eco-namecard.zeabur.app/callback
    ```
 
 3. **啟用設定**
@@ -175,7 +175,7 @@ curl https://namecard-app-sjc.zeabur.app/test
 
 當以下都正常工作時，部署就完全成功了：
 
-- [ ] ✅ 健康檢查: `https://namecard-app-sjc.zeabur.app/health`
+- [ ] ✅ 健康檢查: `https://eco-namecard.zeabur.app/health`
 - [ ] ✅ LINE Bot 回應 `help` 指令
 - [ ] ✅ 名片照片能正常識別
 - [ ] ✅ 識別結果存入 Notion 資料庫

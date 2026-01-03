@@ -47,7 +47,7 @@ SENTRY_DSN=<如果有 Sentry 監控>
 ### 5. 設置自訂域名 (如果需要)
 
 1. 在服務設定中找到 **"Domain"** 部分
-2. 添加自訂域名：`namecard-app-sjc.zeabur.app`
+2. 添加自訂域名：`eco-namecard.zeabur.app`
 3. 或使用 Zeabur 提供的預設域名
 
 ### 6. 啟用自動部署
@@ -68,7 +68,7 @@ SENTRY_DSN=<如果有 Sentry 監控>
 ### 方法 2: 應用 URL
 ```bash
 # 檢查應用是否運行
-curl https://namecard-app-sjc.zeabur.app/health
+curl https://eco-namecard.zeabur.app/health
 
 # 預期回應
 {
@@ -104,7 +104,7 @@ git push origin main
 1. ✅ **GitHub Actions 執行** (測試、安全掃描)
 2. ✅ **Zeabur 自動檢測推送** 
 3. ✅ **開始部署程序**
-4. ✅ **應用更新** 到 https://namecard-app-sjc.zeabur.app
+4. ✅ **應用更新** 到 https://eco-namecard.zeabur.app
 
 ## 🐛 常見問題排除
 
@@ -129,7 +129,7 @@ git push origin main
 
 1. **設定 LINE Webhook URL**: 
    ```
-   https://namecard-app-sjc.zeabur.app/callback
+   https://eco-namecard.zeabur.app/callback
    ```
 
 2. **建立 Notion 資料庫** (參考 DEPLOYMENT.md)

@@ -2095,7 +2095,7 @@ jobs:
     - name: Health Check
       run: |
         sleep 30  # 等待部署完成
-        curl -f https://namecard-app-sjc.zeabur.app/health || exit 1
+        curl -f https://eco-namecard.zeabur.app/health || exit 1
         echo "✅ Health check passed"
 ```
 

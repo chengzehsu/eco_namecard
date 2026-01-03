@@ -169,7 +169,7 @@ jobs:
       run: |
         echo "🚀 Deployment to Zeabur..."
         echo "📝 Zeabur auto-deploys on push to main branch"
-        echo "🔗 App URL: https://namecard-app-sjc.zeabur.app"
+        echo "🔗 App URL: https://eco-namecard.zeabur.app"
         echo "✅ GitHub Actions completed successfully - Zeabur deployment in progress"
         
     - name: Initial deployment check
@@ -177,7 +177,7 @@ jobs:
         echo "📊 檢查當前服務狀態..."
         
         # 檢查當前狀態作為基準
-        CURRENT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "000")
+        CURRENT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://eco-namecard.zeabur.app/health 2>/dev/null || echo "000")
         echo "當前狀態碼: $CURRENT_STATUS"
         
         if [ "$CURRENT_STATUS" = "200" ]; then
@@ -217,8 +217,8 @@ jobs:
           echo "🔄 健康檢查 $i/$MAX_ATTEMPTS (成功次數: $SUCCESS_COUNT/$REQUIRED_SUCCESS)"
           
           # 嘗試健康檢查
-          RESPONSE=$(curl -s https://namecard-app-sjc.zeabur.app/health 2>/dev/null)
-          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app-sjc.zeabur.app/health 2>/dev/null)
+          RESPONSE=$(curl -s https://eco-namecard.zeabur.app/health 2>/dev/null)
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://eco-namecard.zeabur.app/health 2>/dev/null)
           
           echo "狀態碼: $STATUS_CODE"
           
@@ -274,10 +274,10 @@ jobs:
         echo "===================="
         
         # 最終狀態檢查
-        FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "000")
-        FINAL_RESPONSE=$(curl -s https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "無回應")
+        FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://eco-namecard.zeabur.app/health 2>/dev/null || echo "000")
+        FINAL_RESPONSE=$(curl -s https://eco-namecard.zeabur.app/health 2>/dev/null || echo "無回應")
         
-        echo "🔗 應用 URL: https://namecard-app-sjc.zeabur.app"
+        echo "🔗 應用 URL: https://eco-namecard.zeabur.app"
         echo "📊 最終狀態碼: $FINAL_STATUS"
         echo "📄 最終回應: $FINAL_RESPONSE"
         
@@ -289,7 +289,7 @@ jobs:
           echo "⚠️ GitHub Actions 驗證: 超時"
           echo "🔄 這通常表示 Zeabur 部署時間較長"
           echo "💡 建議行動:"
-          echo "   1. 手動檢查 https://namecard-app-sjc.zeabur.app/health"
+          echo "   1. 手動檢查 https://eco-namecard.zeabur.app/health"
           echo "   2. 查看 Zeabur Dashboard 部署日誌"
           echo "   3. 如果服務正常，本次是假警報"
           echo "   4. 大約 5-10 分鐘後服務應該可用"
@@ -313,7 +313,7 @@ jobs:
         # 確保服務已穩定運行
         STABLE_COUNT=0
         for i in {1..5}; do
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "000")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://eco-namecard.zeabur.app/health 2>/dev/null || echo "000")
           if [ "$STATUS" = "200" ]; then
             STABLE_COUNT=$((STABLE_COUNT + 1))
             echo "✅ 穩定性檢查 $i/5: 成功 (狀態: $STATUS)"
@@ -346,7 +346,7 @@ jobs:
         echo "📊 執行 $TOTAL_REQUESTS 次請求測試..."
         
         for i in $(seq 1 $TOTAL_REQUESTS); do
-          RESULT=$(curl -s -o /dev/null -w "%{http_code},%{time_total}" https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "000,999")
+          RESULT=$(curl -s -o /dev/null -w "%{http_code},%{time_total}" https://eco-namecard.zeabur.app/health 2>/dev/null || echo "000,999")
           STATUS_CODE=$(echo $RESULT | cut -d',' -f1)
           RESPONSE_TIME=$(echo $RESULT | cut -d',' -f2)
           
@@ -396,7 +396,7 @@ jobs:
         
         # 測試健康檢查端點
         echo "1️⃣ 測試健康檢查端點..."
-        HEALTH_RESPONSE=$(curl -s https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "ERROR")
+        HEALTH_RESPONSE=$(curl -s https://eco-namecard.zeabur.app/health 2>/dev/null || echo "ERROR")
         if echo "$HEALTH_RESPONSE" | grep -q "healthy"; then
           echo "✅ /health 端點: 正常"
           echo "📄 回應: $HEALTH_RESPONSE"
@@ -409,9 +409,9 @@ jobs:
         
         # 測試測試端點
         echo "2️⃣ 測試配置端點..."
-        TEST_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app-sjc.zeabur.app/test 2>/dev/null || echo "000")
+        TEST_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://eco-namecard.zeabur.app/test 2>/dev/null || echo "000")
         if [ "$TEST_STATUS" = "200" ]; then
-          TEST_RESPONSE=$(curl -s https://namecard-app-sjc.zeabur.app/test 2>/dev/null || echo "ERROR")
+          TEST_RESPONSE=$(curl -s https://eco-namecard.zeabur.app/test 2>/dev/null || echo "ERROR")
           echo "✅ /test 端點: 正常 (狀態: $TEST_STATUS)"
           echo "📄 配置: $TEST_RESPONSE"
         else
@@ -422,7 +422,7 @@ jobs:
         
         # 測試 webhook 端點 (應該返回 400，因為沒有正確的簽名)
         echo "3️⃣ 測試 webhook 端點安全性..."
-        CALLBACK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://namecard-app-sjc.zeabur.app/callback 2>/dev/null || echo "000")
+        CALLBACK_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST https://eco-namecard.zeabur.app/callback 2>/dev/null || echo "000")
         if [ "$CALLBACK_STATUS" = "400" ]; then
           echo "✅ /callback 端點: 安全性正常 (正確拒絕無效請求: $CALLBACK_STATUS)"
         else
@@ -439,10 +439,10 @@ jobs:
         echo "==========================================="
         
         # 最終狀態確認
-        FINAL_HEALTH=$(curl -s https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "ERROR")
-        FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://namecard-app-sjc.zeabur.app/health 2>/dev/null || echo "000")
+        FINAL_HEALTH=$(curl -s https://eco-namecard.zeabur.app/health 2>/dev/null || echo "ERROR")
+        FINAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://eco-namecard.zeabur.app/health 2>/dev/null || echo "000")
         
-        echo "🔗 服務 URL: https://namecard-app-sjc.zeabur.app"
+        echo "🔗 服務 URL: https://eco-namecard.zeabur.app"
         echo "📊 最終狀態: $FINAL_STATUS"
         echo "⏱️ 測試時間: $(date)"
         

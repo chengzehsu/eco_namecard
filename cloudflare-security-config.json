@@ -214,7 +214,7 @@
         {
           "type": "CNAME",
           "name": "namecard",
-          "content": "namecard-app-sjc.zeabur.app",
+          "content": "eco-namecard.zeabur.app",
           "proxied": true,
           "ttl": 1
         },

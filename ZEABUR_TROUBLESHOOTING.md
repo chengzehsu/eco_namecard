@@ -2,7 +2,7 @@
 
 ## 🚨 問題：Zeabur 沒有被觸發或部署失敗
 
-當前狀態：https://namecard-app-sjc.zeabur.app 回應 502 Bad Gateway
+當前狀態：https://eco-namecard.zeabur.app 回應 502 Bad Gateway
 
 ## 📋 診斷檢查清單
 
@@ -106,14 +106,14 @@ ImportError
 1. **設置所有必要變數**
 2. **點擊 "Redeploy"**
 3. **等待 2-5 分鐘**
-4. **檢查** `https://namecard-app-sjc.zeabur.app/health`
+4. **檢查** `https://eco-namecard.zeabur.app/health`
 
 ## ⚡ 快速診斷步驟
 
 ### 步驟 1: 檢查 Zeabur 狀態
 ```bash
 # 如果返回 502，表示服務沒有運行
-curl -I https://namecard-app-sjc.zeabur.app/health
+curl -I https://eco-namecard.zeabur.app/health
 ```
 
 ### 步驟 2: 檢查服務面板

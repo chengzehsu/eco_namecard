@@ -113,7 +113,7 @@ curl -w "Total time: %{time_total}s\n" -o /dev/null -s https://your-domain.com/h
 #### 4.1 更新 LINE Bot Webhook URL
 ```bash
 # 在 LINE Developers Console 中更新 Webhook URL
-# 舊: https://namecard-app-sjc.zeabur.app/callback
+# 舊: https://eco-namecard.zeabur.app/callback
 # 新: https://your-domain.com/callback
 ```
 

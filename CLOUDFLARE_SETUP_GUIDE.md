@@ -3,7 +3,7 @@
 ## 📊 專案架構分析結果
 
 ### 目前系統狀況
-- **部署平台**: Zeabur (namecard-app-sjc.zeabur.app)
+- **部署平台**: Zeabur (eco-namecard.zeabur.app)
 - **主要端點**: 
   - `/callback` - LINE Bot webhook
   - `/health` - 健康檢查
@@ -83,7 +83,7 @@ Proxy: 🟠 Proxied (重要！)
 # CNAME 記錄 (子域名)
 Type: CNAME 
 Name: namecard
-Content: namecard-app-sjc.zeabur.app
+Content: eco-namecard.zeabur.app
 Proxy: 🟠 Proxied (重要！)
 ```
 

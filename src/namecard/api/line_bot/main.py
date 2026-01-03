@@ -371,6 +371,19 @@ def process_default(body: str, signature: str):
 
     使用全域配置驗證簽名和處理事件。
     """
+    # 檢查是否有配置預設憑證
+    if not settings.line_channel_secret or not settings.line_channel_access_token:
+        logger.warning(
+            "Default mode called but no default LINE credentials configured",
+            has_secret=bool(settings.line_channel_secret),
+            has_token=bool(settings.line_channel_access_token)
+        )
+        # 仍然返回 OK 以避免 LINE 重試
+        return jsonify({
+            "status": "no_tenant",
+            "message": "No tenant configured for this bot. Please create a tenant in admin panel."
+        }), 200
+
     # 驗證簽名（生產環境）
     if settings.flask_env == "production":
         if not security_service.validate_line_signature(
@@ -387,6 +400,11 @@ def process_default(body: str, signature: str):
         logger.info("Signature validation skipped in non-production environment")
 
     try:
+        # 檢查 event handler 是否可用
+        if default_event_handler is None:
+            logger.error("Default event handler not initialized - check service configuration")
+            return jsonify({"status": "service not configured"}), 200
+
         # 開發環境：手動解析
         if settings.flask_env != "production":
             process_events_manually(body)

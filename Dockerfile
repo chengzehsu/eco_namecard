@@ -32,8 +32,8 @@ ENV FLASK_ENV=production
 # 暴露端口
 EXPOSE 5002
 
-# 健康檢查 - 使用 PORT 環境變數
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# 健康檢查 - 使用 PORT 環境變數，延長超時
+HEALTHCHECK --interval=60s --timeout=30s --start-period=30s --retries=5 \
     CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
 # 啟動命令（使用 gunicorn 生產級 WSGI 伺服器）

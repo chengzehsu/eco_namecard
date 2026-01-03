@@ -6,7 +6,7 @@ import sys
 import os
 
 # 添加項目根目錄到 Python 路徑
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../.."))
 
 from simple_config import settings
 from src.namecard.core.models.card import BusinessCard
@@ -41,10 +41,7 @@ class NotionClient:
         self.database_id = database_id or settings.notion_database_id
 
         # 使用最新 API 版本初始化 Client
-        self.client = Client(
-            auth=self._api_key,
-            notion_version=NOTION_API_VERSION
-        )
+        self.client = Client(auth=self._api_key, notion_version=NOTION_API_VERSION)
         self.database_url = f"https://notion.so/{self.database_id.replace('-', '')}"
 
         # 緩存資料庫 schema（用於檢查欄位是否存在）
@@ -52,38 +49,60 @@ class NotionClient:
 
         # 測試連接並獲取 schema
         self._test_connection()
-    
+
     def _test_connection(self) -> None:
         """測試 Notion 連接並緩存 schema"""
         try:
             # 嘗試讀取資料庫資訊
             response = self.client.databases.retrieve(database_id=self.database_id)
             self._db_schema = response.get("properties", {})
-            
-            logger.info("Notion connection established successfully",
-                       available_fields=list(self._db_schema.keys()))
-            
-            logger.info("Notion database connection established", 
-                       database_id=self.database_id[:10] + "...",
-                       operation="connection_test",
-                       status="success",
-                       field_count=len(self._db_schema))
-            
+
+            logger.info(
+                "Notion connection established successfully",
+                available_fields=list(self._db_schema.keys()),
+            )
+
+            logger.info(
+                "Notion database connection established",
+                database_id=self.database_id[:10] + "...",
+                operation="connection_test",
+                status="success",
+                field_count=len(self._db_schema),
+            )
+
+            # 🔍 詳細記錄每個字段的信息（用於診斷）
+            if len(self._db_schema) == 0:
+                logger.error(
+                    "⚠️ CRITICAL: Database schema is EMPTY!",
+                    database_id=self.database_id,
+                    response_keys=list(response.keys()),
+                )
+            else:
+                for field_name in list(self._db_schema.keys())[:10]:  # 只記錄前10個
+                    logger.info(
+                        f"Schema field detected: '{field_name}'",
+                        field_name=field_name,
+                        field_name_repr=repr(field_name),
+                        field_type=self._db_schema[field_name].get("type"),
+                    )
+
         except Exception as e:
             logger.error("Failed to connect to Notion", error=str(e))
-            
-            logger.error("Failed to connect to Notion database",
-                        error=str(e),
-                        database_id=self.database_id[:10] + "...",
-                        error_type=type(e).__name__,
-                        operation="connection_test",
-                        status="failed")
+
+            logger.error(
+                "Failed to connect to Notion database",
+                error=str(e),
+                database_id=self.database_id[:10] + "...",
+                error_type=type(e).__name__,
+                operation="connection_test",
+                status="failed",
+            )
             # 不拋出異常，允許應用程式繼續運行
 
     def _field_exists(self, field_name: str) -> bool:
         """檢查欄位是否存在於資料庫 schema 中"""
         return field_name in self._db_schema
-    
+
     def save_business_card(self, card: BusinessCard) -> Optional[str]:
         """
         儲存名片到 Notion 資料庫
@@ -95,10 +114,12 @@ class NotionClient:
             Notion 頁面 URL，失敗時返回 None
         """
         try:
-            logger.info("Starting Notion save operation",
-                       user_id=card.line_user_id,
-                       card_name=card.name,
-                       card_company=card.company)
+            logger.info(
+                "Starting Notion save operation",
+                user_id=card.line_user_id,
+                card_name=card.name,
+                card_company=card.company,
+            )
 
             # 準備名片資料
             properties = self._prepare_card_properties(card)
@@ -107,10 +128,7 @@ class NotionClient:
             children = self._prepare_page_content(card)
 
             # 建立 Notion 頁面
-            create_params = {
-                "parent": {"database_id": self.database_id},
-                "properties": properties
-            }
+            create_params = {"parent": {"database_id": self.database_id}, "properties": properties}
             if children:
                 create_params["children"] = children
 
@@ -118,40 +136,48 @@ class NotionClient:
 
             page_url = response.get("url", "")
             page_id = response.get("id", "")
-            
-            logger.info("Business card saved to Notion successfully",
-                       user_id=card.line_user_id,
-                       page_id=page_id,
-                       card_name=card.name,
-                       card_company=card.company,
-                       confidence_score=card.confidence_score,
-                       quality_score=card.quality_score,
-                       has_contact_info=bool(card.phone or card.email),
-                       properties_count=len(properties),
-                       operation="save_card",
-                       status="success")
-            
-            logger.info("Business card saved to Notion", 
-                       page_id=page_id,
-                       name=card.name,
-                       company=card.company)
-            
+
+            logger.info(
+                "Business card saved to Notion successfully",
+                user_id=card.line_user_id,
+                page_id=page_id,
+                card_name=card.name,
+                card_company=card.company,
+                confidence_score=card.confidence_score,
+                quality_score=card.quality_score,
+                has_contact_info=bool(card.phone or card.email),
+                properties_count=len(properties),
+                operation="save_card",
+                status="success",
+            )
+
+            logger.info(
+                "Business card saved to Notion",
+                page_id=page_id,
+                name=card.name,
+                company=card.company,
+            )
+
             return page_url
-            
+
         except Exception as e:
-            logger.error("Exception occurred while saving business card",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        user_id=card.line_user_id,
-                        operation="save_business_card",
-                        card_name=card.name,
-                        card_company=card.company,
-                        database_id=self.database_id)
-            
-            logger.error("Failed to save business card to Notion",
-                        error=str(e),
-                        name=card.name,
-                        company=card.company)
+            logger.error(
+                "Exception occurred while saving business card",
+                error=str(e),
+                error_type=type(e).__name__,
+                user_id=card.line_user_id,
+                operation="save_business_card",
+                card_name=card.name,
+                card_company=card.company,
+                database_id=self.database_id,
+            )
+
+            logger.error(
+                "Failed to save business card to Notion",
+                error=str(e),
+                name=card.name,
+                company=card.company,
+            )
             return None
 
     def _clean_title_or_department(self, text: Optional[str]) -> Optional[str]:
@@ -171,14 +197,14 @@ class NotionClient:
         text = text.strip()
 
         # 如果包含逗號，只保留逗號前的部分
-        if ',' in text:
-            text = text.split(',')[0].strip()
-            logger.info("Removed content after comma in title/department",
-                       original=text,
-                       cleaned=text)
+        if "," in text:
+            text = text.split(",")[0].strip()
+            logger.info(
+                "Removed content after comma in title/department", original=text, cleaned=text
+            )
 
         # 檢查是否包含中文字元
-        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+        has_chinese = any("\u4e00" <= char <= "\u9fff" for char in text)
 
         if has_chinese:
             # 如果包含中文，優先保留中文部分
@@ -188,15 +214,17 @@ class NotionClient:
 
             for word in words:
                 # 如果單詞包含中文字元，保留
-                if any('\u4e00' <= char <= '\u9fff' for char in word):
+                if any("\u4e00" <= char <= "\u9fff" for char in word):
                     chinese_words.append(word)
 
             if chinese_words:
-                cleaned_text = ' '.join(chinese_words).strip()
+                cleaned_text = " ".join(chinese_words).strip()
                 if cleaned_text != text:
-                    logger.info("Prioritized Chinese in title/department",
-                               original=text,
-                               cleaned=cleaned_text)
+                    logger.info(
+                        "Prioritized Chinese in title/department",
+                        original=text,
+                        cleaned=cleaned_text,
+                    )
                 return cleaned_text
 
         # 如果沒有中文或無法提取中文，返回原文
@@ -216,16 +244,13 @@ class NotionClient:
 
         # 如果有圖片 URL，添加圖片塊
         if card.image_url:
-            children.append({
-                "object": "block",
-                "type": "image",
-                "image": {
-                    "type": "external",
-                    "external": {
-                        "url": card.image_url
-                    }
+            children.append(
+                {
+                    "object": "block",
+                    "type": "image",
+                    "image": {"type": "external", "external": {"url": card.image_url}},
                 }
-            })
+            )
             logger.info("Added image to page content", image_url=card.image_url[:50] + "...")
 
         return children
@@ -248,65 +273,39 @@ class NotionClient:
         properties = {}
 
         # 1. Name (title) - 必填
-        properties[NotionFields.NAME] = {
-            "title": [
-                {
-                    "text": {
-                        "content": card.name or "未知姓名"
-                    }
-                }
-            ]
-        }
+        properties[NotionFields.NAME] = {"title": [{"text": {"content": card.name or "未知姓名"}}]}
 
         # 2. Email (email)
         if card.email and "@" in card.email and self._field_exists(NotionFields.EMAIL):
-            properties[NotionFields.EMAIL] = {
-                "email": card.email
-            }
-        
+            properties[NotionFields.EMAIL] = {"email": card.email}
+
         # 3. 備註 (rich_text) - 收集額外資訊
         additional_info = []
 
         # 收集額外資訊
-        if hasattr(card, 'mobile') and card.mobile:
+        if hasattr(card, "mobile") and card.mobile:
             additional_info.append(f"行動電話: {card.mobile}")
         if card.website:
             additional_info.append(f"網站: {card.website}")
-        if hasattr(card, 'tax_id') and card.tax_id:
+        if hasattr(card, "tax_id") and card.tax_id:
             additional_info.append(f"統一編號: {card.tax_id}")
         if card.line_id:
             additional_info.append(f"LINE ID: {card.line_id}")
         if card.fax:
             additional_info.append(f"傳真: {card.fax}")
-        
+
         # 4. 公司名稱 (rich_text) - 提取主公司名稱
         if card.company and self._field_exists(NotionFields.COMPANY):
             # 拆分公司名稱，取第一個部分作為主公司名稱
             company_parts = card.company.split()
             main_company = company_parts[0] if company_parts else card.company
 
-            properties[NotionFields.COMPANY] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": main_company
-                        }
-                    }
-                ]
-            }
+            properties[NotionFields.COMPANY] = {"rich_text": [{"text": {"content": main_company}}]}
 
         # 5. 地址 (rich_text)
         if card.address and self._field_exists(NotionFields.ADDRESS):
-            properties[NotionFields.ADDRESS] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": card.address
-                        }
-                    }
-                ]
-            }
-        
+            properties[NotionFields.ADDRESS] = {"rich_text": [{"text": {"content": card.address}}]}
+
         # 注意：以下欄位刻意保留空白，供人工填寫
         # - NotionFields.DECISION_INFLUENCE (決策影響力)
         # - NotionFields.PAIN_POINTS (窗口的困擾或 KPI)
@@ -319,54 +318,40 @@ class NotionClient:
         if card.title and self._field_exists(NotionFields.TITLE):
             cleaned_title = self._clean_title_or_department(card.title)
             if cleaned_title:
-                properties[NotionFields.TITLE] = {
-                    "select": {
-                        "name": cleaned_title
-                    }
-                }
-                logger.info("Title saved to Notion",
-                           card_name=card.name,
-                           original_title=card.title,
-                           cleaned_title=cleaned_title)
+                properties[NotionFields.TITLE] = {"select": {"name": cleaned_title}}
+                logger.info(
+                    "Title saved to Notion",
+                    card_name=card.name,
+                    original_title=card.title,
+                    cleaned_title=cleaned_title,
+                )
 
         # 7. 部門 (rich_text) - 清理後存入
         if card.department and self._field_exists(NotionFields.DEPARTMENT):
             cleaned_department = self._clean_title_or_department(card.department)
             if cleaned_department:
                 properties[NotionFields.DEPARTMENT] = {
-                    "rich_text": [
-                        {
-                            "text": {
-                                "content": cleaned_department
-                            }
-                        }
-                    ]
+                    "rich_text": [{"text": {"content": cleaned_department}}]
                 }
-                logger.info("Department saved to Notion",
-                           card_name=card.name,
-                           original_department=card.department,
-                           cleaned_department=cleaned_department)
+                logger.info(
+                    "Department saved to Notion",
+                    card_name=card.name,
+                    original_department=card.department,
+                    cleaned_department=cleaned_department,
+                )
 
         # 8. 電話 (phone_number)
         if card.phone and self._field_exists(NotionFields.PHONE):
-            properties[NotionFields.PHONE] = {
-                "phone_number": card.phone
-            }
+            properties[NotionFields.PHONE] = {"phone_number": card.phone}
 
         # 9. 備註 (rich_text) - 如果有額外資訊且欄位存在，放入備註欄位
         if additional_info and self._field_exists(NotionFields.NOTES):
             properties[NotionFields.NOTES] = {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": " | ".join(additional_info)
-                        }
-                    }
-                ]
+                "rich_text": [{"text": {"content": " | ".join(additional_info)}}]
             }
-        
+
         return properties
-    
+
     def create_database_if_not_exists(self) -> bool:
         """
         如果資料庫不存在則建立
@@ -382,9 +367,7 @@ class NotionClient:
 
     @staticmethod
     def create_database(
-        api_key: str,
-        tenant_name: str,
-        parent_page_id: Optional[str] = None
+        api_key: str, tenant_name: str, parent_page_id: Optional[str] = None
     ) -> Optional[str]:
         """
         為租戶創建新的 Notion 資料庫
@@ -400,16 +383,51 @@ class NotionClient:
         try:
             # #region agent log
             try:
-                import json; open('/tmp/namecard_debug.log', 'a').write(json.dumps({"hypothesisId": "D", "location": "notion_client.py:create_database:entry", "message": "create_database called", "data": {"api_key_prefix": api_key[:15] + "..." if api_key else None, "tenant_name": tenant_name, "parent_page_id_arg": parent_page_id}, "timestamp": __import__('time').time()}) + '\n')
-            except Exception: pass
+                import json
+
+                open("/tmp/namecard_debug.log", "a").write(
+                    json.dumps(
+                        {
+                            "hypothesisId": "D",
+                            "location": "notion_client.py:create_database:entry",
+                            "message": "create_database called",
+                            "data": {
+                                "api_key_prefix": api_key[:15] + "..." if api_key else None,
+                                "tenant_name": tenant_name,
+                                "parent_page_id_arg": parent_page_id,
+                            },
+                            "timestamp": __import__("time").time(),
+                        }
+                    )
+                    + "\n"
+                )
+            except Exception:
+                pass
             # #endregion
             # 使用最新 API 版本初始化 Client
             client = Client(auth=api_key, notion_version=NOTION_API_VERSION)
             parent_id = parent_page_id or settings.notion_shared_parent_page_id
             # #region agent log
             try:
-                import json; open('/tmp/namecard_debug.log', 'a').write(json.dumps({"hypothesisId": "D", "location": "notion_client.py:create_database:after_parent_id", "message": "parent_id resolved", "data": {"final_parent_id": parent_id, "used_arg": parent_page_id is not None}, "timestamp": __import__('time').time()}) + '\n')
-            except Exception: pass
+                import json
+
+                open("/tmp/namecard_debug.log", "a").write(
+                    json.dumps(
+                        {
+                            "hypothesisId": "D",
+                            "location": "notion_client.py:create_database:after_parent_id",
+                            "message": "parent_id resolved",
+                            "data": {
+                                "final_parent_id": parent_id,
+                                "used_arg": parent_page_id is not None,
+                            },
+                            "timestamp": __import__("time").time(),
+                        }
+                    )
+                    + "\n"
+                )
+            except Exception:
+                pass
             # #endregion
 
             # 資料庫名稱：{租戶名稱}的名片盒
@@ -437,27 +455,72 @@ class NotionClient:
 
             # #region agent log
             try:
-                import json; open('/tmp/namecard_debug.log', 'a').write(json.dumps({"hypothesisId": "A,B,C", "location": "notion_client.py:create_database:before_api_call", "message": "About to call Notion API", "data": {"parent_id": parent_id, "db_title": db_title, "properties_keys": list(properties.keys())}, "timestamp": __import__('time').time()}) + '\n')
-            except Exception: pass
+                import json
+
+                open("/tmp/namecard_debug.log", "a").write(
+                    json.dumps(
+                        {
+                            "hypothesisId": "A,B,C",
+                            "location": "notion_client.py:create_database:before_api_call",
+                            "message": "About to call Notion API",
+                            "data": {
+                                "parent_id": parent_id,
+                                "db_title": db_title,
+                                "properties_keys": list(properties.keys()),
+                            },
+                            "timestamp": __import__("time").time(),
+                        }
+                    )
+                    + "\n"
+                )
+            except Exception:
+                pass
             # #endregion
-            
+
             # #region agent log - Try to verify page access first
             try:
                 page_check = client.pages.retrieve(page_id=parent_id)
                 try:
-                    open('/tmp/namecard_debug.log', 'a').write(json.dumps({"hypothesisId": "A,B", "location": "notion_client.py:create_database:page_check", "message": "Parent page accessible", "data": {"page_id": parent_id}}, default=str) + '\n')
-                except Exception: pass
+                    open("/tmp/namecard_debug.log", "a").write(
+                        json.dumps(
+                            {
+                                "hypothesisId": "A,B",
+                                "location": "notion_client.py:create_database:page_check",
+                                "message": "Parent page accessible",
+                                "data": {"page_id": parent_id},
+                            },
+                            default=str,
+                        )
+                        + "\n"
+                    )
+                except Exception:
+                    pass
             except Exception as page_err:
                 try:
-                    open('/tmp/namecard_debug.log', 'a').write(json.dumps({"hypothesisId": "A,B", "location": "notion_client.py:create_database:page_check_failed", "message": "Parent page NOT accessible", "data": {"page_id": parent_id, "error": str(page_err), "error_type": type(page_err).__name__}}) + '\n')
-                except Exception: pass
+                    open("/tmp/namecard_debug.log", "a").write(
+                        json.dumps(
+                            {
+                                "hypothesisId": "A,B",
+                                "location": "notion_client.py:create_database:page_check_failed",
+                                "message": "Parent page NOT accessible",
+                                "data": {
+                                    "page_id": parent_id,
+                                    "error": str(page_err),
+                                    "error_type": type(page_err).__name__,
+                                },
+                            }
+                        )
+                        + "\n"
+                    )
+                except Exception:
+                    pass
             # #endregion
 
             # 創建資料庫
             response = client.databases.create(
                 parent={"type": "page_id", "page_id": parent_id},
                 title=[{"type": "text", "text": {"content": db_title}}],
-                properties=properties
+                properties=properties,
             )
 
             database_id = response.get("id")
@@ -470,7 +533,7 @@ class NotionClient:
                 database_url=database_url,
                 tenant_name=tenant_name,
                 operation="create_database",
-                status="success"
+                status="success",
             )
 
             return database_id
@@ -478,20 +541,39 @@ class NotionClient:
         except Exception as e:
             # #region agent log
             try:
-                import json; open('/tmp/namecard_debug.log', 'a').write(json.dumps({"hypothesisId": "A,B,C", "location": "notion_client.py:create_database:exception", "message": "Exception caught", "data": {"error": str(e), "error_type": type(e).__name__, "parent_id": parent_id if 'parent_id' in locals() else None, "api_key_prefix": api_key[:15] + "..." if api_key else None}, "timestamp": __import__('time').time()}) + '\n')
-            except Exception: pass
+                import json
+
+                open("/tmp/namecard_debug.log", "a").write(
+                    json.dumps(
+                        {
+                            "hypothesisId": "A,B,C",
+                            "location": "notion_client.py:create_database:exception",
+                            "message": "Exception caught",
+                            "data": {
+                                "error": str(e),
+                                "error_type": type(e).__name__,
+                                "parent_id": parent_id if "parent_id" in locals() else None,
+                                "api_key_prefix": api_key[:15] + "..." if api_key else None,
+                            },
+                            "timestamp": __import__("time").time(),
+                        }
+                    )
+                    + "\n"
+                )
+            except Exception:
+                pass
             # #endregion
             logger.error(
                 "Failed to create Notion database",
                 error=str(e),
                 error_type=type(e).__name__,
                 tenant_name=tenant_name,
-                parent_page_id=parent_id if 'parent_id' in dir() else None,
+                parent_page_id=parent_id if "parent_id" in dir() else None,
                 operation="create_database",
-                status="failed"
+                status="failed",
             )
             return None
-    
+
     def get_database_schema(self) -> Dict[str, Any]:
         """獲取資料庫結構"""
         try:
@@ -500,7 +582,7 @@ class NotionClient:
         except Exception as e:
             logger.error("Failed to get database schema", error=str(e))
             return {}
-    
+
     def search_cards_by_name(self, name: str, limit: int = 10) -> list:
         """
         根據姓名搜尋名片
@@ -513,43 +595,44 @@ class NotionClient:
             符合條件的 Notion 頁面列表
         """
         try:
-            logger.info("Searching cards by name",
-                       search_name=name,
-                       limit=limit,
-                       field=NotionFields.NAME)
+            logger.info(
+                "Searching cards by name", search_name=name, limit=limit, field=NotionFields.NAME
+            )
 
             response = self.client.databases.query(
                 database_id=self.database_id,
                 filter={
                     "property": NotionFields.NAME,  # 修復: 使用正確的欄位名稱 "Name"
-                    "title": {
-                        "contains": name
-                    }
+                    "title": {"contains": name},
                 },
-                page_size=limit
+                page_size=limit,
             )
 
             results = response.get("results", [])
 
-            logger.info("Card search by name completed",
-                       search_term=name,
-                       results_count=len(results),
-                       limit=limit,
-                       operation="search_by_name",
-                       status="success")
+            logger.info(
+                "Card search by name completed",
+                search_term=name,
+                results_count=len(results),
+                limit=limit,
+                operation="search_by_name",
+                status="success",
+            )
 
             return results
 
         except Exception as e:
-            logger.error("Failed to search cards by name",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        search_term=name,
-                        operation="search_by_name",
-                        status="failed")
+            logger.error(
+                "Failed to search cards by name",
+                error=str(e),
+                error_type=type(e).__name__,
+                search_term=name,
+                operation="search_by_name",
+                status="failed",
+            )
 
             return []
-    
+
     def search_cards_by_company(self, company: str, limit: int = 10) -> list:
         """
         根據公司名稱搜尋名片
@@ -562,81 +645,72 @@ class NotionClient:
             符合條件的 Notion 頁面列表
         """
         try:
-            logger.info("Searching cards by company",
-                       search_company=company,
-                       limit=limit,
-                       field=NotionFields.COMPANY)
+            logger.info(
+                "Searching cards by company",
+                search_company=company,
+                limit=limit,
+                field=NotionFields.COMPANY,
+            )
 
             response = self.client.databases.query(
                 database_id=self.database_id,
                 filter={
                     "property": NotionFields.COMPANY,  # 修復: 使用正確的欄位名稱 "公司名稱"
-                    "rich_text": {
-                        "contains": company
-                    }
+                    "rich_text": {"contains": company},
                 },
-                page_size=limit
+                page_size=limit,
             )
 
             results = response.get("results", [])
 
-            logger.info("Card search by company completed",
-                       search_term=company,
-                       results_count=len(results),
-                       operation="search_by_company",
-                       status="success")
+            logger.info(
+                "Card search by company completed",
+                search_term=company,
+                results_count=len(results),
+                operation="search_by_company",
+                status="success",
+            )
 
             return results
 
         except Exception as e:
-            logger.error("Failed to search cards by company",
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        search_term=company,
-                        operation="search_by_company",
-                        status="failed")
+            logger.error(
+                "Failed to search cards by company",
+                error=str(e),
+                error_type=type(e).__name__,
+                search_term=company,
+                operation="search_by_company",
+                status="failed",
+            )
             return []
-    
+
     def get_user_cards(self, line_user_id: str, limit: int = 50) -> list:
         """獲取特定用戶的所有名片"""
         try:
             response = self.client.databases.query(
                 database_id=self.database_id,
-                filter={
-                    "property": "LINE用戶",
-                    "rich_text": {
-                        "equals": line_user_id
-                    }
-                },
-                sorts=[
-                    {
-                        "property": "建立時間",
-                        "direction": "descending"
-                    }
-                ],
-                page_size=limit
+                filter={"property": "LINE用戶", "rich_text": {"equals": line_user_id}},
+                sorts=[{"property": "建立時間", "direction": "descending"}],
+                page_size=limit,
             )
-            
+
             return response.get("results", [])
-            
+
         except Exception as e:
             logger.error("Failed to get user cards", error=str(e), user_id=line_user_id)
             return []
-    
+
     def get_database_stats(self) -> Dict[str, Any]:
         """獲取資料庫統計資訊"""
         try:
             # 獲取總數
-            response = self.client.databases.query(
-                database_id=self.database_id,
-                page_size=1
-            )
+            response = self.client.databases.query(database_id=self.database_id, page_size=1)
 
             # 注意：Notion API 不直接提供總數，這裡只是示例
             stats = {
                 "total_cards": "N/A",  # 需要遍歷所有頁面才能獲得準確數字
                 "database_url": self.database_url,
-                "last_updated": datetime.now().isoformat()
+                "last_updated": datetime.now().isoformat(),
             }
 
             return stats
@@ -674,13 +748,16 @@ class NotionClient:
                     missing_fields.append(field)
 
             if missing_fields:
-                logger.warning("Missing required fields in Notion database",
-                             missing_fields=missing_fields,
-                             available_fields=list(schema.keys()))
+                logger.warning(
+                    "Missing required fields in Notion database",
+                    missing_fields=missing_fields,
+                    available_fields=list(schema.keys()),
+                )
                 # 不返回 False，只是警告
             else:
-                logger.info("All required fields present in Notion database",
-                           field_count=len(schema))
+                logger.info(
+                    "All required fields present in Notion database", field_count=len(schema)
+                )
 
             return True
 

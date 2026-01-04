@@ -187,7 +187,7 @@
             <thead>
                 <tr>
                     <th style="width: 50px;">排名</th>
-                    <th>用戶 ID</th>
+                    <th>用戶</th>
                     <th style="text-align: center;">處理數</th>
                     <th style="text-align: center;">儲存數</th>
                     <th style="text-align: center;">錯誤數</th>
@@ -209,7 +209,28 @@
                         {% endif %}
                     </td>
                     <td>
-                        <code style="font-size: 0.85rem; color: var(--accent-purple);">{{ user.line_user_id[:12] }}...</code>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            {% if user.picture_url %}
+                            <img src="{{ user.picture_url }}" alt="Avatar"
+                                 style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-color);"
+                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <div style="display: none; width: 36px; height: 36px; border-radius: 50%; background: var(--surface-light); align-items: center; justify-content: center;">
+                                <i data-lucide="user" style="width: 18px; height: 18px; color: var(--text-muted);"></i>
+                            </div>
+                            {% else %}
+                            <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--surface-light); display: flex; align-items: center; justify-content: center;">
+                                <i data-lucide="user" style="width: 18px; height: 18px; color: var(--text-muted);"></i>
+                            </div>
+                            {% endif %}
+                            <div>
+                                {% if user.display_name %}
+                                <div style="font-weight: 500; color: var(--text-primary);">{{ user.display_name }}</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted);">{{ user.line_user_id[:12] }}...</div>
+                                {% else %}
+                                <code style="font-size: 0.85rem; color: var(--accent-purple);">{{ user.line_user_id[:12] }}...</code>
+                                {% endif %}
+                            </div>
+                        </div>
                     </td>
                     <td style="text-align: center;">
                         <span class="text-accent">{{ user.total_processed }}</span>

@@ -7,15 +7,29 @@
 import structlog
 from typing import Optional, Union
 from linebot import LineBotApi
-from linebot.models import TextSendMessage, FlexSendMessage, QuickReply, QuickReplyButton, MessageAction
+from linebot.models import (
+    TextSendMessage,
+    FlexSendMessage,
+    QuickReply,
+    QuickReplyButton,
+    MessageAction,
+)
 from linebot.exceptions import LineBotApiError
 
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
 from src.namecard.infrastructure.storage.notion_client import NotionClient
-from src.namecard.infrastructure.storage.image_upload_worker import submit_image_upload
-from src.namecard.api.line_bot.flex_templates import create_card_result_message, create_batch_complete_message
+from src.namecard.infrastructure.storage.image_upload_worker import (
+    submit_image_upload,
+    get_failed_tasks,
+    retry_all_failed_tasks,
+    clear_failed_tasks,
+)
+from src.namecard.api.line_bot.flex_templates import (
+    create_card_result_message,
+    create_batch_complete_message,
+)
 
 logger = structlog.get_logger()
 
@@ -31,7 +45,7 @@ class UnifiedEventHandler:
         line_bot_api: LineBotApi,
         card_processor: CardProcessor,
         notion_client: NotionClient,
-        tenant_id: Optional[str] = None
+        tenant_id: Optional[str] = None,
     ):
         """
         初始化事件處理器
@@ -47,12 +61,7 @@ class UnifiedEventHandler:
         self.notion_client = notion_client
         self.tenant_id = tenant_id
 
-    def handle_text_message(
-        self,
-        user_id: str,
-        text: str,
-        reply_token: str
-    ) -> None:
+    def handle_text_message(self, user_id: str, text: str, reply_token: str) -> None:
         """
         處理文字訊息
 
@@ -63,39 +72,36 @@ class UnifiedEventHandler:
         """
         try:
             text = text.strip()
-            logger.info("Processing text message",
-                       user_id=user_id,
-                       text=text[:50])
+            logger.info("Processing text message", user_id=user_id, text=text[:50])
 
             # 命令處理
-            if text in ['help', '說明', '幫助']:
+            if text in ["help", "說明", "幫助"]:
                 self._send_help_message(reply_token)
 
-            elif text in ['批次', 'batch', '批量']:
+            elif text in ["批次", "batch", "批量"]:
                 self._start_batch_mode(user_id, reply_token)
 
-            elif text in ['狀態', 'status', '進度']:
+            elif text in ["狀態", "status", "進度"]:
                 self._show_status(user_id, reply_token)
 
-            elif text in ['結束批次', 'end batch', '完成批次']:
+            elif text in ["結束批次", "end batch", "完成批次"]:
                 self._end_batch_mode(user_id, reply_token)
+
+            elif text in ["重試", "retry", "重新上傳"]:
+                self._retry_failed_uploads(user_id, reply_token)
+
+            elif text in ["清除失敗", "clear failed"]:
+                self._clear_failed_uploads(user_id, reply_token)
 
             else:
                 # 未知命令
                 self._send_unknown_command(reply_token)
 
         except Exception as e:
-            logger.error("Text message handling failed",
-                        error=str(e),
-                        user_id=user_id)
+            logger.error("Text message handling failed", error=str(e), user_id=user_id)
             self._send_error_message(reply_token, "處理訊息時發生錯誤")
 
-    def handle_image_message(
-        self,
-        user_id: str,
-        message_id: str,
-        reply_token: str
-    ) -> None:
+    def handle_image_message(self, user_id: str, message_id: str, reply_token: str) -> None:
         """
         處理圖片訊息
 
@@ -105,25 +111,17 @@ class UnifiedEventHandler:
             reply_token: 回覆 token
         """
         try:
-            logger.info("Processing image message",
-                       user_id=user_id,
-                       message_id=message_id)
+            logger.info("Processing image message", user_id=user_id, message_id=message_id)
 
             # 檢查用戶是否被封鎖
             if security_service.is_user_blocked(user_id):
-                self._send_reply(
-                    reply_token,
-                    "⛔ 您已被暫時封鎖，請稍後再試"
-                )
+                self._send_reply(reply_token, "⛔ 您已被暫時封鎖，請稍後再試")
                 return
 
             # 檢查速率限制
             status = user_service.get_user_status(user_id)
             if status.daily_usage >= 50:
-                self._send_reply(
-                    reply_token,
-                    f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試"
-                )
+                self._send_reply(reply_token, f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試")
                 return
 
             # 下載圖片
@@ -132,10 +130,7 @@ class UnifiedEventHandler:
 
             # 驗證圖片
             if not security_service.validate_image_data(image_data):
-                self._send_reply(
-                    reply_token,
-                    "❌ 圖片格式錯誤或檔案過大\n請上傳 10MB 以內的 JPG/PNG 圖片"
-                )
+                self._send_reply(reply_token, "❌ 圖片格式錯誤或檔案過大\n請上傳 10MB 以內的 JPG/PNG 圖片")
                 return
 
             # 處理圖片（現在會拋出具體異常而非返回空列表）
@@ -157,7 +152,7 @@ class UnifiedEventHandler:
                         page_id, page_url = result
                         success_count += 1
                         card.processed = True
-                        
+
                         # 直接使用 API 返回的 page_id
                         if page_id:
                             saved_page_ids.append(page_id)
@@ -174,9 +169,7 @@ class UnifiedEventHandler:
                     card.processed = False
                     error_msg = error_handler.handle_notion_error(e, user_id)
                     error_messages.append(error_msg)
-                    logger.error("Failed to save card",
-                               error=str(e),
-                               user_id=user_id)
+                    logger.error("Failed to save card", error=str(e), user_id=user_id)
 
             # 增加使用計數
             user_service.increment_usage(user_id)
@@ -185,6 +178,7 @@ class UnifiedEventHandler:
             if self.tenant_id:
                 try:
                     from src.namecard.core.services.tenant_service import get_tenant_service
+
                     tenant_service = get_tenant_service()
 
                     # 記錄租戶級別統計
@@ -192,7 +186,7 @@ class UnifiedEventHandler:
                         self.tenant_id,
                         cards_processed=len(cards),
                         cards_saved=success_count,
-                        errors=failed_count
+                        errors=failed_count,
                     )
 
                     # 記錄用戶級別統計
@@ -201,19 +195,17 @@ class UnifiedEventHandler:
                         line_user_id=user_id,
                         cards_processed=len(cards),
                         cards_saved=success_count,
-                        errors=failed_count
+                        errors=failed_count,
                     )
+
+                    # 獲取並儲存用戶資訊（名稱、頭像）
+                    self._save_user_profile(user_id, tenant_service)
                 except Exception as e:
                     logger.warning("Failed to record usage stats", error=str(e))
 
             # 先回覆用戶（不等待圖片上傳）
             self._send_processing_result(
-                reply_token,
-                cards,
-                success_count,
-                failed_count,
-                error_messages,
-                status
+                reply_token, cards, success_count, failed_count, error_messages, status
             )
 
             # 使用 Queue Worker 非同步上傳圖片到 ImgBB
@@ -222,30 +214,25 @@ class UnifiedEventHandler:
                     image_data=image_data,
                     page_ids=saved_page_ids,
                     notion_client=self.notion_client,
-                    user_id=user_id
+                    user_id=user_id,
                 )
-                logger.info("Submitted image upload task to worker",
-                           page_count=len(saved_page_ids),
-                           user_id=user_id)
+                logger.info(
+                    "Submitted image upload task to worker",
+                    page_count=len(saved_page_ids),
+                    user_id=user_id,
+                )
 
         except LineBotApiError as e:
-            logger.error("LINE API error in image processing",
-                        error=str(e),
-                        user_id=user_id)
+            logger.error("LINE API error in image processing", error=str(e), user_id=user_id)
             error_handler.handle_line_error(e, user_id)
             # 嘗試用 push message 發送錯誤訊息
             try:
-                self.line_bot_api.push_message(
-                    user_id,
-                    TextSendMessage(text="❌ 圖片下載失敗，請重試")
-                )
+                self.line_bot_api.push_message(user_id, TextSendMessage(text="❌ 圖片下載失敗，請重試"))
             except:
                 pass
 
         except Exception as e:
-            logger.error("Image processing failed",
-                        error=str(e),
-                        user_id=user_id)
+            logger.error("Image processing failed", error=str(e), user_id=user_id)
             error_msg = error_handler.handle_ai_error(e, user_id)
             self._send_error_message(reply_token, error_msg)
 
@@ -263,10 +250,12 @@ class UnifiedEventHandler:
         self._send_reply(
             reply_token,
             help_text,
-            quick_reply=QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="開始批次", text="批次")),
-                QuickReplyButton(action=MessageAction(label="查看狀態", text="狀態")),
-            ])
+            quick_reply=QuickReply(
+                items=[
+                    QuickReplyButton(action=MessageAction(label="開始批次", text="批次")),
+                    QuickReplyButton(action=MessageAction(label="查看狀態", text="狀態")),
+                ]
+            ),
         )
 
     def _start_batch_mode(self, user_id: str, reply_token: str) -> None:
@@ -276,10 +265,12 @@ class UnifiedEventHandler:
         self._send_reply(
             reply_token,
             "📦 批次模式已啟動\n\n請連續上傳多張名片照片\n完成後輸入「結束批次」",
-            quick_reply=QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="結束批次", text="結束批次")),
-                QuickReplyButton(action=MessageAction(label="查看進度", text="狀態")),
-            ])
+            quick_reply=QuickReply(
+                items=[
+                    QuickReplyButton(action=MessageAction(label="結束批次", text="結束批次")),
+                    QuickReplyButton(action=MessageAction(label="查看進度", text="狀態")),
+                ]
+            ),
         )
 
         logger.info("Batch mode started", user_id=user_id)
@@ -327,19 +318,69 @@ class UnifiedEventHandler:
 
         self._send_reply(reply_token, summary_text)
 
-        logger.info("Batch mode ended",
-                   user_id=user_id,
-                   total_cards=batch_result.total_cards,
-                   success_rate=success_rate)
+        logger.info(
+            "Batch mode ended",
+            user_id=user_id,
+            total_cards=batch_result.total_cards,
+            success_rate=success_rate,
+        )
+
+    def _retry_failed_uploads(self, user_id: str, reply_token: str) -> None:
+        """重試失敗的圖片上傳"""
+        # 先查詢失敗任務
+        failed_tasks = get_failed_tasks(user_id)
+
+        if not failed_tasks:
+            self._send_reply(reply_token, "✅ 沒有失敗的上傳任務")
+            return
+
+        # 顯示失敗任務數量並開始重試
+        self._send_reply(reply_token, f"🔄 發現 {len(failed_tasks)} 個失敗任務，正在重試...")
+
+        # 執行重試
+        success_count = retry_all_failed_tasks(user_id, self.notion_client)
+
+        # 用 push message 發送結果（因為 reply_token 已用過）
+        try:
+            if success_count == len(failed_tasks):
+                result_msg = f"✅ 全部 {success_count} 個任務重試成功！"
+            elif success_count > 0:
+                result_msg = f"⚠️ 重試完成：{success_count}/{len(failed_tasks)} 成功"
+            else:
+                result_msg = "❌ 重試失敗，請稍後再試"
+
+            self.line_bot_api.push_message(user_id, TextSendMessage(text=result_msg))
+        except Exception as e:
+            logger.error("Failed to send retry result", error=str(e))
+
+        logger.info(
+            "Retry failed uploads completed",
+            user_id=user_id,
+            total=len(failed_tasks),
+            success=success_count,
+        )
+
+    def _clear_failed_uploads(self, user_id: str, reply_token: str) -> None:
+        """清除失敗的上傳任務記錄"""
+        cleared_count = clear_failed_tasks(user_id)
+
+        if cleared_count > 0:
+            self._send_reply(reply_token, f"🗑️ 已清除 {cleared_count} 個失敗任務記錄")
+        else:
+            self._send_reply(reply_token, "✅ 沒有失敗的任務需要清除")
+
+        logger.info("Cleared failed tasks", user_id=user_id, count=cleared_count)
 
     def _send_unknown_command(self, reply_token: str) -> None:
         """發送未知命令訊息"""
         self._send_reply(
             reply_token,
             "❓ 不認識的指令\n輸入「幫助」查看使用說明",
-            quick_reply=QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="查看說明", text="幫助")),
-            ])
+            quick_reply=QuickReply(
+                items=[
+                    QuickReplyButton(action=MessageAction(label="查看說明", text="幫助")),
+                ]
+            ),
         )
 
     def _send_processing_result(
@@ -349,7 +390,7 @@ class UnifiedEventHandler:
         success_count: int,
         failed_count: int,
         error_messages: list,
-        status
+        status,
     ) -> None:
         """發送處理結果訊息（使用 Flex Message）"""
         total = len(cards)
@@ -360,7 +401,9 @@ class UnifiedEventHandler:
                 flex_message = create_card_result_message(
                     cards=cards,
                     is_batch_mode=status.is_batch_mode,
-                    batch_progress=status.current_batch.total_cards if status.is_batch_mode and status.current_batch else None
+                    batch_progress=status.current_batch.total_cards
+                    if status.is_batch_mode and status.current_batch
+                    else None,
                 )
                 self._send_flex_message(reply_token, flex_message)
                 logger.info("Sent Flex Message result", cards_count=len(cards))
@@ -399,11 +442,7 @@ Email：{card.email or '未識別'}"""
         """發送錯誤訊息"""
         self._send_reply(reply_token, error_msg)
 
-    def _send_flex_message(
-        self,
-        reply_token: str,
-        flex_message: FlexSendMessage
-    ) -> None:
+    def _send_flex_message(self, reply_token: str, flex_message: FlexSendMessage) -> None:
         """
         發送 Flex Message
 
@@ -414,16 +453,13 @@ Email：{card.email or '未識別'}"""
         try:
             self.line_bot_api.reply_message(reply_token, flex_message)
         except LineBotApiError as e:
-            logger.error("Failed to send flex message",
-                        error=str(e),
-                        reply_token=reply_token[:20] + "...")
+            logger.error(
+                "Failed to send flex message", error=str(e), reply_token=reply_token[:20] + "..."
+            )
             raise
 
     def _send_reply(
-        self,
-        reply_token: str,
-        text: str,
-        quick_reply: Optional[QuickReply] = None
+        self, reply_token: str, text: str, quick_reply: Optional[QuickReply] = None
     ) -> None:
         """
         統一的回覆發送方法（純文字）
@@ -437,7 +473,40 @@ Email：{card.email or '未識別'}"""
             message = TextSendMessage(text=text, quick_reply=quick_reply)
             self.line_bot_api.reply_message(reply_token, message)
         except LineBotApiError as e:
-            logger.error("Failed to send reply",
-                        error=str(e),
-                        reply_token=reply_token[:20] + "...")
+            logger.error("Failed to send reply", error=str(e), reply_token=reply_token[:20] + "...")
             raise
+
+    def _save_user_profile(self, user_id: str, tenant_service=None) -> None:
+        """
+        獲取並儲存 LINE 用戶資訊（名稱、頭像）
+
+        Args:
+            user_id: LINE 用戶 ID
+            tenant_service: TenantService 實例（可選，避免重複 import）
+        """
+        if not self.tenant_id:
+            return
+
+        try:
+            # 獲取用戶 profile
+            profile = self.line_bot_api.get_profile(user_id)
+            display_name = profile.display_name
+            picture_url = profile.picture_url
+
+            # 取得 tenant_service
+            if tenant_service is None:
+                from src.namecard.core.services.tenant_service import get_tenant_service
+
+                tenant_service = get_tenant_service()
+
+            # 儲存用戶資訊
+            tenant_service.save_line_user(
+                tenant_id=self.tenant_id,
+                line_user_id=user_id,
+                display_name=display_name,
+                picture_url=picture_url,
+            )
+
+            logger.debug("User profile saved", user_id=user_id, display_name=display_name)
+        except Exception as e:
+            logger.warning("Failed to save user profile", error=str(e), user_id=user_id)

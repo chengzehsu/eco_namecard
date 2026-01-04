@@ -43,9 +43,11 @@ class TenantDatabase:
     def _initialize_schema(self):
         """Initialize database schema if not exists"""
         schema_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            ),
             "data",
-            "schema.sql"
+            "schema.sql",
         )
 
         with self.get_connection() as conn:
@@ -74,7 +76,8 @@ class TenantDatabase:
             "SELECT name FROM sqlite_master WHERE type='table' AND name='user_stats'"
         )
         if cursor.fetchone() is None:
-            conn.executescript("""
+            conn.executescript(
+                """
                 CREATE TABLE IF NOT EXISTS user_stats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     tenant_id TEXT NOT NULL,
@@ -88,7 +91,8 @@ class TenantDatabase:
 
                 CREATE INDEX IF NOT EXISTS idx_user_stats_tenant ON user_stats(tenant_id);
                 CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
-            """)
+            """
+            )
             logger.info("Migration: user_stats table created")
 
         # Check if use_shared_notion_api column exists, add if not
@@ -98,9 +102,34 @@ class TenantDatabase:
             conn.execute("ALTER TABLE tenants ADD COLUMN use_shared_notion_api INTEGER DEFAULT 1")
             logger.info("Migration: use_shared_notion_api column added to tenants")
 
+        # Check if line_users table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='line_users'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS line_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id TEXT NOT NULL,
+                    line_user_id TEXT NOT NULL,
+                    display_name TEXT,
+                    picture_url TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(tenant_id, line_user_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_line_users_tenant ON line_users(tenant_id);
+                CREATE INDEX IF NOT EXISTS idx_line_users_user ON line_users(line_user_id);
+            """
+            )
+            logger.info("Migration: line_users table created")
+
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""
-        conn.executescript("""
+        conn.executescript(
+            """
             CREATE TABLE IF NOT EXISTS tenants (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -161,11 +190,25 @@ class TenantDatabase:
                 UNIQUE(tenant_id, line_user_id, date)
             );
 
+            CREATE TABLE IF NOT EXISTS line_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id TEXT NOT NULL,
+                line_user_id TEXT NOT NULL,
+                display_name TEXT,
+                picture_url TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(tenant_id, line_user_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tenants_line_channel_id ON tenants(line_channel_id);
             CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
             CREATE INDEX IF NOT EXISTS idx_user_stats_tenant ON user_stats(tenant_id);
             CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
-        """)
+            CREATE INDEX IF NOT EXISTS idx_line_users_tenant ON line_users(tenant_id);
+            CREATE INDEX IF NOT EXISTS idx_line_users_user ON line_users(line_user_id);
+        """
+        )
         logger.info("Database schema created inline")
 
     @contextmanager
@@ -234,27 +277,21 @@ class TenantDatabase:
     def get_tenant_by_id(self, tenant_id: str) -> Optional[Dict[str, Any]]:
         """Get tenant by ID"""
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM tenants WHERE id = ?", (tenant_id,)
-            )
+            cursor = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
     def get_tenant_by_channel_id(self, channel_id: str) -> Optional[Dict[str, Any]]:
         """Get tenant by LINE Channel ID"""
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM tenants WHERE line_channel_id = ?", (channel_id,)
-            )
+            cursor = conn.execute("SELECT * FROM tenants WHERE line_channel_id = ?", (channel_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
     def get_tenant_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
         """Get tenant by slug"""
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM tenants WHERE slug = ?", (slug,)
-            )
+            cursor = conn.execute("SELECT * FROM tenants WHERE slug = ?", (slug,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -262,9 +299,7 @@ class TenantDatabase:
         """List all tenants"""
         with self.get_connection() as conn:
             if include_inactive:
-                cursor = conn.execute(
-                    "SELECT * FROM tenants ORDER BY created_at DESC"
-                )
+                cursor = conn.execute("SELECT * FROM tenants ORDER BY created_at DESC")
             else:
                 cursor = conn.execute(
                     "SELECT * FROM tenants WHERE is_active = 1 ORDER BY created_at DESC"
@@ -287,11 +322,19 @@ class TenantDatabase:
         values = []
 
         allowed_fields = [
-            "name", "slug", "is_active", "line_channel_id",
-            "line_channel_access_token_encrypted", "line_channel_secret_encrypted",
-            "notion_api_key_encrypted", "notion_database_id", "use_shared_notion_api",
-            "google_api_key_encrypted", "use_shared_google_api",
-            "daily_card_limit", "batch_size_limit"
+            "name",
+            "slug",
+            "is_active",
+            "line_channel_id",
+            "line_channel_access_token_encrypted",
+            "line_channel_secret_encrypted",
+            "notion_api_key_encrypted",
+            "notion_database_id",
+            "use_shared_notion_api",
+            "google_api_key_encrypted",
+            "use_shared_google_api",
+            "daily_card_limit",
+            "batch_size_limit",
         ]
 
         for field in allowed_fields:
@@ -314,10 +357,7 @@ class TenantDatabase:
         values.append(tenant_id)
 
         with self.get_connection() as conn:
-            conn.execute(
-                f"UPDATE tenants SET {', '.join(fields)} WHERE id = ?",
-                values
-            )
+            conn.execute(f"UPDATE tenants SET {', '.join(fields)} WHERE id = ?", values)
 
         logger.info("Tenant updated", tenant_id=tenant_id)
         return self.get_tenant_by_id(tenant_id)
@@ -337,7 +377,7 @@ class TenantDatabase:
             if soft_delete:
                 cursor = conn.execute(
                     "UPDATE tenants SET is_active = 0, updated_at = ? WHERE id = ?",
-                    (datetime.now().isoformat(), tenant_id)
+                    (datetime.now().isoformat(), tenant_id),
                 )
             else:
                 cursor = conn.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
@@ -351,7 +391,9 @@ class TenantDatabase:
 
     # ==================== Admin User Operations ====================
 
-    def create_admin(self, username: str, password_hash: str, is_super: bool = False) -> Dict[str, Any]:
+    def create_admin(
+        self, username: str, password_hash: str, is_super: bool = False
+    ) -> Dict[str, Any]:
         """Create admin user"""
         admin_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
@@ -362,7 +404,7 @@ class TenantDatabase:
                 INSERT INTO admin_users (id, username, password_hash, is_super_admin, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (admin_id, username, password_hash, 1 if is_super else 0, now)
+                (admin_id, username, password_hash, 1 if is_super else 0, now),
             )
 
         logger.info("Admin user created", admin_id=admin_id, username=username)
@@ -371,18 +413,14 @@ class TenantDatabase:
     def get_admin_by_id(self, admin_id: str) -> Optional[Dict[str, Any]]:
         """Get admin by ID"""
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM admin_users WHERE id = ?", (admin_id,)
-            )
+            cursor = conn.execute("SELECT * FROM admin_users WHERE id = ?", (admin_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
     def get_admin_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         """Get admin by username"""
         with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT * FROM admin_users WHERE username = ?", (username,)
-            )
+            cursor = conn.execute("SELECT * FROM admin_users WHERE username = ?", (username,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -391,7 +429,7 @@ class TenantDatabase:
         with self.get_connection() as conn:
             conn.execute(
                 "UPDATE admin_users SET last_login = ? WHERE id = ?",
-                (datetime.now().isoformat(), admin_id)
+                (datetime.now().isoformat(), admin_id),
             )
 
     def admin_exists(self) -> bool:
@@ -414,14 +452,20 @@ class TenantDatabase:
         with self.get_connection() as conn:
             cursor = conn.execute(
                 "UPDATE admin_users SET password_hash = ? WHERE username = ?",
-                (password_hash, username)
+                (password_hash, username),
             )
             return cursor.rowcount > 0
 
     # ==================== Usage Stats Operations ====================
 
-    def record_usage(self, tenant_id: str, cards_processed: int = 0,
-                     cards_saved: int = 0, api_calls: int = 0, errors: int = 0):
+    def record_usage(
+        self,
+        tenant_id: str,
+        cards_processed: int = 0,
+        cards_saved: int = 0,
+        api_calls: int = 0,
+        errors: int = 0,
+    ):
         """Record usage statistics for a tenant"""
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -436,7 +480,7 @@ class TenantDatabase:
                     api_calls = api_calls + excluded.api_calls,
                     errors = errors + excluded.errors
                 """,
-                (tenant_id, today, cards_processed, cards_saved, api_calls, errors)
+                (tenant_id, today, cards_processed, cards_saved, api_calls, errors),
             )
 
     def get_tenant_stats(self, tenant_id: str, days: int = 30) -> List[Dict[str, Any]]:
@@ -448,7 +492,7 @@ class TenantDatabase:
                 WHERE tenant_id = ? AND date >= date('now', ?)
                 ORDER BY date DESC
                 """,
-                (tenant_id, f"-{days} days")
+                (tenant_id, f"-{days} days"),
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -466,7 +510,7 @@ class TenantDatabase:
                 SELECT SUM(cards_processed), SUM(cards_saved), SUM(errors)
                 FROM usage_stats WHERE date = ?
                 """,
-                (today,)
+                (today,),
             )
             row = cursor.fetchone()
 
@@ -486,7 +530,7 @@ class TenantDatabase:
                 SELECT tenant_id, cards_processed, cards_saved, errors
                 FROM usage_stats WHERE date = ?
                 """,
-                (today,)
+                (today,),
             )
             result = {}
             for row in cursor.fetchall():
@@ -499,9 +543,14 @@ class TenantDatabase:
 
     # ==================== Audit Log Operations ====================
 
-    def log_audit(self, action: str, admin_id: Optional[str] = None,
-                  target_tenant_id: Optional[str] = None,
-                  details: Optional[str] = None, ip_address: Optional[str] = None):
+    def log_audit(
+        self,
+        action: str,
+        admin_id: Optional[str] = None,
+        target_tenant_id: Optional[str] = None,
+        details: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ):
         """Log an audit event"""
         with self.get_connection() as conn:
             conn.execute(
@@ -509,13 +558,19 @@ class TenantDatabase:
                 INSERT INTO audit_logs (admin_id, action, target_tenant_id, details, ip_address)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (admin_id, action, target_tenant_id, details, ip_address)
+                (admin_id, action, target_tenant_id, details, ip_address),
             )
 
     # ==================== User Stats Operations ====================
 
-    def record_user_usage(self, tenant_id: str, line_user_id: str,
-                          cards_processed: int = 0, cards_saved: int = 0, errors: int = 0):
+    def record_user_usage(
+        self,
+        tenant_id: str,
+        line_user_id: str,
+        cards_processed: int = 0,
+        cards_saved: int = 0,
+        errors: int = 0,
+    ):
         """Record usage statistics for a specific user"""
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -529,7 +584,7 @@ class TenantDatabase:
                     cards_saved = cards_saved + excluded.cards_saved,
                     errors = errors + excluded.errors
                 """,
-                (tenant_id, line_user_id, today, cards_processed, cards_saved, errors)
+                (tenant_id, line_user_id, today, cards_processed, cards_saved, errors),
             )
 
     def get_tenant_users_stats(self, tenant_id: str, days: int = 30) -> List[Dict[str, Any]]:
@@ -549,32 +604,39 @@ class TenantDatabase:
                 GROUP BY line_user_id
                 ORDER BY total_processed DESC
                 """,
-                (tenant_id, f"-{days} days")
+                (tenant_id, f"-{days} days"),
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_top_users(self, tenant_id: str, limit: int = 10, days: int = 30) -> List[Dict[str, Any]]:
-        """Get top users by usage for a tenant"""
+    def get_top_users(
+        self, tenant_id: str, limit: int = 10, days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """Get top users by usage for a tenant, including user profile info"""
         with self.get_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT
-                    line_user_id,
-                    SUM(cards_processed) as total_processed,
-                    SUM(cards_saved) as total_saved,
-                    SUM(errors) as total_errors,
-                    ROUND(CAST(SUM(cards_saved) AS FLOAT) / NULLIF(SUM(cards_processed), 0) * 100, 1) as success_rate
-                FROM user_stats
-                WHERE tenant_id = ? AND date >= date('now', ?)
-                GROUP BY line_user_id
+                    us.line_user_id,
+                    lu.display_name,
+                    lu.picture_url,
+                    SUM(us.cards_processed) as total_processed,
+                    SUM(us.cards_saved) as total_saved,
+                    SUM(us.errors) as total_errors,
+                    ROUND(CAST(SUM(us.cards_saved) AS FLOAT) / NULLIF(SUM(us.cards_processed), 0) * 100, 1) as success_rate
+                FROM user_stats us
+                LEFT JOIN line_users lu ON us.tenant_id = lu.tenant_id AND us.line_user_id = lu.line_user_id
+                WHERE us.tenant_id = ? AND us.date >= date('now', ?)
+                GROUP BY us.line_user_id
                 ORDER BY total_processed DESC
                 LIMIT ?
                 """,
-                (tenant_id, f"-{days} days", limit)
+                (tenant_id, f"-{days} days", limit),
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_user_stats(self, tenant_id: str, line_user_id: str, days: int = 30) -> List[Dict[str, Any]]:
+    def get_user_stats(
+        self, tenant_id: str, line_user_id: str, days: int = 30
+    ) -> List[Dict[str, Any]]:
         """Get daily stats for a specific user"""
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -583,7 +645,7 @@ class TenantDatabase:
                 WHERE tenant_id = ? AND line_user_id = ? AND date >= date('now', ?)
                 ORDER BY date DESC
                 """,
-                (tenant_id, line_user_id, f"-{days} days")
+                (tenant_id, line_user_id, f"-{days} days"),
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -606,7 +668,7 @@ class TenantDatabase:
                 GROUP BY strftime('%Y-%m', date)
                 ORDER BY month DESC
                 """,
-                (tenant_id, f"-{months} months")
+                (tenant_id, f"-{months} months"),
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -627,11 +689,13 @@ class TenantDatabase:
                 GROUP BY strftime('%Y', date)
                 ORDER BY year DESC
                 """,
-                (tenant_id, f"-{years} years")
+                (tenant_id, f"-{years} years"),
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_tenant_stats_range(self, tenant_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    def get_tenant_stats_range(
+        self, tenant_id: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
         """Get stats for a tenant within a date range"""
         with self.get_connection() as conn:
             cursor = conn.execute(
@@ -640,7 +704,7 @@ class TenantDatabase:
                 WHERE tenant_id = ? AND date >= ? AND date <= ?
                 ORDER BY date DESC
                 """,
-                (tenant_id, start_date, end_date)
+                (tenant_id, start_date, end_date),
             )
             return [dict(row) for row in cursor.fetchall()]
 
@@ -659,7 +723,7 @@ class TenantDatabase:
                 FROM usage_stats
                 WHERE tenant_id = ? AND date >= date('now', ?)
                 """,
-                (tenant_id, f"-{days} days")
+                (tenant_id, f"-{days} days"),
             )
             row = cursor.fetchone()
             if row:
@@ -678,9 +742,14 @@ class TenantDatabase:
                     ),
                 }
             return {
-                "total_processed": 0, "total_saved": 0, "total_errors": 0,
-                "total_api_calls": 0, "active_days": 0, "avg_daily_processed": 0,
-                "success_rate": 0, "error_rate": 0
+                "total_processed": 0,
+                "total_saved": 0,
+                "total_errors": 0,
+                "total_api_calls": 0,
+                "active_days": 0,
+                "avg_daily_processed": 0,
+                "success_rate": 0,
+                "error_rate": 0,
             }
 
     def get_all_tenants_summary(self, days: int = 30) -> Dict[str, Any]:
@@ -696,7 +765,7 @@ class TenantDatabase:
                 FROM usage_stats
                 WHERE date >= date('now', ?)
                 """,
-                (f"-{days} days",)
+                (f"-{days} days",),
             )
             row = cursor.fetchone()
             return {
@@ -715,10 +784,91 @@ class TenantDatabase:
                 FROM user_stats
                 WHERE tenant_id = ? AND date >= date('now', ?)
                 """,
-                (tenant_id, f"-{days} days")
+                (tenant_id, f"-{days} days"),
             )
             row = cursor.fetchone()
             return row["user_count"] if row else 0
+
+    # ==================== LINE User Operations ====================
+
+    def upsert_line_user(
+        self,
+        tenant_id: str,
+        line_user_id: str,
+        display_name: Optional[str] = None,
+        picture_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Insert or update LINE user information.
+
+        Args:
+            tenant_id: Tenant ID
+            line_user_id: LINE user ID
+            display_name: User's display name
+            picture_url: User's profile picture URL
+
+        Returns:
+            User data dict
+        """
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO line_users (tenant_id, line_user_id, display_name, picture_url, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, line_user_id) DO UPDATE SET
+                    display_name = COALESCE(excluded.display_name, display_name),
+                    picture_url = COALESCE(excluded.picture_url, picture_url),
+                    updated_at = excluded.updated_at
+                """,
+                (tenant_id, line_user_id, display_name, picture_url, now, now),
+            )
+
+        return self.get_line_user(tenant_id, line_user_id)
+
+    def get_line_user(self, tenant_id: str, line_user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get LINE user information.
+
+        Args:
+            tenant_id: Tenant ID
+            line_user_id: LINE user ID
+
+        Returns:
+            User data dict or None if not found
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM line_users
+                WHERE tenant_id = ? AND line_user_id = ?
+                """,
+                (tenant_id, line_user_id),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_line_users_by_tenant(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all LINE users for a tenant.
+
+        Args:
+            tenant_id: Tenant ID
+
+        Returns:
+            List of user data dicts
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM line_users
+                WHERE tenant_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (tenant_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
 
 
 # Global database instance

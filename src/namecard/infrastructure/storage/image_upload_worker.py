@@ -41,9 +41,10 @@ try:
     from redis import Redis
 
     RQ_AVAILABLE = True
-except ImportError:
+except Exception as e:
+    # 捕獲所有異常（不只是 ImportError），因為版本不相容可能拋出其他異常
     RQ_AVAILABLE = False
-    logger.info("RQ not available, will use in-memory queue")
+    logger.warning(f"RQ import failed: {e}, will use in-memory queue")
 
 
 @dataclass

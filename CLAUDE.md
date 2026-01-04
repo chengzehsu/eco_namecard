@@ -212,6 +212,41 @@ The system provides 14 detailed error types with user-friendly messages designed
 - Note: "Sentry monitoring enabled" log message may not appear but integration can still be functional
 - Confirm errors appear in Sentry Dashboard at https://sentry.io after 3-5 minutes
 
+## Development Hard Rules
+
+這些規則是經過慘痛教訓後總結的，必須嚴格遵守：
+
+### 1. 套件版本約束必須使用上限
+
+**禁止**: `package>=1.0.0`
+**正確**: `package>=1.0.0,<2.0.0`
+
+原因：主版本升級（如 1.x → 2.x）通常包含 breaking changes。使用開放式版本約束會導致部署環境安裝最新版本，而本地/CI 使用舊版本，造成「本地正常，部署爆炸」的問題。
+
+### 2. 可選依賴的 import 必須捕獲所有異常
+
+**禁止**:
+
+```python
+try:
+    from package import Something
+except ImportError:
+    AVAILABLE = False
+```
+
+**正確**:
+
+```python
+try:
+    from package import Something
+    AVAILABLE = True
+except Exception as e:
+    AVAILABLE = False
+    logger.warning(f"Package import failed: {e}")
+```
+
+原因：版本不相容可能拋出 `AttributeError`、`TypeError` 等非 `ImportError` 異常，只捕獲 `ImportError` 會導致模組載入中斷。
+
 ## System Maintenance
 
 **Debug Endpoints**:

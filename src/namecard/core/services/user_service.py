@@ -29,10 +29,12 @@ class UserService:
         self._user_sessions: Dict[str, ProcessingStatus] = {}
         self._rate_limits: Dict[str, int] = {}
 
-        logger.info("UserService initialized",
-                   use_redis=self.use_redis,
-                   storage_backend="Redis" if self.use_redis else "Memory")
-    
+        logger.info(
+            "UserService initialized",
+            use_redis=self.use_redis,
+            storage_backend="Redis" if self.use_redis else "Memory",
+        )
+
     def _get_redis_key(self, user_id: str, key_type: str = "status") -> str:
         """生成 Redis key"""
         return f"namecard:user:{user_id}:{key_type}"
@@ -48,9 +50,25 @@ class UserService:
             status_json = status.model_dump_json()
             # 設定 24 小時過期
             self.redis_client.setex(key, 86400, status_json)
+
+            # 添加詳細日誌
+            logger.info(
+                "💾 [REDIS] User status saved to Redis",
+                user_id=user_id,
+                key=key,
+                daily_usage=status.daily_usage,
+                is_batch_mode=status.is_batch_mode,
+                ttl_seconds=86400,
+                data_size=len(status_json),
+                operation="SAVE",
+            )
         except Exception as e:
-            logger.error("Failed to save status to Redis",
-                        user_id=user_id, error=str(e))
+            logger.error(
+                "❌ [REDIS] Failed to save status to Redis",
+                user_id=user_id,
+                error=str(e),
+                operation="SAVE",
+            )
 
     def _load_status_from_redis(self, user_id: str) -> Optional[ProcessingStatus]:
         """從 Redis 載入用戶狀態"""
@@ -62,12 +80,36 @@ class UserService:
             status_json = self.redis_client.get(key)
 
             if status_json:
-                # 使用 Pydantic 的 model_validate_json 來反序列化
-                return ProcessingStatus.model_validate_json(status_json)
-            return None
+                status = ProcessingStatus.model_validate_json(status_json)
+
+                # 添加詳細日誌 - 命中
+                logger.info(
+                    "📖 [REDIS] User status loaded from Redis (HIT)",
+                    user_id=user_id,
+                    key=key,
+                    daily_usage=status.daily_usage,
+                    is_batch_mode=status.is_batch_mode,
+                    data_size=len(status_json),
+                    operation="LOAD",
+                    cache_hit=True,
+                )
+                return status
+            else:
+                # 添加詳細日誌 - 未命中
+                logger.info(
+                    "📖 [REDIS] User status not found in Redis (MISS)",
+                    user_id=user_id,
+                    key=key,
+                    cache_hit=False,
+                )
+                return None
         except Exception as e:
-            logger.error("Failed to load status from Redis",
-                        user_id=user_id, error=str(e))
+            logger.error(
+                "❌ [REDIS] Failed to load status from Redis",
+                user_id=user_id,
+                error=str(e),
+                operation="LOAD",
+            )
             return None
 
     def get_user_status(self, user_id: str) -> ProcessingStatus:
@@ -100,14 +142,18 @@ class UserService:
             today_reset = now_tw.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
         else:
             # 凌晨 04:00 之前，重置時間點是昨天的 04:00
-            today_reset = (now_tw - timedelta(days=1)).replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+            today_reset = (now_tw - timedelta(days=1)).replace(
+                hour=RESET_HOUR, minute=0, second=0, microsecond=0
+            )
 
         # 將 usage_reset_date 轉換為台灣時間比較
         try:
             reset_date_tw = status.usage_reset_date.astimezone(TW_TZ)
         except (ValueError, TypeError):
             # 如果沒有時區資訊，假設是 UTC 並轉換
-            reset_date_tw = status.usage_reset_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(TW_TZ)
+            reset_date_tw = status.usage_reset_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+                TW_TZ
+            )
 
         # 如果上次重置時間早於今天的重置時間點，則重置
         if reset_date_tw < today_reset:
@@ -119,15 +165,16 @@ class UserService:
                 self._save_status_to_redis(user_id, status)
 
         return status
-    
+
     def check_rate_limit(self, user_id: str, limit: int = 50) -> bool:
         """檢查用戶是否超過每日限制"""
         status = self.get_user_status(user_id)
         return status.daily_usage < limit
-    
+
     def increment_usage(self, user_id: str) -> None:
         """增加用戶使用次數"""
         status = self.get_user_status(user_id)
+        old_usage = status.daily_usage
         status.daily_usage += 1
         status.last_activity = datetime.now()
 
@@ -135,10 +182,24 @@ class UserService:
         if self.use_redis:
             self._save_status_to_redis(user_id, status)
 
-        logger.info("User usage incremented",
-                   user_id=user_id,
-                   daily_usage=status.daily_usage)
-    
+            # 添加詳細日誌
+            logger.info(
+                "📊 [REDIS] User usage incremented",
+                user_id=user_id,
+                old_usage=old_usage,
+                new_usage=status.daily_usage,
+                action="increment_usage",
+                storage="REDIS",
+            )
+        else:
+            logger.info(
+                "⚠️ [MEMORY] User usage incremented (using in-memory storage)",
+                user_id=user_id,
+                old_usage=old_usage,
+                new_usage=status.daily_usage,
+                storage="MEMORY",
+            )
+
     def start_batch_mode(self, user_id: str) -> BatchProcessResult:
         """開始批次模式"""
         status = self.get_user_status(user_id)
@@ -147,10 +208,7 @@ class UserService:
             # 結束當前批次，開始新的
             self.end_batch_mode(user_id)
 
-        batch_result = BatchProcessResult(
-            user_id=user_id,
-            started_at=datetime.now()
-        )
+        batch_result = BatchProcessResult(user_id=user_id, started_at=datetime.now())
 
         status.is_batch_mode = True
         status.current_batch = batch_result
@@ -161,7 +219,7 @@ class UserService:
 
         logger.info("Batch mode started", user_id=user_id)
         return batch_result
-    
+
     def end_batch_mode(self, user_id: str) -> Optional[BatchProcessResult]:
         """結束批次模式"""
         status = self.get_user_status(user_id)
@@ -179,13 +237,15 @@ class UserService:
         if self.use_redis:
             self._save_status_to_redis(user_id, status)
 
-        logger.info("Batch mode ended",
-                   user_id=user_id,
-                   total_cards=batch_result.total_cards,
-                   success_rate=batch_result.success_rate)
+        logger.info(
+            "Batch mode ended",
+            user_id=user_id,
+            total_cards=batch_result.total_cards,
+            success_rate=batch_result.success_rate,
+        )
 
         return batch_result
-    
+
     def add_card_to_batch(self, user_id: str, card) -> bool:
         """將名片加入當前批次"""
         status = self.get_user_status(user_id)
@@ -197,7 +257,7 @@ class UserService:
         batch.cards.append(card)
         batch.total_cards += 1
 
-        if hasattr(card, 'processed') and card.processed:
+        if hasattr(card, "processed") and card.processed:
             batch.successful_cards += 1
         else:
             batch.failed_cards += 1
@@ -207,22 +267,24 @@ class UserService:
             self._save_status_to_redis(user_id, status)
 
         return True
-    
+
     def get_batch_status(self, user_id: str) -> Optional[str]:
         """獲取批次狀態描述"""
         status = self.get_user_status(user_id)
-        
+
         if not status.is_batch_mode or not status.current_batch:
             return None
-        
+
         batch = status.current_batch
         duration = datetime.now() - batch.started_at
-        
-        return (f"📊 批次進度: {batch.total_cards} 張名片\n"
-               f"✅ 成功: {batch.successful_cards} 張\n"
-               f"❌ 失敗: {batch.failed_cards} 張\n"
-               f"⏱️ 處理時間: {duration.seconds // 60} 分鐘")
-    
+
+        return (
+            f"📊 批次進度: {batch.total_cards} 張名片\n"
+            f"✅ 成功: {batch.successful_cards} 張\n"
+            f"❌ 失敗: {batch.failed_cards} 張\n"
+            f"⏱️ 處理時間: {duration.seconds // 60} 分鐘"
+        )
+
     def cleanup_inactive_sessions(self, hours: int = 24) -> int:
         """清理非活躍的用戶會話"""
         cutoff = datetime.now() - timedelta(hours=hours)
@@ -243,11 +305,11 @@ class UserService:
                             if status.last_activity < cutoff:
                                 self.redis_client.delete(key)
                                 inactive_users.append(status.user_id)
-                                logger.info("Cleaned up inactive session from Redis",
-                                          user_id=status.user_id)
+                                logger.info(
+                                    "Cleaned up inactive session from Redis", user_id=status.user_id
+                                )
                     except Exception as e:
-                        logger.error("Error cleaning up Redis key",
-                                   key=key, error=str(e))
+                        logger.error("Error cleaning up Redis key", key=key, error=str(e))
             except Exception as e:
                 logger.error("Failed to cleanup Redis sessions", error=str(e))
         else:
@@ -258,8 +320,7 @@ class UserService:
 
             for user_id in inactive_users:
                 del self._user_sessions[user_id]
-                logger.info("Cleaned up inactive session from memory",
-                          user_id=user_id)
+                logger.info("Cleaned up inactive session from memory", user_id=user_id)
 
         return len(inactive_users)
 

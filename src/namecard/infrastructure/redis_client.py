@@ -1,4 +1,4 @@
-"""Redis 客戶端工具模組"""
+"""Redis 客戶端工具模組 - 帶詳細日誌"""
 import structlog
 from typing import Optional
 from simple_config import settings
@@ -14,7 +14,7 @@ def create_redis_client():
         Redis 客戶端實例，如果 Redis 未啟用或連接失敗則返回 None
     """
     if not settings.redis_enabled:
-        logger.info("Redis is disabled in configuration")
+        logger.info("🔴 [REDIS] Redis is disabled in configuration")
         return None
 
     try:
@@ -22,19 +22,21 @@ def create_redis_client():
 
         # 優先使用 REDIS_URL
         if settings.redis_url:
-            logger.info("Connecting to Redis using REDIS_URL")
+            logger.info("🔗 [REDIS] Connecting to Redis using REDIS_URL")
             client = redis.from_url(
                 settings.redis_url,
                 decode_responses=settings.redis_decode_responses,
                 socket_timeout=settings.redis_socket_timeout,
-                max_connections=settings.redis_max_connections
+                max_connections=settings.redis_max_connections,
             )
         else:
             # 使用個別參數
-            logger.info("Connecting to Redis using host/port configuration",
-                       host=settings.redis_host,
-                       port=settings.redis_port,
-                       db=settings.redis_db)
+            logger.info(
+                "🔗 [REDIS] Connecting to Redis using host/port configuration",
+                host=settings.redis_host,
+                port=settings.redis_port,
+                db=settings.redis_db,
+            )
 
             client = redis.Redis(
                 host=settings.redis_host,
@@ -43,22 +45,30 @@ def create_redis_client():
                 db=settings.redis_db,
                 decode_responses=settings.redis_decode_responses,
                 socket_timeout=settings.redis_socket_timeout,
-                max_connections=settings.redis_max_connections
+                max_connections=settings.redis_max_connections,
             )
 
         # 測試連接
         client.ping()
-        logger.info("Redis connection established successfully")
+        logger.info(
+            "✅ [REDIS] Redis connection established successfully",
+            host=settings.redis_host,
+            port=settings.redis_port,
+            status="CONNECTED",
+        )
         return client
 
     except ImportError:
-        logger.warning("redis package not installed, falling back to in-memory storage")
+        logger.warning("❌ [REDIS] redis package not installed, falling back to in-memory storage")
         return None
     except Exception as e:
-        logger.error("Failed to connect to Redis, falling back to in-memory storage",
-                    error=str(e),
-                    redis_host=settings.redis_host,
-                    redis_port=settings.redis_port)
+        logger.error(
+            "❌ [REDIS] Failed to connect to Redis, falling back to in-memory storage",
+            error=str(e),
+            redis_host=settings.redis_host,
+            redis_port=settings.redis_port,
+            status="FAILED",
+        )
         return None
 
 
@@ -88,8 +98,8 @@ def close_redis_client():
     if _redis_client:
         try:
             _redis_client.close()
-            logger.info("Redis connection closed")
+            logger.info("✅ [REDIS] Redis connection closed", status="CLOSED")
         except Exception as e:
-            logger.error("Error closing Redis connection", error=str(e))
+            logger.error("❌ [REDIS] Error closing Redis connection", error=str(e))
         finally:
             _redis_client = None

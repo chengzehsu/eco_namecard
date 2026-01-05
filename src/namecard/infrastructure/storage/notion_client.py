@@ -76,6 +76,11 @@ class NotionClient:
 
         # 測試連接並獲取 schema
         self._test_connection()
+        
+    @property
+    def api_key(self) -> str:
+        """公開 API key 供序列化使用（例如 RQ 任務）"""
+        return self._api_key
 
     def _test_connection(self) -> None:
         """測試 Notion 連接並緩存 schema (2025-09-03 版本)

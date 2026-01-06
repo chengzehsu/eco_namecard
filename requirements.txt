@@ -8,8 +8,8 @@ gunicorn==21.2.0
 # Google AI
 google-generativeai>=0.3.2
 
-# Notion SDK
-notion-client>=2.3.0
+# Notion SDK (2.7.0 支援 notion_version 參數設置 2025-09-03)
+notion-client>=2.7.0
 
 # Environment & Config
 python-dotenv>=1.0.0

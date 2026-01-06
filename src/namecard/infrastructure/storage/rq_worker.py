@@ -30,21 +30,56 @@ from simple_config import settings
 logger = structlog.get_logger()
 
 
+def create_rq_redis_client():
+    """
+    創建專用於 RQ 的 Redis 客戶端
+    
+    RQ 需要 decode_responses=False 來正確處理序列化的任務資料
+    """
+    import redis
+    
+    # 優先使用 REDIS_URL
+    if settings.redis_url:
+        logger.info("🔗 [RQ] Connecting to Redis using REDIS_URL")
+        return redis.from_url(
+            settings.redis_url,
+            decode_responses=False,  # RQ 需要 False
+            socket_timeout=settings.redis_socket_timeout,
+        )
+    else:
+        logger.info(
+            "🔗 [RQ] Connecting to Redis using host/port configuration",
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+        )
+        return redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            password=settings.redis_password,
+            db=settings.redis_db,
+            decode_responses=False,  # RQ 需要 False
+            socket_timeout=settings.redis_socket_timeout,
+        )
+
+
 def start_worker():
     """啟動 RQ Worker"""
     try:
         from rq import Worker, Queue
-        from src.namecard.infrastructure.redis_client import get_redis_client
         from src.namecard.infrastructure.storage.image_upload_worker import RQ_QUEUE_NAME
     except ImportError as e:
         logger.error("Required packages not installed", error=str(e))
         logger.info("Please install: pip install rq redis")
         sys.exit(1)
 
-    # 獲取 Redis 連接
-    redis_client = get_redis_client()
-    if not redis_client:
-        logger.error("Failed to connect to Redis")
+    # 創建 RQ 專用的 Redis 連接（decode_responses=False）
+    try:
+        redis_client = create_rq_redis_client()
+        redis_client.ping()
+        logger.info("✅ [RQ] Redis connection established successfully")
+    except Exception as e:
+        logger.error("Failed to connect to Redis", error=str(e))
         logger.info("Please ensure Redis is running and REDIS_URL is configured")
         sys.exit(1)
 

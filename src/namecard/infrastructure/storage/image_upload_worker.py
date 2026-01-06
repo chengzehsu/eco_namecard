@@ -26,6 +26,55 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# RQ 專用的 Redis 客戶端（decode_responses=False）
+_rq_redis_client = None
+
+
+def get_rq_redis_client():
+    """
+    獲取專用於 RQ 的 Redis 客戶端
+    
+    RQ 需要 decode_responses=False 來正確處理序列化的任務資料
+    """
+    global _rq_redis_client
+    
+    if _rq_redis_client is not None:
+        return _rq_redis_client
+    
+    try:
+        import redis
+        from simple_config import settings
+        
+        if not settings.redis_enabled:
+            return None
+        
+        # 優先使用 REDIS_URL
+        if settings.redis_url:
+            _rq_redis_client = redis.from_url(
+                settings.redis_url,
+                decode_responses=False,  # RQ 需要 False
+                socket_timeout=settings.redis_socket_timeout,
+            )
+        else:
+            _rq_redis_client = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                password=settings.redis_password,
+                db=settings.redis_db,
+                decode_responses=False,  # RQ 需要 False
+                socket_timeout=settings.redis_socket_timeout,
+            )
+        
+        # 測試連接
+        _rq_redis_client.ping()
+        logger.info("✅ [RQ] Redis client initialized for RQ (decode_responses=False)")
+        return _rq_redis_client
+        
+    except Exception as e:
+        logger.error("❌ [RQ] Failed to create RQ Redis client", error=str(e))
+        return None
+
+
 # Redis key prefixes
 FAILED_TASK_PREFIX = "failed_upload:"
 PENDING_TASK_PREFIX = "pending_upload:"
@@ -200,7 +249,8 @@ def submit_to_rq(
     if not RQ_AVAILABLE:
         return False
 
-    redis_client = get_redis_client()
+    # 使用 RQ 專用的 Redis 客戶端（decode_responses=False）
+    redis_client = get_rq_redis_client()
     if not redis_client:
         return False
 
@@ -399,7 +449,8 @@ def _is_rq_available() -> bool:
         _use_rq = False
         return False
 
-    redis_client = get_redis_client()
+    # 使用 RQ 專用的 Redis 客戶端（decode_responses=False）
+    redis_client = get_rq_redis_client()
     if not redis_client:
         _use_rq = False
         logger.info("Redis not available, RQ disabled")

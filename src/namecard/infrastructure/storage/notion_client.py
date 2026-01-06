@@ -90,9 +90,19 @@ class NotionClient:
         Step 3: 使用 data_source 端點獲取 schema
         """
         try:
-            logger.warning("DEBUG_NOTION_TEST_CONNECTION_START", database_id=self.database_id[:10] + "..." if self.database_id else "NONE", api_key_len=len(self._api_key) if self._api_key else 0)
+            import notion_client
+            sdk_version = getattr(notion_client, "__version__", "unknown")
+            logger.warning(
+                "DEBUG_NOTION_TEST_CONNECTION_START",
+                database_id=self.database_id[:10] + "..." if self.database_id else "NONE",
+                database_id_full_length=len(self.database_id) if self.database_id else 0,
+                api_key_len=len(self._api_key) if self._api_key else 0,
+                sdk_version=sdk_version,
+                api_version=NOTION_API_VERSION,
+            )
             
             # Step 1: 獲取 database 資訊，取得 data_sources 列表
+            logger.warning("DEBUG_NOTION_STEP1_CALLING_DB_RETRIEVE", database_id=self.database_id)
             db_response = self.client.databases.retrieve(database_id=self.database_id)
             logger.warning("DEBUG_NOTION_DB_RETRIEVED", response_keys=list(db_response.keys()), has_data_sources="data_sources" in db_response)
             
@@ -119,9 +129,11 @@ class NotionClient:
             
             # Step 3: 使用 data_source 端點獲取 schema (properties)
             # GET /v1/data_sources/{data_source_id}
+            request_path = f"data_sources/{self.data_source_id}"
+            logger.warning("DEBUG_NOTION_STEP3_CALLING_DATA_SOURCE", request_path=request_path)
             ds_response = self.client.request(
                 method="get",
-                path=f"data_sources/{self.data_source_id}",
+                path=request_path,
             )
             self._db_schema = ds_response.get("properties", {})
 
@@ -251,6 +263,13 @@ class NotionClient:
             if children:
                 create_params["children"] = children
 
+            # #region agent log
+            try:
+                import json, time
+                open("/Users/user/Ecofirst_namecard/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "A,B,C,D", "location": "notion_client.py:save_business_card:before_create", "message": "About to call pages.create", "data": {"properties_keys": list(properties.keys()), "address_property": properties.get(NotionFields.ADDRESS), "data_source_id": self.data_source_id[:10] + "..." if self.data_source_id else None}, "timestamp": time.time()}) + "\n")
+            except Exception:
+                pass
+            # #endregion
             response = self.client.pages.create(**create_params)
 
             page_url = response.get("url", "")
@@ -389,6 +408,14 @@ class NotionClient:
         Returns:
             符合 Notion API 格式的 properties 字典
         """
+        # #region agent log
+        try:
+            import json, time
+            address_field_schema = self._db_schema.get(NotionFields.ADDRESS, {})
+            open("/Users/user/Ecofirst_namecard/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "A,B,C", "location": "notion_client.py:_prepare_card_properties:entry", "message": "Checking schema for address field", "data": {"address_field_name": NotionFields.ADDRESS, "address_schema": address_field_schema, "address_schema_type": address_field_schema.get("type"), "card_address_value": card.address, "all_schema_fields": {k: v.get("type") for k, v in self._db_schema.items()}}, "timestamp": time.time()}) + "\n")
+        except Exception:
+            pass
+        # #endregion
         properties = {}
 
         # 1. Name (title) - 必填
@@ -423,10 +450,24 @@ class NotionClient:
             properties[NotionFields.COMPANY] = {"rich_text": [{"text": {"content": main_company}}]}
             logger.info("Company field added to properties", company=main_company)
 
-        # 5. 地址 (rich_text)
+        # 5. 地址 - 根據 schema 動態調整格式
         if card.address:
-            properties[NotionFields.ADDRESS] = {"rich_text": [{"text": {"content": card.address}}]}
-            logger.info("Address field added to properties", address=card.address[:30])
+            address_schema_type = self._db_schema.get(NotionFields.ADDRESS, {}).get("type", "rich_text")
+            # #region agent log
+            try:
+                import json, time
+                open("/Users/user/Ecofirst_namecard/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "A,B", "location": "notion_client.py:_prepare_card_properties:address", "message": "Setting address with dynamic type", "data": {"address_value": card.address, "schema_type": address_schema_type}, "timestamp": time.time()}) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            if address_schema_type == "multi_select":
+                # 如果 schema 是 multi_select，將地址作為單一選項
+                properties[NotionFields.ADDRESS] = {"multi_select": [{"name": card.address}]}
+                logger.info("Address field added as multi_select", address=card.address[:30])
+            else:
+                # 預設使用 rich_text
+                properties[NotionFields.ADDRESS] = {"rich_text": [{"text": {"content": card.address}}]}
+                logger.info("Address field added as rich_text", address=card.address[:30])
 
         # 注意：以下欄位刻意保留空白，供人工填寫
         # - NotionFields.DECISION_INFLUENCE (決策影響力)

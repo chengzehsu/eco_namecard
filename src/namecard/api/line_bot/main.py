@@ -680,7 +680,7 @@ def debug_tenant_notion(tenant_id: str):
     """
     try:
         tenant_service = get_tenant_service()
-        tenant = tenant_service.get_tenant(tenant_id)
+        tenant = tenant_service.get_tenant_by_id(tenant_id)
         
         if not tenant:
             return jsonify({"status": "error", "error": "Tenant not found"}), 404

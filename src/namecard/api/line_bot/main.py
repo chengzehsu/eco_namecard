@@ -670,6 +670,56 @@ def debug_last_destination():
     })
 
 
+@app.route("/debug/tenant/<tenant_id>/notion", methods=['GET'])
+def debug_tenant_notion(tenant_id: str):
+    """
+    測試特定租戶的 Notion 連接
+    
+    Args:
+        tenant_id: 租戶 ID
+    """
+    try:
+        tenant_service = get_tenant_service()
+        tenant = tenant_service.get_tenant(tenant_id)
+        
+        if not tenant:
+            return jsonify({"status": "error", "error": "Tenant not found"}), 404
+        
+        # 創建租戶的 Notion client
+        from src.namecard.infrastructure.storage.notion_client import NotionClient
+        
+        # 確定使用哪個 API key
+        api_key = tenant.notion_api_key
+        if tenant.use_shared_notion_api or not api_key:
+            api_key = settings.notion_api_key
+        
+        notion_client = NotionClient(
+            api_key=api_key,
+            database_id=tenant.notion_database_id,
+        )
+        
+        # 測試連接
+        result = notion_client.test_connection()
+        
+        return jsonify({
+            "status": "success" if result else "failed",
+            "tenant_id": tenant.id,
+            "tenant_name": tenant.name,
+            "database_id": tenant.notion_database_id[:10] + "..." if tenant.notion_database_id else None,
+            "data_source_id": notion_client.data_source_id[:10] + "..." if notion_client.data_source_id else "NOT_AVAILABLE",
+            "use_shared_api": tenant.use_shared_notion_api,
+            "schema_fields": list(notion_client._db_schema.keys())[:10] if notion_client._db_schema else [],
+            "connection_test": result,
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }), 500
+
+
 if __name__ == '__main__':
     # 僅用於本地測試，生產環境使用 gunicorn
     app.run(

@@ -47,6 +47,14 @@ _debug_log("A", "app.py:config_loaded", "CONFIG_LOADED", {"port": settings.app_p
 # #endregion
 
 # 設置日誌
+import logging
+
+# 設定 Python logging 級別為 INFO，讓 structlog 可以輸出 info 級別日誌
+logging.basicConfig(
+    format="%(message)s",
+    level=logging.INFO,  # 這是關鍵！沒有這行，默認是 WARNING
+)
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,

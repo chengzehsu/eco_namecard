@@ -90,8 +90,11 @@ class NotionClient:
         Step 3: 使用 data_source 端點獲取 schema
         """
         try:
+            logger.warning("DEBUG_NOTION_TEST_CONNECTION_START", database_id=self.database_id[:10] + "..." if self.database_id else "NONE", api_key_len=len(self._api_key) if self._api_key else 0)
+            
             # Step 1: 獲取 database 資訊，取得 data_sources 列表
             db_response = self.client.databases.retrieve(database_id=self.database_id)
+            logger.warning("DEBUG_NOTION_DB_RETRIEVED", response_keys=list(db_response.keys()), has_data_sources="data_sources" in db_response)
             
             # 從 database 獲取 data_sources
             data_sources = db_response.get("data_sources", [])
@@ -215,15 +218,18 @@ class NotionClient:
             (page_id, page_url) 元組，失敗時返回 None
         """
         try:
-            logger.info(
-                "Starting Notion save operation",
-                user_id=card.line_user_id,
+            logger.warning(
+                "DEBUG_SAVE_CARD_ENTRY",
+                user_id=card.line_user_id[:10] + "..." if card.line_user_id else None,
                 card_name=card.name,
                 card_company=card.company,
+                data_source_id=self.data_source_id[:10] + "..." if self.data_source_id else "NONE!",
+                database_id=self.database_id[:10] + "..." if self.database_id else None,
             )
 
             # 準備名片資料
             properties = self._prepare_card_properties(card)
+            logger.warning("DEBUG_CARD_PROPERTIES_PREPARED", properties_count=len(properties), property_keys=list(properties.keys()))
 
             # 準備頁面內容（圖片）
             children = self._prepare_page_content(card)
@@ -231,6 +237,7 @@ class NotionClient:
             # 建立 Notion 頁面 (2025-09-03: 使用 data_source_id)
             # 參考: https://developers.notion.com/docs/upgrade-guide-2025-09-03#step-2-provide-data-source-ids
             if not self.data_source_id:
+                logger.warning("DEBUG_SAVE_CARD_NO_DATA_SOURCE_ID", database_id=self.database_id)
                 logger.error("Cannot create page: data_source_id not available")
                 return None
                 

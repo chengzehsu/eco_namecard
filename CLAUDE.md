@@ -416,3 +416,151 @@ CREATE TABLE usage_stats (
 
 - 確認 Integration 已加入 Database 共用
 - 確認 Database 有必要的欄位 (Name, 公司, 電話 等)
+
+---
+
+## Image Processing Flow (圖片處理流程)
+
+### Complete Flow Diagram
+
+```
+LINE 用戶上傳圖片
+        ↓
+┌─────────────────────────────────────────────────────────────┐
+│  1. main.py: 接收 webhook, 識別租戶                         │
+│     - extract_channel_id() 從 destination 取得 Bot User ID  │
+│     - get_tenant_context() 查詢租戶配置                      │
+│     - 創建租戶專屬的 event_handler                           │
+├─────────────────────────────────────────────────────────────┤
+│  2. event_handler.handle_image_message()                    │
+│     - 檢查用戶是否被封鎖                                     │
+│     - 檢查每日限額                                           │
+│     - line_bot_api.get_message_content() 下載圖片            │
+│     - security_service.validate_image_data() 驗證圖片        │
+├─────────────────────────────────────────────────────────────┤
+│  3. card_processor.process_image()                          │
+│     - 圖片預處理 (大小調整、格式轉換)                         │
+│     - Gemini AI 辨識名片內容                                 │
+│     - 解析 JSON 回應，創建 BusinessCard 物件                  │
+│     - 品質檢查 (confidence_score, quality_score)             │
+├─────────────────────────────────────────────────────────────┤
+│  4. notion_client.save_business_card()                      │
+│     - 檢查 data_source_id (API 2025-09-03 必需)              │
+│     - 準備 properties 和 children                            │
+│     - pages.create() 創建 Notion 頁面                        │
+│     - 返回 (page_id, page_url) 或 None                       │
+├─────────────────────────────────────────────────────────────┤
+│  5. submit_image_upload() → ImgBB                           │
+│     - 條件: success_count > 0 AND saved_page_ids 不為空      │
+│     - 非同步上傳圖片到 ImgBB                                  │
+│     - 更新 Notion 頁面添加圖片                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Critical Check Points
+
+**為什麼 ImgBB 沒收到圖片？**
+
+ImgBB 上傳只在以下條件都滿足時觸發：
+
+```python
+if success_count > 0 and saved_page_ids:
+    submit_image_upload(...)
+```
+
+可能原因：
+
+1. **Notion data_source_id 為 None**
+   - API 2025-09-03 需要 data_source_id
+   - 檢查: `notion_client.data_source_id`
+   - Debug endpoint: `/debug/tenant/<tenant_id>/notion`
+
+2. **save_business_card() 返回 None**
+   - data_source_id 缺失
+   - Notion API 權限問題
+   - Database ID 錯誤
+
+3. **AI 未識別到名片**
+   - process_image() 拋出異常
+   - 名片品質過低
+
+### Debug Endpoints
+
+```bash
+# 測試預設 Notion 連接
+curl https://eco-namecard.zeabur.app/debug/notion
+
+# 測試特定租戶的 Notion 連接
+curl https://eco-namecard.zeabur.app/debug/tenant/<tenant_id>/notion
+
+# 查看最近收到的 LINE Bot User ID
+curl https://eco-namecard.zeabur.app/debug/last-destination
+```
+
+### Notion API 2025-09-03
+
+**重要變更**:
+
+- 必須使用 `data_source_id` 而非 `database_id` 創建頁面
+- 從 `databases.retrieve()` 獲取 `data_sources` 列表
+- 使用 `data_sources/{id}/query` 查詢
+
+**檢查 data_source_id**:
+
+```python
+# 在 NotionClient 初始化時獲取
+db_response = client.databases.retrieve(database_id=self.database_id)
+data_sources = db_response.get("data_sources", [])
+self.data_source_id = data_sources[0].get("id") if data_sources else None
+```
+
+### Debug Logs (Warning Level)
+
+上傳圖片時會產生以下 warning 級別日誌：
+
+```json
+{"event": "DEBUG_DOWNLOADING_IMAGE", "message_id": "...", ...}
+{"event": "DEBUG_IMAGE_DOWNLOADED", "image_size": 12345, ...}
+{"event": "DEBUG_AI_PROCESSING_START", ...}
+{"event": "DEBUG_AI_PROCESSING_DONE", "cards_count": 1, ...}
+{"event": "DEBUG_NOTION_SAVE_START", "data_source_id": "xxx" 或 "NONE!", ...}
+{"event": "DEBUG_NOTION_SAVE_RESULT", "result_is_none": true/false, ...}
+{"event": "DEBUG_BEFORE_IMGBB_CHECK", "success_count": 0/1, ...}
+```
+
+### Image Processing Flow Tests
+
+```bash
+# 執行端對端流程測試
+pytest tests/test_image_processing_e2e.py -v
+
+# 執行 Notion 連接測試
+pytest tests/test_notion_connection.py -v
+
+# 完整測試
+pytest tests/test_image_processing_e2e.py tests/test_notion_connection.py -v
+```
+
+**測試覆蓋範圍**:
+
+- `test_complete_image_processing_flow_success` - 完整成功流程
+- `test_imgbb_not_triggered_when_notion_fails` - Notion 失敗時 ImgBB 不觸發
+- `test_no_cards_detected` - AI 未識別到名片
+- `test_data_source_id_obtained_success` - data_source_id 獲取成功
+- `test_save_without_data_source_id_returns_none` - 無 data_source_id 時返回 None
+
+### CI/CD Image Processing Tests
+
+GitHub Actions 包含專門的圖片處理流程測試：
+
+```yaml
+image-processing-flow-test:
+  runs-on: ubuntu-latest
+  steps:
+    - name: Run image processing flow tests
+      run: |
+        pytest tests/test_image_processing_e2e.py -v
+        pytest tests/test_notion_connection.py -v
+```
+
+部署條件: `deploy` job 需要 `image-processing-flow-test` 通過

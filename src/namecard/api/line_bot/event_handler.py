@@ -125,17 +125,21 @@ class UnifiedEventHandler:
                 return
 
             # 下載圖片
+            logger.warning("DEBUG_DOWNLOADING_IMAGE", message_id=message_id, user_id=user_id[:10] + "...")
             message_content = self.line_bot_api.get_message_content(message_id)
             image_data = message_content.content
+            logger.warning("DEBUG_IMAGE_DOWNLOADED", image_size=len(image_data), message_id=message_id)
 
             # 驗證圖片
             if not security_service.validate_image_data(image_data):
+                logger.warning("DEBUG_IMAGE_VALIDATION_FAILED", image_size=len(image_data))
                 self._send_reply(reply_token, "❌ 圖片格式錯誤或檔案過大\n請上傳 10MB 以內的 JPG/PNG 圖片")
                 return
 
             # 處理圖片（現在會拋出具體異常而非返回空列表）
-            logger.info("Starting image processing", user_id=user_id)
+            logger.warning("DEBUG_AI_PROCESSING_START", user_id=user_id[:10] + "...", image_size=len(image_data))
             cards = self.card_processor.process_image(image_data, user_id)
+            logger.warning("DEBUG_AI_PROCESSING_DONE", cards_count=len(cards), user_id=user_id[:10] + "...")
 
             # 儲存名片（先不含圖片，稍後非同步更新）
             success_count = 0
@@ -143,10 +147,12 @@ class UnifiedEventHandler:
             error_messages = []
             saved_page_ids = []  # 記錄成功儲存的頁面 ID
 
-            for card in cards:
+            for idx, card in enumerate(cards):
                 try:
                     # 儲存到 Notion（不含圖片）- 返回 (page_id, page_url)
+                    logger.warning("DEBUG_NOTION_SAVE_START", card_idx=idx, card_name=card.name, card_company=card.company, notion_db_id=self.notion_client.database_id[:10] + "..." if self.notion_client.database_id else None, data_source_id=self.notion_client.data_source_id[:10] + "..." if self.notion_client.data_source_id else "NONE!")
                     result = self.notion_client.save_business_card(card)
+                    logger.warning("DEBUG_NOTION_SAVE_RESULT", card_idx=idx, result_is_none=result is None, page_id=result[0][:10] + "..." if result else None)
 
                     if result:
                         page_id, page_url = result
@@ -161,6 +167,7 @@ class UnifiedEventHandler:
                         if status.is_batch_mode:
                             user_service.add_card_to_batch(user_id, card)
                     else:
+                        logger.warning("DEBUG_NOTION_SAVE_RETURNED_NONE", card_idx=idx, card_name=card.name)
                         failed_count += 1
                         card.processed = False
 
@@ -169,6 +176,7 @@ class UnifiedEventHandler:
                     card.processed = False
                     error_msg = error_handler.handle_notion_error(e, user_id)
                     error_messages.append(error_msg)
+                    logger.warning("DEBUG_NOTION_SAVE_EXCEPTION", card_idx=idx, error=str(e), error_type=type(e).__name__)
                     logger.error("Failed to save card", error=str(e), user_id=user_id)
 
             # 增加使用計數
@@ -209,18 +217,18 @@ class UnifiedEventHandler:
             )
 
             # 使用 Queue Worker 非同步上傳圖片到 ImgBB
+            logger.warning("DEBUG_BEFORE_IMGBB_CHECK", success_count=success_count, saved_page_ids_count=len(saved_page_ids), will_upload=success_count > 0 and len(saved_page_ids) > 0)
             if success_count > 0 and saved_page_ids:
+                logger.warning("DEBUG_SUBMITTING_IMGBB_UPLOAD", page_ids=saved_page_ids[:3], image_size=len(image_data))
                 submit_image_upload(
                     image_data=image_data,
                     page_ids=saved_page_ids,
                     notion_client=self.notion_client,
                     user_id=user_id,
                 )
-                logger.info(
-                    "Submitted image upload task to worker",
-                    page_count=len(saved_page_ids),
-                    user_id=user_id,
-                )
+                logger.warning("DEBUG_IMGBB_UPLOAD_SUBMITTED", page_count=len(saved_page_ids))
+            else:
+                logger.warning("DEBUG_IMGBB_SKIPPED_NO_SUCCESS", success_count=success_count, saved_page_ids_count=len(saved_page_ids))
 
         except LineBotApiError as e:
             logger.error("LINE API error in image processing", error=str(e), user_id=user_id)

@@ -558,6 +558,7 @@ class CardProcessor:
             )
 
             # 配置安全設定：名片是專業文件，需要寬鬆的安全過濾設定
+            # 包含 Gemini 2.0+ 新增的 HARM_CATEGORY_CIVIC_INTEGRITY 類別
             safety_settings = [
                 {
                     "category": "HARM_CATEGORY_HARASSMENT",
@@ -573,6 +574,10 @@ class CardProcessor:
                 },
                 {
                     "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
                     "threshold": "BLOCK_NONE"
                 }
             ]
@@ -728,12 +733,13 @@ class CardProcessor:
                             operation="quota_retry"
                         )
 
-                        # 配置安全設定
+                        # 配置安全設定（包含 Gemini 2.0+ 的 CIVIC_INTEGRITY 類別）
                         safety_settings = [
                             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
                             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"}
                         ]
 
                         fallback_response = self.fallback_model.generate_content(

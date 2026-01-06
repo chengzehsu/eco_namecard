@@ -94,6 +94,35 @@ jobs:
         
         echo "✅ 測試階段完成"
         
+    - name: Run image processing flow tests
+      run: |
+        echo "📸 執行圖片處理流程專項測試..."
+        echo "=============================================="
+        echo "測試範圍："
+        echo "  1. 端對端圖片處理流程"
+        echo "  2. Notion data_source_id 連接"
+        echo "  3. 多租戶圖片處理"
+        echo "  4. 錯誤處理流程"
+        echo "=============================================="
+        
+        # 執行圖片處理流程測試
+        if pytest tests/test_image_processing_e2e.py tests/test_notion_connection.py -v --tb=short; then
+          echo "✅ 圖片處理流程測試: 全部通過"
+        else
+          echo "❌ 圖片處理流程測試: 失敗"
+          echo "⚠️ 這可能影響生產環境的圖片處理功能"
+          exit 1
+        fi
+        
+        echo "=============================================="
+        echo "📊 關鍵測試點驗證:"
+        echo "  ✓ LINE 圖片下載"
+        echo "  ✓ AI 辨識處理"
+        echo "  ✓ Notion data_source_id 獲取"
+        echo "  ✓ Notion 頁面創建"
+        echo "  ✓ ImgBB 上傳觸發條件"
+        echo "=============================================="
+        
     # Coverage upload disabled - can be re-enabled by setting up Codecov account
     # - name: Upload coverage to Codecov
     #   if: success()
@@ -102,6 +131,82 @@ jobs:
     #     file: ./coverage.xml
     #     token: ${{ secrets.CODECOV_TOKEN }}
     #     fail_ci_if_error: false
+
+  # 圖片處理流程專項測試
+  image-processing-flow-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create .env file
+      run: |
+        echo "LINE_CHANNEL_ACCESS_TOKEN=test_token" >> .env
+        echo "LINE_CHANNEL_SECRET=test_secret" >> .env
+        echo "GOOGLE_API_KEY=test_key" >> .env
+        echo "NOTION_API_KEY=test_notion_key" >> .env
+        echo "NOTION_DATABASE_ID=test_database_id" >> .env
+        echo "SECRET_KEY=test_secret_key" >> .env
+        
+    - name: Run image processing flow tests
+      run: |
+        echo "📸 圖片處理流程專項測試"
+        echo "=============================================="
+        echo "完整流程："
+        echo "  LINE 上傳 → 下載 → AI辨識 → Notion → ImgBB"
+        echo "=============================================="
+        
+        # 端對端測試
+        echo "🔄 執行端對端流程測試..."
+        pytest tests/test_image_processing_e2e.py -v --tb=short
+        
+        # Notion 連接測試
+        echo "🔗 執行 Notion 連接測試..."
+        pytest tests/test_notion_connection.py -v --tb=short
+        
+        echo "=============================================="
+        echo "✅ 圖片處理流程測試完成"
+        
+    - name: Generate test report
+      if: always()
+      run: |
+        echo "📊 測試報告"
+        echo "=============================================="
+        echo "圖片處理流程關鍵檢查點："
+        echo ""
+        echo "1️⃣ LINE 圖片下載"
+        echo "   - get_message_content() 調用"
+        echo "   - 圖片數據驗證"
+        echo ""
+        echo "2️⃣ AI 辨識 (Gemini)"
+        echo "   - process_image() 調用"
+        echo "   - 名片解析結果"
+        echo ""
+        echo "3️⃣ Notion 儲存"
+        echo "   - data_source_id 獲取"
+        echo "   - save_business_card() 返回值"
+        echo ""
+        echo "4️⃣ ImgBB 上傳"
+        echo "   - success_count > 0 條件"
+        echo "   - submit_image_upload() 觸發"
+        echo "=============================================="
 
   security-scan:
     runs-on: ubuntu-latest
@@ -157,7 +262,7 @@ jobs:
           bandit-report.json
 
   deploy:
-    needs: [test, security-scan]
+    needs: [test, image-processing-flow-test, security-scan]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     

@@ -5,7 +5,8 @@
 {% block content %}
 <div class="page-header">
     <h1>
-        <i data-lucide="{{ 'edit-2' if is_edit else 'plus-circle' }}" style="width: 24px; height: 24px; margin-right: 8px;"></i>
+        <i data-lucide="{{ 'edit-2' if is_edit else 'plus-circle' }}"
+            style="width: 24px; height: 24px; margin-right: 8px;"></i>
         {{ '編輯租戶' if is_edit else '新增租戶' }}
     </h1>
     <a href="{{ url_for('admin.list_tenants') }}" class="btn btn-secondary">
@@ -15,7 +16,8 @@
 </div>
 
 <div class="card">
-    <form id="tenant-form" method="POST" action="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) if is_edit else url_for('admin.create_tenant') }}">
+    <form id="tenant-form" method="POST"
+        action="{{ url_for('admin.edit_tenant', tenant_id=tenant.id) if is_edit else url_for('admin.create_tenant') }}">
 
         <!-- Basic Info -->
         <h2>
@@ -25,7 +27,8 @@
 
         <div class="form-group">
             <label for="name">租戶名稱 *</label>
-            <input type="text" id="name" name="name" value="{{ tenant.name if tenant else '' }}" required placeholder="例如：小明的名片Bot">
+            <input type="text" id="name" name="name" value="{{ tenant.name if tenant else '' }}" required
+                placeholder="例如：小明的名片Bot">
             <small>顯示在管理後台的名稱</small>
         </div>
 
@@ -50,30 +53,30 @@
 
         <!-- LINE Bot Config -->
         <h2 style="margin-top: 30px;">
-            <i data-lucide="message-circle" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            <i data-lucide="message-circle"
+                style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
             LINE Bot 設定
         </h2>
 
         <div class="form-group">
             <label for="line_channel_access_token">Channel Access Token *</label>
-            <input type="password" id="line_channel_access_token" name="line_channel_access_token"
-                   {{ 'required' if not is_edit else '' }}
-                   placeholder="{{ '已設定 (留空保持不變)' if is_edit else '在 LINE Developers Console 取得' }}">
+            <input type="password" id="line_channel_access_token" name="line_channel_access_token" {{ 'required' if not
+                is_edit else '' }} placeholder="{{ '已設定 (留空保持不變)' if is_edit else '在 LINE Developers Console 取得' }}">
             <small>Messaging API → Channel access token (long-lived)</small>
         </div>
 
         <div class="form-group">
             <label for="line_channel_secret">Channel Secret *</label>
-            <input type="password" id="line_channel_secret" name="line_channel_secret"
-                   {{ 'required' if not is_edit else '' }}
-                   placeholder="{{ '已設定 (留空保持不變)' if is_edit else '在 LINE Developers Console 取得' }}">
+            <input type="password" id="line_channel_secret" name="line_channel_secret" {{ 'required' if not is_edit
+                else '' }} placeholder="{{ '已設定 (留空保持不變)' if is_edit else '在 LINE Developers Console 取得' }}">
             <small>Messaging API → Channel secret</small>
         </div>
 
         {% if not is_edit %}
         <!-- 獲取 Bot User ID 按鈕 -->
         <div class="form-group">
-            <button type="button" id="fetch-bot-id-btn" class="btn btn-secondary" onclick="fetchBotUserId()" style="margin-bottom: 10px;">
+            <button type="button" id="fetch-bot-id-btn" class="btn btn-secondary" onclick="fetchBotUserId()"
+                style="margin-bottom: 10px;">
                 <i data-lucide="search" style="width: 16px; height: 16px;"></i>
                 獲取 Bot User ID
             </button>
@@ -84,19 +87,19 @@
         <div class="form-group">
             <label for="line_channel_id">LINE Bot User ID {{ '*' if not is_edit else '' }}</label>
             <input type="text" id="line_channel_id" name="line_channel_id"
-                   value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}"
-                   {{ 'readonly' if not is_edit else '' }}
-                   placeholder="{{ (tenant.line_channel_id if tenant.line_channel_id else '尚未設定') if is_edit else '點擊上方按鈕獲取' }}"
-                   class="{{ 'readonly-input' if not is_edit else '' }}">
+                value="{{ tenant.line_channel_id if tenant and tenant.line_channel_id else '' }}" {{ 'readonly' if not
+                is_edit else '' }}
+                placeholder="{{ (tenant.line_channel_id if tenant.line_channel_id else '尚未設定') if is_edit else '點擊上方按鈕獲取' }}"
+                class="{{ 'readonly-input' if not is_edit else '' }}">
             <small>
                 {% if is_edit %}
-                    {% if tenant.line_channel_id %}
-                        ✓ 已綁定
-                    {% else %}
-                        尚未綁定
-                    {% endif %}
+                {% if tenant.line_channel_id %}
+                ✓ 已綁定
                 {% else %}
-                    請先填入 Channel Access Token，然後點擊「獲取 Bot User ID」按鈕
+                尚未綁定
+                {% endif %}
+                {% else %}
+                請先填入 Channel Access Token，然後點擊「獲取 Bot User ID」按鈕
                 {% endif %}
             </small>
         </div>
@@ -108,24 +111,25 @@
         </h2>
 
         <div class="form-group form-check">
-            <input type="checkbox" id="use_shared_notion_api" name="use_shared_notion_api"
-                   {{ 'checked' if (not tenant or tenant.use_shared_notion_api) else '' }}
-                   onchange="toggleNotionApiKey()">
+            <input type="checkbox" id="use_shared_notion_api" name="use_shared_notion_api" {{ 'checked' if (not tenant
+                or tenant.use_shared_notion_api) else '' }} onchange="toggleNotionApiKey()">
             <label for="use_shared_notion_api">使用共用 Notion API Key</label>
             <small style="display: block; margin-left: 26px; color: var(--text-muted);">建議開啟，使用系統的 Notion API</small>
         </div>
 
-        <div class="form-group" id="notion_api_key_group" {% if not tenant or tenant.use_shared_notion_api %}hidden{% endif %}>
+        <div class="form-group" id="notion_api_key_group" {% if not tenant or tenant.use_shared_notion_api %}hidden{%
+            endif %}>
             <label for="notion_api_key">Notion API Key</label>
             <input type="password" id="notion_api_key" name="notion_api_key"
-                   placeholder="{{ '已設定 (留空保持不變)' if is_edit and tenant.notion_api_key else 'secret_xxxxxx...' }}">
-            <small>在 <a href="https://www.notion.so/my-integrations" target="_blank" style="color: var(--accent-purple);">Notion Integrations</a> 建立並取得</small>
+                placeholder="{{ '已設定 (留空保持不變)' if is_edit and tenant.notion_api_key else 'secret_xxxxxx...' }}">
+            <small>在 <a href="https://www.notion.so/my-integrations" target="_blank"
+                    style="color: var(--accent-purple);">Notion Integrations</a> 建立並取得</small>
         </div>
 
         {% if not is_edit %}
         <div class="form-group form-check">
             <input type="checkbox" id="auto_create_notion_db" name="auto_create_notion_db" checked
-                   onchange="toggleNotionDbInput()">
+                onchange="toggleNotionDbInput()">
             <label for="auto_create_notion_db">自動創建 Notion 資料庫</label>
             <small style="display: block; margin-left: 26px; color: var(--text-muted);">
                 系統將自動創建「{租戶名稱}的名片盒」資料庫，包含所有必要欄位
@@ -137,9 +141,8 @@
             <label for="notion_database_id">Notion Database ID {{ '*' if is_edit else '' }}</label>
             <div class="input-with-button">
                 <input type="text" id="notion_database_id" name="notion_database_id"
-                       value="{{ tenant.notion_database_id if tenant else '' }}"
-                       {% if is_edit %}required{% endif %}
-                       placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    value="{{ tenant.notion_database_id if tenant else '' }}" {% if is_edit %}required{% endif %}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
                 <button type="button" onclick="fetchNotionDatabaseInfo()" class="btn btn-secondary">
                     <i data-lucide="search" style="width: 16px; height: 16px;"></i>
                     驗證資料庫
@@ -148,9 +151,9 @@
             <div id="notion_db_status" class="status-message"></div>
             <small>
                 {% if is_edit %}
-                    Database URL 中的 ID 部分
+                Database URL 中的 ID 部分
                 {% else %}
-                    若不自動創建，請填入現有資料庫 ID
+                若不自動創建，請填入現有資料庫 ID
                 {% endif %}
             </small>
         </div>
@@ -162,17 +165,18 @@
         </h2>
 
         <div class="form-group form-check">
-            <input type="checkbox" id="use_shared_google_api" name="use_shared_google_api"
-                   {{ 'checked' if (not tenant or tenant.use_shared_google_api) else '' }}
-                   onchange="toggleGoogleApiKey()">
+            <input type="checkbox" id="use_shared_google_api" name="use_shared_google_api" {{ 'checked' if (not tenant
+                or tenant.use_shared_google_api) else '' }} onchange="toggleGoogleApiKey()">
             <label for="use_shared_google_api">使用共用 Google API Key</label>
-            <small style="display: block; margin-left: 26px; color: var(--text-muted);">建議開啟，使用系統的 Google Gemini API</small>
+            <small style="display: block; margin-left: 26px; color: var(--text-muted);">建議開啟，使用系統的 Google Gemini
+                API</small>
         </div>
 
-        <div class="form-group" id="google_api_key_group" {% if not tenant or tenant.use_shared_google_api %}hidden{% endif %}>
+        <div class="form-group" id="google_api_key_group" {% if not tenant or tenant.use_shared_google_api %}hidden{%
+            endif %}>
             <label for="google_api_key">Google API Key</label>
             <input type="password" id="google_api_key" name="google_api_key"
-                   placeholder="{{ '已設定 (留空保持不變)' if is_edit and tenant.google_api_key else 'AIza...' }}">
+                placeholder="{{ '已設定 (留空保持不變)' if is_edit and tenant.google_api_key else 'AIza...' }}">
             <small>租戶專用的 Google Gemini API Key</small>
         </div>
 
@@ -186,14 +190,14 @@
             <div class="form-group">
                 <label for="daily_card_limit">每日名片上限</label>
                 <input type="number" id="daily_card_limit" name="daily_card_limit"
-                       value="{{ tenant.daily_card_limit if tenant else 50 }}" min="1" max="1000">
+                    value="{{ tenant.daily_card_limit if tenant else 50 }}" min="1" max="1000">
                 <small>每個用戶每天可處理的名片數量</small>
             </div>
 
             <div class="form-group">
                 <label for="batch_size_limit">批次大小上限</label>
                 <input type="number" id="batch_size_limit" name="batch_size_limit"
-                       value="{{ tenant.batch_size_limit if tenant else 10 }}" min="1" max="50">
+                    value="{{ tenant.batch_size_limit if tenant else 10 }}" min="1" max="50">
                 <small>批次模式中的最大名片數量</small>
             </div>
         </div>
@@ -201,8 +205,8 @@
 
     <!-- Actions (outside form to avoid nesting) -->
     <div style="margin-top: 30px; display: flex; gap: 10px;">
-        <button type="submit" form="tenant-form" id="submit-btn" class="btn btn-primary"
-                {% if not is_edit %}disabled title="請先獲取 Bot User ID"{% endif %}>
+        <button type="submit" form="tenant-form" id="submit-btn" class="btn btn-primary" {% if not is_edit %}disabled
+            title="請先獲取 Bot User ID" {% endif %}>
             <i data-lucide="{{ 'save' if is_edit else 'plus' }}" style="width: 16px; height: 16px;"></i>
             {{ '儲存變更' if is_edit else '建立租戶' }}
         </button>
@@ -213,8 +217,7 @@
 
         {% if is_edit %}
         <form method="POST" action="{{ url_for('admin.delete_tenant', tenant_id=tenant.id) }}"
-              style="margin-left: auto;"
-              onsubmit="return confirm('確定要停用此租戶嗎？');">
+            style="margin-left: auto;" onsubmit="return confirm('確定要停用此租戶嗎？');">
             <button type="submit" class="btn btn-danger">
                 <i data-lucide="pause-circle" style="width: 16px; height: 16px;"></i>
                 停用租戶
@@ -225,6 +228,75 @@
 </div>
 
 {% if is_edit %}
+<!-- Google Drive Batch Processing -->
+<div class="card" style="margin-top: 20px;">
+    <h2>
+        <i data-lucide="hard-drive" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        Google Drive 批次處理
+    </h2>
+    <p style="color: var(--text-muted); margin-bottom: 20px;">
+        從 Google Drive 資料夾批次匯入名片圖片，自動識別並儲存到 Notion。
+    </p>
+
+    <div class="form-group">
+        <label for="google_drive_folder_url">Google Drive 資料夾網址</label>
+        <div class="input-with-button">
+            <input type="text" id="google_drive_folder_url" name="google_drive_folder_url"
+                value="{{ tenant.google_drive_folder_url or '' }}"
+                placeholder="https://drive.google.com/drive/folders/xxxxx">
+            <button type="button" onclick="fetchDriveFolderInfo()" class="btn btn-secondary" id="fetch-drive-btn">
+                <i data-lucide="search" style="width: 16px; height: 16px;"></i> Fetch
+            </button>
+        </div>
+        <div id="drive_folder_status" class="status-message"></div>
+        <small style="color: var(--text-muted);">
+            請確保已將資料夾共享給系統 Service Account（需「編輯者」權限才能重新命名檔案）
+        </small>
+    </div>
+
+    <div id="drive_sync_section"
+        style="display: none; margin-top: 20px; padding: 15px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div>
+                <span style="font-size: 1.1rem; font-weight: 500;">
+                    📁 <span id="drive_folder_name">資料夾</span>
+                </span>
+                <div style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">
+                    <span id="drive_file_count">0</span> 個圖片檔案・
+                    <span id="drive_unprocessed_count">0</span> 個待處理
+                </div>
+            </div>
+            <button type="button" onclick="startDriveSync()" class="btn btn-primary" id="sync_btn">
+                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i> 開始同步
+            </button>
+        </div>
+
+        <div id="drive_last_sync_info" style="color: var(--text-muted); font-size: 0.85rem;">
+            上次同步：<span id="drive_last_sync">從未</span>
+        </div>
+    </div>
+
+    <div id="sync_progress_section"
+        style="display: none; margin-top: 20px; padding: 15px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-weight: 500;">處理中...</span>
+            <span id="sync_progress_text">0%</span>
+        </div>
+        <div style="height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
+            <div id="sync_progress_bar"
+                style="height: 100%; background: var(--accent-purple); width: 0%; transition: width 0.3s;"></div>
+        </div>
+        <div
+            style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 0.85rem; color: var(--text-muted);">
+            <span>✅ 成功: <span id="sync_success_count">0</span></span>
+            <span>❌ 失敗: <span id="sync_error_count">0</span></span>
+            <span>⏭️ 略過: <span id="sync_skipped_count">0</span></span>
+        </div>
+    </div>
+
+    <div id="sync_result_section" style="display: none; margin-top: 20px; padding: 15px; border-radius: 8px;"></div>
+</div>
+
 <!-- Webhook Info -->
 <div class="card" style="margin-top: 20px;">
     <h2>
@@ -232,7 +304,8 @@
         Webhook 設定說明
     </h2>
     <p style="color: var(--text-muted);">請在 LINE Developers Console 中設定以下 Webhook URL：</p>
-    <div style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; margin-top: 10px; border: 1px solid var(--border-color);">
+    <div
+        style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; margin-top: 10px; border: 1px solid var(--border-color);">
         <code style="font-size: 1rem; color: var(--accent-purple);">https://eco-namecard.zeabur.app/callback</code>
     </div>
     <p style="color: var(--text-muted); margin-top: 10px; font-size: 0.9rem;">
@@ -243,212 +316,442 @@
 {% endif %}
 
 <script>
-function toggleGoogleApiKey() {
-    const checkbox = document.getElementById('use_shared_google_api');
-    const group = document.getElementById('google_api_key_group');
-    group.hidden = checkbox.checked;
-}
-
-function toggleNotionApiKey() {
-    const checkbox = document.getElementById('use_shared_notion_api');
-    const group = document.getElementById('notion_api_key_group');
-    group.hidden = checkbox.checked;
-}
-
-function toggleNotionDbInput() {
-    const checkbox = document.getElementById('auto_create_notion_db');
-    const group = document.getElementById('notion_database_id_group');
-    const input = document.getElementById('notion_database_id');
-    if (checkbox) {
+    function toggleGoogleApiKey() {
+        const checkbox = document.getElementById('use_shared_google_api');
+        const group = document.getElementById('google_api_key_group');
         group.hidden = checkbox.checked;
-        input.required = !checkbox.checked;
-    }
-}
-
-// 驗證 Notion Database
-async function fetchNotionDatabaseInfo() {
-    const databaseIdInput = document.getElementById('notion_database_id');
-    const notionApiKeyInput = document.getElementById('notion_api_key');
-    const useSharedApiCheckbox = document.getElementById('use_shared_notion_api');
-    const statusDiv = document.getElementById('notion_db_status');
-    const verifyBtn = event.target.closest('button');
-
-    const databaseId = databaseIdInput.value.trim();
-    const notionApiKey = notionApiKeyInput ? notionApiKeyInput.value.trim() : '';
-    const useSharedApi = useSharedApiCheckbox ? useSharedApiCheckbox.checked : false;
-
-    // 驗證輸入
-    if (!databaseId) {
-        statusDiv.className = 'status-message error';
-        statusDiv.innerHTML = '❌ 請先填寫 Database ID';
-        return;
     }
 
-    if (!useSharedApi && !notionApiKey) {
-        statusDiv.className = 'status-message error';
-        statusDiv.innerHTML = '❌ 請先填寫 Notion API Key 或勾選使用共用 API Key';
-        return;
+    function toggleNotionApiKey() {
+        const checkbox = document.getElementById('use_shared_notion_api');
+        const group = document.getElementById('notion_api_key_group');
+        group.hidden = checkbox.checked;
     }
 
-    // 顯示載入狀態
-    statusDiv.className = 'status-message info';
-    statusDiv.innerHTML = '⏳ 正在驗證 Notion Database...';
-    verifyBtn.disabled = true;
-    verifyBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 驗證中...';
+    function toggleNotionDbInput() {
+        const checkbox = document.getElementById('auto_create_notion_db');
+        const group = document.getElementById('notion_database_id_group');
+        const input = document.getElementById('notion_database_id');
+        if (checkbox) {
+            group.hidden = checkbox.checked;
+            input.required = !checkbox.checked;
+        }
+    }
 
-    try {
-        const response = await fetch('{{ url_for("admin.fetch_notion_database_info") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                database_id: databaseId,
-                notion_api_key: notionApiKey,
-                use_shared_api: useSharedApi,
-            }),
-        });
+    // 驗證 Notion Database
+    async function fetchNotionDatabaseInfo() {
+        const databaseIdInput = document.getElementById('notion_database_id');
+        const notionApiKeyInput = document.getElementById('notion_api_key');
+        const useSharedApiCheckbox = document.getElementById('use_shared_notion_api');
+        const statusDiv = document.getElementById('notion_db_status');
+        const verifyBtn = event.target.closest('button');
 
-        const data = await response.json();
+        const databaseId = databaseIdInput.value.trim();
+        const notionApiKey = notionApiKeyInput ? notionApiKeyInput.value.trim() : '';
+        const useSharedApi = useSharedApiCheckbox ? useSharedApiCheckbox.checked : false;
 
-        if (data.success) {
-            statusDiv.className = 'status-message success';
-            let message = `✅ 驗證成功！<br><strong>資料庫名稱:</strong> ${data.database_title}`;
-
-            // 顯示實際讀取到的欄位
-            if (data.actual_fields && data.actual_fields.length > 0) {
-                message += `<br><strong>讀取到 ${data.field_count} 個欄位:</strong> ${data.actual_fields.join(', ')}`;
-            }
-
-            if (data.warning) {
-                message += `<br><span class="status-warning">⚠️ ${data.warning}</span>`;
-                if (data.debug_info) {
-                    message += `<br><small>${data.debug_info}</small>`;
-                }
-            }
-
-            statusDiv.innerHTML = message;
-
-            // 自動填入正確的 database_id（無 hyphens）
-            databaseIdInput.value = data.database_id;
-
-            // 更新按鈕狀態
-            verifyBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已驗證';
-            verifyBtn.style.background = 'var(--accent-green)';
-            verifyBtn.style.borderColor = 'var(--accent-green)';
-            verifyBtn.style.color = 'white';
-        } else {
+        // 驗證輸入
+        if (!databaseId) {
             statusDiv.className = 'status-message error';
-            statusDiv.innerHTML = `❌ 驗證失敗：${data.error}`;
+            statusDiv.innerHTML = '❌ 請先填寫 Database ID';
+            return;
+        }
+
+        if (!useSharedApi && !notionApiKey) {
+            statusDiv.className = 'status-message error';
+            statusDiv.innerHTML = '❌ 請先填寫 Notion API Key 或勾選使用共用 API Key';
+            return;
+        }
+
+        // 顯示載入狀態
+        statusDiv.className = 'status-message info';
+        statusDiv.innerHTML = '⏳ 正在驗證 Notion Database...';
+        verifyBtn.disabled = true;
+        verifyBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 驗證中...';
+
+        try {
+            const response = await fetch('{{ url_for("admin.fetch_notion_database_info") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    database_id: databaseId,
+                    notion_api_key: notionApiKey,
+                    use_shared_api: useSharedApi,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                statusDiv.className = 'status-message success';
+                let message = `✅ 驗證成功！<br><strong>資料庫名稱:</strong> ${data.database_title}`;
+
+                // 顯示實際讀取到的欄位
+                if (data.actual_fields && data.actual_fields.length > 0) {
+                    message += `<br><strong>讀取到 ${data.field_count} 個欄位:</strong> ${data.actual_fields.join(', ')}`;
+                }
+
+                if (data.warning) {
+                    message += `<br><span class="status-warning">⚠️ ${data.warning}</span>`;
+                    if (data.debug_info) {
+                        message += `<br><small>${data.debug_info}</small>`;
+                    }
+                }
+
+                statusDiv.innerHTML = message;
+
+                // 自動填入正確的 database_id（無 hyphens）
+                databaseIdInput.value = data.database_id;
+
+                // 更新按鈕狀態
+                verifyBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已驗證';
+                verifyBtn.style.background = 'var(--accent-green)';
+                verifyBtn.style.borderColor = 'var(--accent-green)';
+                verifyBtn.style.color = 'white';
+            } else {
+                statusDiv.className = 'status-message error';
+                statusDiv.innerHTML = `❌ 驗證失敗：${data.error}`;
+
+                verifyBtn.disabled = false;
+                verifyBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新驗證';
+            }
+        } catch (error) {
+            statusDiv.className = 'status-message error';
+            statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
 
             verifyBtn.disabled = false;
             verifyBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新驗證';
         }
-    } catch (error) {
-        statusDiv.className = 'status-message error';
-        statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
 
-        verifyBtn.disabled = false;
-        verifyBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新驗證';
+        // 重新初始化 Lucide 圖標
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
     }
 
-    // 重新初始化 Lucide 圖標
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
+    // 獲取 Bot User ID
+    async function fetchBotUserId() {
+        const accessToken = document.getElementById('line_channel_access_token').value.trim();
+        const statusDiv = document.getElementById('fetch-status');
+        const botIdInput = document.getElementById('line_channel_id');
+        const fetchBtn = document.getElementById('fetch-bot-id-btn');
+        const submitBtn = document.getElementById('submit-btn');
 
-// 獲取 Bot User ID
-async function fetchBotUserId() {
-    const accessToken = document.getElementById('line_channel_access_token').value.trim();
-    const statusDiv = document.getElementById('fetch-status');
-    const botIdInput = document.getElementById('line_channel_id');
-    const fetchBtn = document.getElementById('fetch-bot-id-btn');
-    const submitBtn = document.getElementById('submit-btn');
-
-    // 驗證 Access Token 是否已填入
-    if (!accessToken) {
-        statusDiv.style.display = 'block';
-        statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
-        statusDiv.style.color = 'var(--accent-red, #dc2626)';
-        statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
-        statusDiv.innerHTML = '⚠️ 請先填入 Channel Access Token';
-        return;
-    }
-
-    // 顯示載入狀態
-    fetchBtn.disabled = true;
-    fetchBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 獲取中...';
-    statusDiv.style.display = 'block';
-    statusDiv.style.background = 'var(--bg-secondary)';
-    statusDiv.style.color = 'var(--text-primary)';
-    statusDiv.style.border = '1px solid var(--border-color)';
-    statusDiv.innerHTML = '⏳ 正在連接 LINE API...';
-
-    try {
-        const response = await fetch('{{ url_for("admin.fetch_bot_user_id") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                access_token: accessToken
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // 成功獲取
-            botIdInput.value = data.bot_user_id;
-            statusDiv.style.background = 'var(--accent-green-bg, #dcfce7)';
-            statusDiv.style.color = 'var(--accent-green, #16a34a)';
-            statusDiv.style.border = '1px solid var(--accent-green, #16a34a)';
-            statusDiv.innerHTML = `✓ 成功獲取！<br><strong>Bot User ID:</strong> ${data.bot_user_id}<br><strong>Bot 名稱:</strong> ${data.bot_name || '(未設定)'}`;
-
-            // 啟用提交按鈕
-            submitBtn.disabled = false;
-            submitBtn.title = '';
-
-            // 更新按鈕狀態
-            fetchBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已獲取';
-            fetchBtn.style.background = 'var(--accent-green)';
-            fetchBtn.style.borderColor = 'var(--accent-green)';
-            fetchBtn.style.color = 'white';
-        } else {
-            // 獲取失敗
+        // 驗證 Access Token 是否已填入
+        if (!accessToken) {
+            statusDiv.style.display = 'block';
             statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
             statusDiv.style.color = 'var(--accent-red, #dc2626)';
             statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
-            statusDiv.innerHTML = `❌ 獲取失敗：${data.error}`;
+            statusDiv.innerHTML = '⚠️ 請先填入 Channel Access Token';
+            return;
+        }
+
+        // 顯示載入狀態
+        fetchBtn.disabled = true;
+        fetchBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 獲取中...';
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'var(--bg-secondary)';
+        statusDiv.style.color = 'var(--text-primary)';
+        statusDiv.style.border = '1px solid var(--border-color)';
+        statusDiv.innerHTML = '⏳ 正在連接 LINE API...';
+
+        try {
+            const response = await fetch('{{ url_for("admin.fetch_bot_user_id") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    access_token: accessToken
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // 成功獲取
+                botIdInput.value = data.bot_user_id;
+                statusDiv.style.background = 'var(--accent-green-bg, #dcfce7)';
+                statusDiv.style.color = 'var(--accent-green, #16a34a)';
+                statusDiv.style.border = '1px solid var(--accent-green, #16a34a)';
+                statusDiv.innerHTML = `✓ 成功獲取！<br><strong>Bot User ID:</strong> ${data.bot_user_id}<br><strong>Bot 名稱:</strong> ${data.bot_name || '(未設定)'}`;
+
+                // 啟用提交按鈕
+                submitBtn.disabled = false;
+                submitBtn.title = '';
+
+                // 更新按鈕狀態
+                fetchBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已獲取';
+                fetchBtn.style.background = 'var(--accent-green)';
+                fetchBtn.style.borderColor = 'var(--accent-green)';
+                fetchBtn.style.color = 'white';
+            } else {
+                // 獲取失敗
+                statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
+                statusDiv.style.color = 'var(--accent-red, #dc2626)';
+                statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
+                statusDiv.innerHTML = `❌ 獲取失敗：${data.error}`;
+
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新獲取';
+            }
+        } catch (error) {
+            statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
+            statusDiv.style.color = 'var(--accent-red, #dc2626)';
+            statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
+            statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
 
             fetchBtn.disabled = false;
             fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新獲取';
         }
-    } catch (error) {
-        statusDiv.style.background = 'var(--accent-red-bg, #fee2e2)';
-        statusDiv.style.color = 'var(--accent-red, #dc2626)';
-        statusDiv.style.border = '1px solid var(--accent-red, #dc2626)';
-        statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
 
-        fetchBtn.disabled = false;
-        fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重新獲取';
+        // 重新初始化 Lucide 圖標
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
     }
 
-    // 重新初始化 Lucide 圖標
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-
-// 添加 CSS 動畫
-const style = document.createElement('style');
-style.textContent = `
+    // 添加 CSS 動畫
+    const style = document.createElement('style');
+    style.textContent = `
     @keyframes spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
 `;
-document.head.appendChild(style);
+    document.head.appendChild(style);
+
+    // ==================== Google Drive Functions ====================
+
+    let syncPollingInterval = null;
+    const TENANT_ID = '{{ tenant.id if tenant else "" }}';
+
+    // Fetch Google Drive folder info
+    async function fetchDriveFolderInfo() {
+        const folderUrlInput = document.getElementById('google_drive_folder_url');
+        const statusDiv = document.getElementById('drive_folder_status');
+        const fetchBtn = document.getElementById('fetch-drive-btn');
+        const syncSection = document.getElementById('drive_sync_section');
+
+        const folderUrl = folderUrlInput.value.trim();
+
+        if (!folderUrl) {
+            statusDiv.className = 'status-message error';
+            statusDiv.innerHTML = '❌ 請輸入 Google Drive 資料夾網址';
+            statusDiv.style.display = 'block';
+            return;
+        }
+
+        // Show loading state
+        statusDiv.className = 'status-message info';
+        statusDiv.innerHTML = '⏳ 正在驗證資料夾...';
+        statusDiv.style.display = 'block';
+        fetchBtn.disabled = true;
+        fetchBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 驗證中...';
+
+        try {
+            const response = await fetch('{{ url_for("admin.fetch_drive_folder") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder_url: folderUrl })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                statusDiv.className = 'status-message success';
+                statusDiv.innerHTML = `✅ ${data.message}`;
+
+                // Update sync section
+                document.getElementById('drive_folder_name').textContent = data.folder_name;
+                document.getElementById('drive_file_count').textContent = data.total_files;
+                document.getElementById('drive_unprocessed_count').textContent = data.unprocessed_files;
+
+                syncSection.style.display = 'block';
+
+                // Update button
+                fetchBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已驗證';
+                fetchBtn.style.background = 'var(--accent-green)';
+                fetchBtn.style.borderColor = 'var(--accent-green)';
+                fetchBtn.style.color = 'white';
+            } else {
+                statusDiv.className = 'status-message error';
+                let errorMsg = `❌ ${data.error}`;
+                if (data.service_account_email) {
+                    errorMsg += `<br><small>請將資料夾共享給: <code>${data.service_account_email}</code></small>`;
+                }
+                statusDiv.innerHTML = errorMsg;
+                syncSection.style.display = 'none';
+
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重試';
+            }
+        } catch (error) {
+            statusDiv.className = 'status-message error';
+            statusDiv.innerHTML = `❌ 網路錯誤：${error.message}`;
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = '<i data-lucide="search" style="width: 16px; height: 16px;"></i> 重試';
+        }
+
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    // Start Drive sync
+    async function startDriveSync() {
+        const folderUrl = document.getElementById('google_drive_folder_url').value.trim();
+        const syncBtn = document.getElementById('sync_btn');
+        const syncSection = document.getElementById('drive_sync_section');
+        const progressSection = document.getElementById('sync_progress_section');
+        const resultSection = document.getElementById('sync_result_section');
+
+        if (!folderUrl) {
+            alert('請先輸入並驗證 Google Drive 資料夾網址');
+            return;
+        }
+
+        // Show progress section
+        syncSection.style.display = 'none';
+        progressSection.style.display = 'block';
+        resultSection.style.display = 'none';
+
+        // Reset progress
+        updateProgressUI(0, 0, 0, 0, 0);
+
+        try {
+            const response = await fetch(`/admin/api/drive/sync/${TENANT_ID}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder_url: folderUrl })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Start polling for progress
+                startSyncPolling();
+            } else {
+                showSyncResult('error', data.error);
+            }
+        } catch (error) {
+            showSyncResult('error', `啟動同步失敗：${error.message}`);
+        }
+    }
+
+    // Update progress UI
+    function updateProgressUI(percent, success, errors, skipped, processed) {
+        document.getElementById('sync_progress_bar').style.width = `${percent}%`;
+        document.getElementById('sync_progress_text').textContent = `${Math.round(percent)}%`;
+        document.getElementById('sync_success_count').textContent = success;
+        document.getElementById('sync_error_count').textContent = errors;
+        document.getElementById('sync_skipped_count').textContent = skipped;
+    }
+
+    // Start polling for sync status
+    function startSyncPolling() {
+        if (syncPollingInterval) {
+            clearInterval(syncPollingInterval);
+        }
+
+        syncPollingInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/admin/api/drive/sync-status/${TENANT_ID}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.is_syncing) {
+                        updateProgressUI(
+                            data.progress_percent,
+                            data.success_count,
+                            data.error_count,
+                            data.skipped_count,
+                            data.processed_files
+                        );
+                    } else {
+                        // Sync completed
+                        clearInterval(syncPollingInterval);
+                        syncPollingInterval = null;
+
+                        if (data.last_sync) {
+                            const status = data.last_sync.status;
+                            if (status === 'completed') {
+                                showSyncResult('success',
+                                    `同步完成！成功 ${data.last_sync.success_count} 張，失敗 ${data.last_sync.error_count} 張`
+                                );
+                            } else if (status === 'failed') {
+                                showSyncResult('error', '同步失敗，請查看日誌');
+                            } else if (status === 'cancelled') {
+                                showSyncResult('warning', '同步已取消');
+                            }
+                        }
+
+                        // Refresh folder info
+                        setTimeout(() => fetchDriveFolderInfo(), 1000);
+                    }
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }, 2000); // Poll every 2 seconds
+    }
+
+    // Show sync result
+    function showSyncResult(type, message) {
+        const progressSection = document.getElementById('sync_progress_section');
+        const resultSection = document.getElementById('sync_result_section');
+        const syncSection = document.getElementById('drive_sync_section');
+
+        progressSection.style.display = 'none';
+        resultSection.style.display = 'block';
+
+        const colors = {
+            success: { bg: 'var(--accent-green-bg, #dcfce7)', color: 'var(--accent-green, #16a34a)', icon: '✅' },
+            error: { bg: 'var(--accent-red-bg, #fee2e2)', color: 'var(--accent-red, #dc2626)', icon: '❌' },
+            warning: { bg: 'var(--accent-yellow-bg, #fef9c3)', color: 'var(--accent-yellow, #ca8a04)', icon: '⚠️' }
+        };
+
+        const style = colors[type] || colors.error;
+        resultSection.style.background = style.bg;
+        resultSection.style.color = style.color;
+        resultSection.style.border = `1px solid ${style.color}`;
+        resultSection.innerHTML = `${style.icon} ${message}`;
+
+        // Show sync section after a delay
+        setTimeout(() => {
+            syncSection.style.display = 'block';
+        }, 2000);
+    }
+
+    // Check for active sync on page load
+    {% if is_edit %}
+    document.addEventListener('DOMContentLoaded', async function () {
+        try {
+            const response = await fetch(`/admin/api/drive/sync-status/${TENANT_ID}`);
+            const data = await response.json();
+
+            if (data.success && data.is_syncing) {
+                // Resume showing progress
+                document.getElementById('drive_sync_section').style.display = 'none';
+                document.getElementById('sync_progress_section').style.display = 'block';
+                startSyncPolling();
+            } else if (data.folder_url) {
+                // Has folder URL, show fetch button ready
+                document.getElementById('drive_folder_status').style.display = 'none';
+            }
+
+            // Update last sync time
+            if (data.last_sync_time) {
+                const lastSync = new Date(data.last_sync_time);
+                document.getElementById('drive_last_sync').textContent = lastSync.toLocaleString('zh-TW');
+            }
+        } catch (error) {
+            console.error('Failed to check sync status:', error);
+        }
+    });
+    {% endif %}
 </script>
 {% endblock %}

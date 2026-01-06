@@ -126,6 +126,52 @@ class TenantDatabase:
             )
             logger.info("Migration: line_users table created")
 
+        # Check if Google Drive columns exist in tenants table
+        cursor = conn.execute("PRAGMA table_info(tenants)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if "google_drive_folder_url" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN google_drive_folder_url TEXT")
+            logger.info("Migration: google_drive_folder_url column added to tenants")
+        
+        if "google_drive_last_sync" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN google_drive_last_sync TEXT")
+            logger.info("Migration: google_drive_last_sync column added to tenants")
+        
+        if "google_drive_sync_status" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN google_drive_sync_status TEXT DEFAULT 'idle'")
+            logger.info("Migration: google_drive_sync_status column added to tenants")
+        
+        # Check if drive_sync_logs table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='drive_sync_logs'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS drive_sync_logs (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    folder_url TEXT,
+                    folder_id TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    total_files INTEGER DEFAULT 0,
+                    processed_files INTEGER DEFAULT 0,
+                    success_count INTEGER DEFAULT 0,
+                    error_count INTEGER DEFAULT 0,
+                    skipped_count INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'processing',
+                    error_log TEXT,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_drive_sync_logs_tenant ON drive_sync_logs(tenant_id);
+                CREATE INDEX IF NOT EXISTS idx_drive_sync_logs_status ON drive_sync_logs(status);
+            """
+            )
+            logger.info("Migration: drive_sync_logs table created")
+
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""
         conn.executescript(
@@ -146,7 +192,10 @@ class TenantDatabase:
                 google_api_key_encrypted TEXT,
                 use_shared_google_api INTEGER DEFAULT 1,
                 daily_card_limit INTEGER DEFAULT 50,
-                batch_size_limit INTEGER DEFAULT 10
+                batch_size_limit INTEGER DEFAULT 10,
+                google_drive_folder_url TEXT,
+                google_drive_last_sync TEXT,
+                google_drive_sync_status TEXT DEFAULT 'idle'
             );
 
             CREATE TABLE IF NOT EXISTS admin_users (
@@ -335,6 +384,9 @@ class TenantDatabase:
             "use_shared_google_api",
             "daily_card_limit",
             "batch_size_limit",
+            "google_drive_folder_url",
+            "google_drive_last_sync",
+            "google_drive_sync_status",
         ]
 
         for field in allowed_fields:
@@ -869,6 +921,145 @@ class TenantDatabase:
                 (tenant_id,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    # ==================== Drive Sync Operations ====================
+
+    def create_drive_sync_log(
+        self,
+        tenant_id: str,
+        folder_url: str,
+        folder_id: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a new drive sync log entry.
+
+        Args:
+            tenant_id: Tenant ID
+            folder_url: Google Drive folder URL
+            folder_id: Parsed folder ID
+
+        Returns:
+            Created log entry
+        """
+        log_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO drive_sync_logs (
+                    id, tenant_id, folder_url, folder_id, started_at, status
+                ) VALUES (?, ?, ?, ?, ?, 'processing')
+                """,
+                (log_id, tenant_id, folder_url, folder_id, now),
+            )
+
+        logger.info("Drive sync log created", log_id=log_id, tenant_id=tenant_id)
+        return self.get_drive_sync_log(log_id)
+
+    def get_drive_sync_log(self, log_id: str) -> Optional[Dict[str, Any]]:
+        """Get a drive sync log by ID"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM drive_sync_logs WHERE id = ?", (log_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def update_drive_sync_log(
+        self,
+        log_id: str,
+        total_files: int = None,
+        processed_files: int = None,
+        success_count: int = None,
+        error_count: int = None,
+        skipped_count: int = None,
+        status: str = None,
+        error_log: str = None,
+        completed: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update a drive sync log entry.
+
+        Args:
+            log_id: Log ID
+            Various fields to update
+            completed: If True, set completed_at timestamp
+
+        Returns:
+            Updated log entry or None if not found
+        """
+        fields = []
+        values = []
+
+        if total_files is not None:
+            fields.append("total_files = ?")
+            values.append(total_files)
+        if processed_files is not None:
+            fields.append("processed_files = ?")
+            values.append(processed_files)
+        if success_count is not None:
+            fields.append("success_count = ?")
+            values.append(success_count)
+        if error_count is not None:
+            fields.append("error_count = ?")
+            values.append(error_count)
+        if skipped_count is not None:
+            fields.append("skipped_count = ?")
+            values.append(skipped_count)
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+        if error_log is not None:
+            fields.append("error_log = ?")
+            values.append(error_log)
+        if completed:
+            fields.append("completed_at = ?")
+            values.append(datetime.now().isoformat())
+
+        if not fields:
+            return self.get_drive_sync_log(log_id)
+
+        values.append(log_id)
+
+        with self.get_connection() as conn:
+            conn.execute(
+                f"UPDATE drive_sync_logs SET {', '.join(fields)} WHERE id = ?",
+                values,
+            )
+
+        return self.get_drive_sync_log(log_id)
+
+    def get_tenant_drive_sync_logs(
+        self, tenant_id: str, limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get recent drive sync logs for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM drive_sync_logs
+                WHERE tenant_id = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (tenant_id, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_active_drive_sync(self, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get the currently active (processing) drive sync for a tenant"""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM drive_sync_logs
+                WHERE tenant_id = ? AND status = 'processing'
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (tenant_id,),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
 
 # Global database instance

@@ -564,3 +564,214 @@ image-processing-flow-test:
 ```
 
 部署條件: `deploy` job 需要 `image-processing-flow-test` 通過
+
+---
+
+## Event Handler (事件處理器)
+
+### UnifiedEventHandler
+
+**位置**: `src/namecard/api/line_bot/event_handler.py`
+
+統一的 LINE Bot 事件處理器，負責處理所有類型的用戶訊息。
+
+**初始化參數**:
+
+```python
+UnifiedEventHandler(
+    line_bot_api: LineBotApi,      # LINE Bot API 實例
+    card_processor: CardProcessor,  # 名片 AI 處理器
+    notion_client: NotionClient,    # Notion 儲存客戶端
+    tenant_id: Optional[str] = None # 租戶 ID (多租戶模式)
+)
+```
+
+### 支援的文字指令
+
+| 指令 | 別名 | 功能 |
+|------|------|------|
+| `help` | `說明`, `幫助` | 顯示使用說明 |
+| `批次` | `batch`, `批量` | 開始批次處理模式 |
+| `狀態` | `status`, `進度` | 查看處理進度 |
+| `結束批次` | `end batch`, `完成批次` | 結束批次模式並顯示總結 |
+| `重試` | `retry`, `重新上傳` | 重試失敗的圖片上傳 |
+| `清除失敗` | `clear failed` | 清除失敗任務記錄 |
+
+### 核心方法
+
+**`handle_text_message(user_id, text, reply_token)`**: 處理文字訊息，路由到對應的指令處理函數
+
+**`handle_image_message(user_id, message_id, reply_token)`**: 處理圖片訊息
+
+```
+流程:
+1. 檢查用戶封鎖狀態 (security_service.is_user_blocked)
+2. 檢查每日限額 (user_service.get_user_status)
+3. 下載圖片 (line_bot_api.get_message_content)
+4. 驗證圖片 (security_service.validate_image_data)
+5. AI 識別名片 (card_processor.process_image)
+6. 儲存到 Notion (notion_client.save_business_card)
+7. 回覆用戶處理結果
+8. 非同步上傳圖片到 ImgBB (submit_image_upload)
+```
+
+### 私有方法
+
+| 方法 | 功能 |
+|------|------|
+| `_send_help_message` | 發送說明訊息 + Quick Reply |
+| `_start_batch_mode` | 開始批次模式 |
+| `_show_status` | 顯示處理狀態 |
+| `_end_batch_mode` | 結束批次並顯示總結 |
+| `_retry_failed_uploads` | 重試失敗的上傳任務 |
+| `_clear_failed_uploads` | 清除失敗任務記錄 |
+| `_send_processing_result` | 發送處理結果 (Flex Message) |
+| `_send_flex_message` | 發送 Flex Message |
+| `_send_reply` | 發送純文字回覆 |
+| `_save_user_profile` | 儲存用戶 LINE 資訊 (多租戶) |
+
+---
+
+## Image Upload Worker (圖片上傳工作器)
+
+### 概述
+
+**位置**: `src/namecard/infrastructure/storage/image_upload_worker.py`
+
+非同步處理名片圖片上傳到 ImgBB 並更新 Notion 頁面。
+
+**雙模式架構**:
+
+```
+┌──────────────────────────────────────────────────────┐
+│                 submit_image_upload()                │
+│                         │                            │
+│            ┌────────────┴────────────┐               │
+│            ▼                         ▼               │
+│   ┌─────────────────┐     ┌──────────────────┐       │
+│   │  RQ (推薦)       │     │  In-Memory Queue │       │
+│   │                 │     │    (Fallback)    │       │
+│   │ - Redis 持久化   │     │                  │       │
+│   │ - 自動重試 3 次   │     │ - 無持久化       │       │
+│   │ - 分散式處理     │     │ - 單線程處理     │       │
+│   └─────────────────┘     └──────────────────┘       │
+│            │                         │               │
+│            └────────────┬────────────┘               │
+│                         ▼                            │
+│             ┌───────────────────────┐                │
+│             │ 1. 上傳圖片到 ImgBB   │                │
+│             │ 2. 更新 Notion 頁面   │                │
+│             │ 3. 失敗記錄到 Redis   │                │
+│             └───────────────────────┘                │
+└──────────────────────────────────────────────────────┘
+```
+
+### RQ Worker (推薦)
+
+**啟動方式**:
+
+```bash
+# 開發環境
+python -m src.namecard.infrastructure.storage.rq_worker
+
+# 生產環境
+rq worker image_upload --url redis://localhost:6379/0
+```
+
+**任務配置**:
+
+```python
+retry=Retry(max=3, interval=[10, 30, 60])  # 重試 3 次：10s, 30s, 60s
+job_timeout=300  # 5 分鐘超時
+```
+
+**核心函數**:
+
+- `process_upload_task_rq()`: RQ 任務處理函數（必須是頂層函數才能被 pickle）
+- `submit_to_rq()`: 提交任務到 RQ 隊列
+- `get_rq_redis_client()`: 獲取 RQ 專用 Redis 客戶端 (`decode_responses=False`)
+
+### In-Memory Queue Worker (Fallback)
+
+當 RQ 或 Redis 不可用時自動使用。
+
+**ImageUploadWorker 類**:
+
+```python
+class ImageUploadWorker:
+    def start(self)   # 啟動單一背景線程
+    def stop(self)    # 停止 worker
+    def submit(task)  # 提交 ImageUploadTask
+```
+
+**單例模式**: 使用 `get_upload_worker()` 獲取全域實例
+
+### Public API
+
+```python
+# 主要入口 - 自動選擇 RQ 或內存隊列
+submit_image_upload(
+    image_data: bytes,       # 圖片二進位資料
+    page_ids: List[str],     # Notion 頁面 ID 列表
+    notion_client: NotionClient,
+    user_id: str
+)
+```
+
+### 失敗任務管理
+
+失敗的任務會記錄到 Redis，保留 7 天。
+
+**Redis Key 格式**: `failed_upload:{user_id}:{task_id}`
+
+**管理函數**:
+
+| 函數 | 功能 |
+|------|------|
+| `get_failed_tasks(user_id)` | 查詢用戶的失敗任務列表 |
+| `retry_failed_task(user_id, task_id, notion_client)` | 重試單一失敗任務 |
+| `retry_all_failed_tasks(user_id, notion_client)` | 重試用戶所有失敗任務 |
+| `clear_failed_tasks(user_id)` | 清除用戶所有失敗任務記錄 |
+| `get_queue_info()` | 獲取隊列狀態（用於監控） |
+
+### 失敗任務資料結構
+
+```json
+{
+  "task_id": "abc12345",
+  "user_id": "U1234567890abcdef",
+  "page_ids": ["page-id-1", "page-id-2"],
+  "error": "ImgBB upload failed",
+  "timestamp": "2024-01-15T10:30:00",
+  "image_url": null,
+  "image_data_b64": "base64_encoded_image_data..."
+}
+```
+
+### 環境變數
+
+| 變數 | 說明 | 預設值 |
+|------|------|--------|
+| `REDIS_ENABLED` | 是否啟用 Redis | `false` |
+| `REDIS_URL` | Redis 連線 URL | - |
+| `REDIS_HOST` | Redis 主機 | `localhost` |
+| `REDIS_PORT` | Redis 端口 | `6379` |
+| `REDIS_PASSWORD` | Redis 密碼 | - |
+| `REDIS_DB` | Redis 資料庫 | `0` |
+| `REDIS_SOCKET_TIMEOUT` | 連線超時 | `5` |
+
+### 監控端點
+
+```bash
+# 獲取隊列狀態
+curl https://eco-namecard.zeabur.app/debug/queue-info
+
+# 回傳範例
+{
+  "rq_available": true,
+  "rq_enabled": true,
+  "queue_name": "image_upload",
+  "pending_jobs": 0,
+  "failed_jobs": 2
+}
+```

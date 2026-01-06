@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # ImgBB Configuration (圖片儲存)
     imgbb_api_key: Optional[str] = Field(default=None, description="ImgBB API Key for image upload")
 
+    # Google Drive Configuration (Service Account)
+    google_service_account_json: Optional[str] = Field(
+        default=None,
+        description="Google Service Account JSON credentials (as JSON string)"
+    )
+
     # Notion Configuration
     notion_api_key: str = Field(default="", description="Shared Notion API Key for all tenants")
     notion_database_id: str = Field(default="", description="Notion Database ID (for default tenant)")

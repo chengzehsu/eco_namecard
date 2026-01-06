@@ -835,3 +835,312 @@ def api_tenant_users(tenant_id: str):
     user_count = tenant_service.get_user_count(tenant_id, days)
 
     return jsonify({"users": users, "total_users": user_count})
+
+
+# ==================== Google Drive API ====================
+
+
+@admin_bp.route("/api/drive/fetch-folder", methods=["POST"])
+@login_required
+def fetch_drive_folder():
+    """
+    驗證 Google Drive 資料夾並取得資訊
+    
+    用於在租戶編輯頁面驗證資料夾存取權限
+    """
+    try:
+        folder_url = request.json.get("folder_url", "").strip()
+        
+        if not folder_url:
+            return jsonify({"success": False, "error": "請提供 Google Drive 資料夾網址"}), 400
+        
+        from src.namecard.infrastructure.storage.google_drive_client import (
+            GoogleDriveClient,
+            get_google_drive_client,
+        )
+        
+        drive_client = get_google_drive_client()
+        
+        if not drive_client:
+            return jsonify({
+                "success": False,
+                "error": "Google Drive 服務未設定。請在環境變數中設定 GOOGLE_SERVICE_ACCOUNT_JSON",
+                "need_setup": True,
+            }), 400
+        
+        # Validate folder access
+        success, message, folder_info = drive_client.validate_folder_access(folder_url)
+        
+        if success:
+            logger.info(
+                "DRIVE_FOLDER_VALIDATED",
+                folder_id=folder_info.get("id"),
+                folder_name=folder_info.get("name"),
+                total_files=folder_info.get("total_files"),
+            )
+            return jsonify({
+                "success": True,
+                "message": message,
+                "folder_name": folder_info.get("name"),
+                "folder_id": folder_info.get("id"),
+                "total_files": folder_info.get("total_files"),
+                "unprocessed_files": folder_info.get("unprocessed_files"),
+                "service_account_email": drive_client.service_account_email,
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": message,
+                "service_account_email": drive_client.service_account_email,
+            }), 400
+            
+    except Exception as e:
+        logger.error("DRIVE_FETCH_FOLDER_ERROR", error=str(e))
+        return jsonify({"success": False, "error": f"驗證失敗: {str(e)}"}), 500
+
+
+@admin_bp.route("/api/drive/sync/<tenant_id>", methods=["POST"])
+@login_required
+def start_drive_sync(tenant_id: str):
+    """
+    開始 Google Drive 同步處理
+    
+    這會在背景執行批次處理，前端可透過 sync-status 輪詢進度
+    """
+    from datetime import datetime
+    import threading
+    
+    tenant_service = get_tenant_service()
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    
+    if not tenant:
+        return jsonify({"success": False, "error": "找不到此租戶"}), 404
+    
+    folder_url = request.json.get("folder_url") or tenant.google_drive_folder_url
+    
+    if not folder_url:
+        return jsonify({"success": False, "error": "請先設定 Google Drive 資料夾網址"}), 400
+    
+    # Check if there's already an active sync
+    from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
+    db = get_tenant_db()
+    active_sync = db.get_active_drive_sync(tenant_id)
+    
+    if active_sync:
+        return jsonify({
+            "success": False,
+            "error": "此租戶已有進行中的同步任務",
+            "active_sync_id": active_sync.get("id"),
+        }), 400
+    
+    try:
+        from src.namecard.infrastructure.storage.google_drive_client import (
+            GoogleDriveClient,
+            get_google_drive_client,
+        )
+        from src.namecard.core.services.drive_sync_service import DriveSyncService
+        
+        drive_client = get_google_drive_client()
+        
+        if not drive_client:
+            return jsonify({
+                "success": False,
+                "error": "Google Drive 服務未設定",
+            }), 400
+        
+        # Parse folder ID for logging
+        folder_id = GoogleDriveClient.extract_folder_id(folder_url)
+        
+        # Create sync log
+        sync_log = db.create_drive_sync_log(
+            tenant_id=tenant_id,
+            folder_url=folder_url,
+            folder_id=folder_id,
+        )
+        
+        # Update tenant status
+        db.update_tenant(tenant_id, {
+            "google_drive_folder_url": folder_url,
+            "google_drive_sync_status": "processing",
+        })
+        
+        # Get tenant's API keys
+        from simple_config import settings
+        
+        google_api_key = tenant.google_api_key if not tenant.use_shared_google_api else settings.google_api_key
+        notion_api_key = tenant.notion_api_key if not tenant.use_shared_notion_api else settings.notion_api_key
+        notion_database_id = tenant.notion_database_id
+        
+        # Start sync in background thread
+        def run_sync():
+            try:
+                sync_service = DriveSyncService(
+                    tenant_id=tenant_id,
+                    drive_client=drive_client,
+                    google_api_key=google_api_key,
+                    notion_api_key=notion_api_key,
+                    notion_database_id=notion_database_id,
+                )
+                
+                def progress_callback(progress):
+                    # Update database with progress
+                    db.update_drive_sync_log(
+                        log_id=sync_log["id"],
+                        total_files=progress.total_files,
+                        processed_files=progress.processed_files,
+                        success_count=progress.success_count,
+                        error_count=progress.error_count,
+                        skipped_count=progress.skipped_count,
+                        status=progress.status,
+                        error_log="\n".join(progress.errors) if progress.errors else None,
+                    )
+                
+                result = sync_service.sync_folder(
+                    folder_url=folder_url,
+                    progress_callback=progress_callback,
+                    user_id=f"drive_sync_{tenant_id}",
+                )
+                
+                # Update final status
+                db.update_drive_sync_log(
+                    log_id=sync_log["id"],
+                    total_files=result.total_files,
+                    processed_files=result.processed_files,
+                    success_count=result.success_count,
+                    error_count=result.error_count,
+                    skipped_count=result.skipped_count,
+                    status=result.status,
+                    error_log="\n".join(result.errors) if result.errors else None,
+                    completed=True,
+                )
+                
+                # Update tenant status
+                db.update_tenant(tenant_id, {
+                    "google_drive_sync_status": result.status,
+                    "google_drive_last_sync": datetime.now().isoformat(),
+                })
+                
+                logger.info(
+                    "DRIVE_SYNC_COMPLETED",
+                    tenant_id=tenant_id,
+                    status=result.status,
+                    success=result.success_count,
+                    errors=result.error_count,
+                )
+                
+            except Exception as e:
+                logger.error("DRIVE_SYNC_THREAD_ERROR", tenant_id=tenant_id, error=str(e))
+                db.update_drive_sync_log(
+                    log_id=sync_log["id"],
+                    status="failed",
+                    error_log=str(e),
+                    completed=True,
+                )
+                db.update_tenant(tenant_id, {
+                    "google_drive_sync_status": "failed",
+                })
+        
+        # Start background thread
+        sync_thread = threading.Thread(target=run_sync, daemon=True)
+        sync_thread.start()
+        
+        logger.info(
+            "DRIVE_SYNC_STARTED",
+            tenant_id=tenant_id,
+            sync_log_id=sync_log["id"],
+            folder_id=folder_id,
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": "同步已開始",
+            "sync_id": sync_log["id"],
+        })
+        
+    except Exception as e:
+        logger.error("DRIVE_SYNC_START_ERROR", tenant_id=tenant_id, error=str(e))
+        return jsonify({"success": False, "error": f"啟動同步失敗: {str(e)}"}), 500
+
+
+@admin_bp.route("/api/drive/sync-status/<tenant_id>")
+@login_required
+def get_drive_sync_status(tenant_id: str):
+    """
+    取得 Google Drive 同步狀態
+    
+    前端可輪詢此端點以取得即時進度
+    """
+    tenant_service = get_tenant_service()
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    
+    if not tenant:
+        return jsonify({"success": False, "error": "找不到此租戶"}), 404
+    
+    from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
+    db = get_tenant_db()
+    
+    # Get active sync or last sync
+    active_sync = db.get_active_drive_sync(tenant_id)
+    
+    if active_sync:
+        return jsonify({
+            "success": True,
+            "status": active_sync.get("status"),
+            "is_syncing": True,
+            "sync_id": active_sync.get("id"),
+            "total_files": active_sync.get("total_files", 0),
+            "processed_files": active_sync.get("processed_files", 0),
+            "success_count": active_sync.get("success_count", 0),
+            "error_count": active_sync.get("error_count", 0),
+            "skipped_count": active_sync.get("skipped_count", 0),
+            "progress_percent": round(
+                (active_sync.get("processed_files", 0) / max(active_sync.get("total_files", 1), 1)) * 100, 1
+            ),
+            "started_at": active_sync.get("started_at"),
+        })
+    
+    # Get last sync log
+    sync_logs = db.get_tenant_drive_sync_logs(tenant_id, limit=1)
+    last_sync = sync_logs[0] if sync_logs else None
+    
+    return jsonify({
+        "success": True,
+        "status": tenant.google_drive_sync_status or "idle",
+        "is_syncing": False,
+        "last_sync": {
+            "sync_id": last_sync.get("id") if last_sync else None,
+            "status": last_sync.get("status") if last_sync else None,
+            "total_files": last_sync.get("total_files") if last_sync else 0,
+            "success_count": last_sync.get("success_count") if last_sync else 0,
+            "error_count": last_sync.get("error_count") if last_sync else 0,
+            "completed_at": last_sync.get("completed_at") if last_sync else None,
+        } if last_sync else None,
+        "folder_url": tenant.google_drive_folder_url,
+        "last_sync_time": tenant.google_drive_last_sync,
+    })
+
+
+@admin_bp.route("/api/drive/sync-logs/<tenant_id>")
+@login_required
+def get_drive_sync_logs(tenant_id: str):
+    """
+    取得租戶的同步歷史記錄
+    """
+    tenant_service = get_tenant_service()
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    
+    if not tenant:
+        return jsonify({"success": False, "error": "找不到此租戶"}), 404
+    
+    limit = request.args.get("limit", 10, type=int)
+    
+    from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
+    db = get_tenant_db()
+    
+    logs = db.get_tenant_drive_sync_logs(tenant_id, limit=limit)
+    
+    return jsonify({
+        "success": True,
+        "logs": logs,
+    })
+

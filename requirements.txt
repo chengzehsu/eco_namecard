@@ -52,3 +52,11 @@ mypy==1.8.0
 
 # Production
 psutil==5.9.6
+
+# WebSocket Support
+flask-socketio>=5.3.0,<6.0.0
+python-socketio>=5.10.0,<6.0.0
+python-engineio>=4.8.0,<5.0.0
+
+# Scheduler
+apscheduler>=3.10.0,<4.0.0

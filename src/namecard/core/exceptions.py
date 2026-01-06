@@ -8,6 +8,11 @@ from typing import Optional, Dict, Any
 class NamecardException(Exception):
     """基礎異常類別"""
 
+    # 是否可重試 - 子類別可覆蓋
+    is_retryable: bool = False
+    # 建議重試延遲（秒）- 子類別可覆蓋
+    retry_delay_seconds: int = 0
+
     def __init__(self, message: str, user_message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(message)
         self.user_message = user_message  # 顯示給用戶的訊息
@@ -39,6 +44,9 @@ class APIKeyInvalidError(AIProcessingError):
 
 class APIQuotaExceededError(AIProcessingError):
     """API 配額已用完"""
+
+    is_retryable = True  # 配額會重置
+    retry_delay_seconds = 3600  # 建議等待 1 小時
 
     def __init__(self, details: Optional[Dict[str, Any]] = None):
         message = "Google Gemini API quota exceeded"
@@ -167,6 +175,9 @@ class JSONParsingError(AIProcessingError):
 class EmptyAIResponseError(AIProcessingError):
     """AI 回應為空"""
 
+    is_retryable = True  # 可能是暫時性問題
+    retry_delay_seconds = 5
+
     def __init__(self, details: Optional[Dict[str, Any]] = None):
         message = "AI returned empty response"
         user_message = (
@@ -182,6 +193,9 @@ class EmptyAIResponseError(AIProcessingError):
 class NetworkError(AIProcessingError):
     """網路連線錯誤"""
 
+    is_retryable = True  # 網路問題通常是暫時性的
+    retry_delay_seconds = 10
+
     def __init__(self, details: Optional[Dict[str, Any]] = None):
         message = "Network connection failed"
         user_message = (
@@ -196,6 +210,9 @@ class NetworkError(AIProcessingError):
 
 class APITimeoutError(AIProcessingError):
     """API 請求超時"""
+
+    is_retryable = True  # 超時可重試
+    retry_delay_seconds = 15
 
     def __init__(self, timeout_seconds: Optional[int] = None, details: Optional[Dict[str, Any]] = None):
         message = f"API request timeout (timeout={timeout_seconds}s)"
@@ -271,6 +288,9 @@ class NotionSchemaError(NotionStorageError):
 class NotionRateLimitError(NotionStorageError):
     """Notion API 速率限制"""
 
+    is_retryable = True  # 速率限制會解除
+    retry_delay_seconds = 60  # Notion 建議等待約 1 分鐘
+
     def __init__(self, details: Optional[Dict[str, Any]] = None):
         message = "Notion API rate limit exceeded"
         user_message = (
@@ -283,6 +303,9 @@ class NotionRateLimitError(NotionStorageError):
 
 class NotionNetworkError(NotionStorageError):
     """無法連線到 Notion"""
+
+    is_retryable = True  # 網路問題通常是暫時性的
+    retry_delay_seconds = 10
 
     def __init__(self, details: Optional[Dict[str, Any]] = None):
         message = "Cannot connect to Notion API"
@@ -323,3 +346,41 @@ def get_user_friendly_message(exception: Exception, verbose: bool = False) -> st
         return f"❌ 系統錯誤\n\n【技術細節】\n{type(exception).__name__}: {str(exception)}"
     else:
         return "❌ 系統錯誤，請稍後重試"
+
+
+def is_retryable_error(exception: Exception) -> bool:
+    """
+    檢查異常是否可以重試
+
+    Args:
+        exception: 異常物件
+
+    Returns:
+        True 如果錯誤是暫時性的，可以重試
+    """
+    if isinstance(exception, NamecardException):
+        return exception.is_retryable
+    return False
+
+
+def get_retry_info(exception: Exception) -> Dict[str, Any]:
+    """
+    取得錯誤的重試資訊
+
+    Args:
+        exception: 異常物件
+
+    Returns:
+        包含 is_retryable 和 retry_delay_seconds 的字典
+    """
+    if isinstance(exception, NamecardException):
+        return {
+            "is_retryable": exception.is_retryable,
+            "retry_delay_seconds": exception.retry_delay_seconds,
+            "error_type": type(exception).__name__,
+        }
+    return {
+        "is_retryable": False,
+        "retry_delay_seconds": 0,
+        "error_type": type(exception).__name__,
+    }

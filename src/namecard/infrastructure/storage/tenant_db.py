@@ -142,6 +142,14 @@ class TenantDatabase:
             conn.execute("ALTER TABLE tenants ADD COLUMN google_drive_sync_status TEXT DEFAULT 'idle'")
             logger.info("Migration: google_drive_sync_status column added to tenants")
         
+        if "google_drive_sync_schedule" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN google_drive_sync_schedule TEXT")
+            logger.info("Migration: google_drive_sync_schedule column added to tenants")
+        
+        if "google_drive_sync_enabled" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN google_drive_sync_enabled INTEGER DEFAULT 0")
+            logger.info("Migration: google_drive_sync_enabled column added to tenants")
+        
         # Check if drive_sync_logs table exists, create if not
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='drive_sync_logs'"
@@ -163,6 +171,7 @@ class TenantDatabase:
                     skipped_count INTEGER DEFAULT 0,
                     status TEXT DEFAULT 'processing',
                     error_log TEXT,
+                    is_scheduled INTEGER DEFAULT 0,
                     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
                 );
 
@@ -171,6 +180,13 @@ class TenantDatabase:
             """
             )
             logger.info("Migration: drive_sync_logs table created")
+        else:
+            # Add is_scheduled column if missing
+            cursor = conn.execute("PRAGMA table_info(drive_sync_logs)")
+            sync_log_columns = [row[1] for row in cursor.fetchall()]
+            if "is_scheduled" not in sync_log_columns:
+                conn.execute("ALTER TABLE drive_sync_logs ADD COLUMN is_scheduled INTEGER DEFAULT 0")
+                logger.info("Migration: is_scheduled column added to drive_sync_logs")
 
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""
@@ -195,7 +211,9 @@ class TenantDatabase:
                 batch_size_limit INTEGER DEFAULT 10,
                 google_drive_folder_url TEXT,
                 google_drive_last_sync TEXT,
-                google_drive_sync_status TEXT DEFAULT 'idle'
+                google_drive_sync_status TEXT DEFAULT 'idle',
+                google_drive_sync_schedule TEXT,
+                google_drive_sync_enabled INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS admin_users (
@@ -387,6 +405,8 @@ class TenantDatabase:
             "google_drive_folder_url",
             "google_drive_last_sync",
             "google_drive_sync_status",
+            "google_drive_sync_schedule",
+            "google_drive_sync_enabled",
         ]
 
         for field in allowed_fields:
@@ -929,6 +949,7 @@ class TenantDatabase:
         tenant_id: str,
         folder_url: str,
         folder_id: str = None,
+        is_scheduled: bool = False,
     ) -> Dict[str, Any]:
         """
         Create a new drive sync log entry.
@@ -937,6 +958,7 @@ class TenantDatabase:
             tenant_id: Tenant ID
             folder_url: Google Drive folder URL
             folder_id: Parsed folder ID
+            is_scheduled: Whether this is a scheduled sync (vs manual)
 
         Returns:
             Created log entry
@@ -948,13 +970,13 @@ class TenantDatabase:
             conn.execute(
                 """
                 INSERT INTO drive_sync_logs (
-                    id, tenant_id, folder_url, folder_id, started_at, status
-                ) VALUES (?, ?, ?, ?, ?, 'processing')
+                    id, tenant_id, folder_url, folder_id, started_at, status, is_scheduled
+                ) VALUES (?, ?, ?, ?, ?, 'processing', ?)
                 """,
-                (log_id, tenant_id, folder_url, folder_id, now),
+                (log_id, tenant_id, folder_url, folder_id, now, 1 if is_scheduled else 0),
             )
 
-        logger.info("Drive sync log created", log_id=log_id, tenant_id=tenant_id)
+        logger.info("Drive sync log created", log_id=log_id, tenant_id=tenant_id, is_scheduled=is_scheduled)
         return self.get_drive_sync_log(log_id)
 
     def get_drive_sync_log(self, log_id: str) -> Optional[Dict[str, Any]]:

@@ -974,6 +974,9 @@ def start_drive_sync(tenant_id: str):
         # Start sync in background thread
         def run_sync():
             try:
+                # Import SocketIO emit functions
+                from src.namecard.api.admin.socketio_events import emit_sync_progress, emit_sync_completed
+                
                 sync_service = DriveSyncService(
                     tenant_id=tenant_id,
                     drive_client=drive_client,
@@ -994,6 +997,9 @@ def start_drive_sync(tenant_id: str):
                         status=progress.status,
                         error_log="\n".join(progress.errors) if progress.errors else None,
                     )
+                    
+                    # Emit WebSocket event for real-time updates
+                    emit_sync_progress(tenant_id, progress.to_dict())
                 
                 result = sync_service.sync_folder(
                     folder_url=folder_url,
@@ -1020,6 +1026,9 @@ def start_drive_sync(tenant_id: str):
                     "google_drive_last_sync": datetime.now().isoformat(),
                 })
                 
+                # Emit completion event via WebSocket
+                emit_sync_completed(tenant_id, result.to_dict())
+                
                 logger.info(
                     "DRIVE_SYNC_COMPLETED",
                     tenant_id=tenant_id,
@@ -1039,6 +1048,16 @@ def start_drive_sync(tenant_id: str):
                 db.update_tenant(tenant_id, {
                     "google_drive_sync_status": "failed",
                 })
+                
+                # Emit failure event via WebSocket
+                try:
+                    from src.namecard.api.admin.socketio_events import emit_sync_completed
+                    emit_sync_completed(tenant_id, {
+                        "status": "failed",
+                        "error": str(e),
+                    })
+                except Exception:
+                    pass  # Don't fail if SocketIO not available
         
         # Start background thread
         sync_thread = threading.Thread(target=run_sync, daemon=True)
@@ -1144,3 +1163,80 @@ def get_drive_sync_logs(tenant_id: str):
         "logs": logs,
     })
 
+
+@admin_bp.route("/api/drive/schedule/<tenant_id>", methods=["POST"])
+@login_required
+def save_drive_schedule(tenant_id: str):
+    """
+    儲存 Google Drive 同步排程設定
+    """
+    tenant_service = get_tenant_service()
+    tenant = tenant_service.get_tenant_by_id(tenant_id)
+    
+    if not tenant:
+        return jsonify({"success": False, "error": "找不到此租戶"}), 404
+    
+    enabled = request.json.get("enabled", False)
+    schedule = request.json.get("schedule", "0 9 * * *")
+    
+    # Update tenant settings
+    from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
+    db = get_tenant_db()
+    
+    db.update_tenant(tenant_id, {
+        "google_drive_sync_enabled": enabled,
+        "google_drive_sync_schedule": schedule,
+    })
+    
+    # Update scheduler
+    try:
+        from src.namecard.core.services.scheduler import (
+            schedule_drive_sync, cancel_drive_sync, get_scheduler, init_scheduler
+        )
+        
+        # Initialize scheduler if not already
+        if get_scheduler() is None:
+            init_scheduler()
+        
+        if enabled and tenant.google_drive_folder_url:
+            # Get API keys
+            from simple_config import settings
+            
+            google_api_key = tenant.google_api_key if not tenant.use_shared_google_api else settings.google_api_key
+            notion_api_key = tenant.notion_api_key if not tenant.use_shared_notion_api else settings.notion_api_key
+            
+            success = schedule_drive_sync(
+                tenant_id=tenant_id,
+                cron_expression=schedule,
+                folder_url=tenant.google_drive_folder_url,
+                notion_api_key=notion_api_key,
+                notion_database_id=tenant.notion_database_id,
+                google_api_key=google_api_key,
+            )
+            
+            if not success:
+                logger.warning("Failed to schedule drive sync", tenant_id=tenant_id)
+        else:
+            # Cancel existing schedule
+            cancel_drive_sync(tenant_id)
+        
+        logger.info(
+            "Drive schedule updated",
+            tenant_id=tenant_id,
+            enabled=enabled,
+            schedule=schedule,
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": "排程設定已儲存",
+            "enabled": enabled,
+            "schedule": schedule,
+        })
+        
+    except Exception as e:
+        logger.error("Failed to update drive schedule", tenant_id=tenant_id, error=str(e))
+        return jsonify({
+            "success": False,
+            "error": f"儲存排程失敗：{str(e)}",
+        }), 500

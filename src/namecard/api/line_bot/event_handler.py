@@ -74,6 +74,10 @@ class UnifiedEventHandler:
             text = text.strip()
             logger.info("Processing text message", user_id=user_id, text=text[:50])
 
+            # 獲取並儲存用戶資訊（頭像、暱稱）
+            if self.tenant_id:
+                self._save_user_profile(user_id)
+
             # 命令處理
             if text in ["help", "說明", "幫助"]:
                 self._send_help_message(reply_token)

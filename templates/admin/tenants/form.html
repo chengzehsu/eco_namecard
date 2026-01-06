@@ -295,6 +295,56 @@
     </div>
 
     <div id="sync_result_section" style="display: none; margin-top: 20px; padding: 15px; border-radius: 8px;"></div>
+
+    <!-- Scheduled Sync Settings -->
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+        <h3 style="font-size: 1rem; margin-bottom: 15px;">
+            <i data-lucide="clock" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            自動同步排程
+        </h3>
+
+        <div class="form-group form-check" style="margin-bottom: 15px;">
+            <input type="checkbox" id="google_drive_sync_enabled" name="google_drive_sync_enabled" {{ 'checked' if
+                tenant.google_drive_sync_enabled else '' }} onchange="toggleScheduleSettings()">
+            <label for="google_drive_sync_enabled">啟用自動同步</label>
+            <small style="display: block; margin-left: 26px; color: var(--text-muted);">
+                系統將按設定時間自動執行 Google Drive 同步
+            </small>
+        </div>
+
+        <div id="schedule_settings"
+            style="display: {{ 'block' if tenant.google_drive_sync_enabled else 'none' }}; padding-left: 26px;">
+            <div class="form-group">
+                <label for="sync_schedule_time">同步時間</label>
+                <select id="sync_schedule_time" name="sync_schedule_time" style="width: auto;">
+                    {% set current_schedule = tenant.google_drive_sync_schedule or '0 9 * * *' %}
+                    <option value="0 6 * * *" {{ 'selected' if current_schedule=='0 6 * * *' else '' }}>每日 06:00
+                    </option>
+                    <option value="0 9 * * *" {{ 'selected' if current_schedule=='0 9 * * *' else '' }}>每日 09:00
+                    </option>
+                    <option value="0 12 * * *" {{ 'selected' if current_schedule=='0 12 * * *' else '' }}>每日 12:00
+                    </option>
+                    <option value="0 18 * * *" {{ 'selected' if current_schedule=='0 18 * * *' else '' }}>每日 18:00
+                    </option>
+                    <option value="0 21 * * *" {{ 'selected' if current_schedule=='0 21 * * *' else '' }}>每日 21:00
+                    </option>
+                    <option value="0 9 * * 1" {{ 'selected' if current_schedule=='0 9 * * 1' else '' }}>每週一 09:00
+                    </option>
+                    <option value="0 9 * * 5" {{ 'selected' if current_schedule=='0 9 * * 5' else '' }}>每週五 09:00
+                    </option>
+                </select>
+                <small style="display: block; margin-top: 5px; color: var(--text-muted);">
+                    時區：伺服器時間 (UTC+0)
+                </small>
+            </div>
+
+            <button type="button" onclick="saveScheduleSettings()" class="btn btn-secondary" id="save_schedule_btn"
+                style="margin-top: 10px;">
+                <i data-lucide="save" style="width: 16px; height: 16px;"></i> 儲存排程設定
+            </button>
+            <span id="schedule_save_status" style="margin-left: 10px; font-size: 0.9rem;"></span>
+        </div>
+    </div>
 </div>
 
 <!-- Webhook Info -->
@@ -524,6 +574,96 @@
 `;
     document.head.appendChild(style);
 
+    // ==================== SocketIO Setup ====================
+
+    let socket = null;
+    let socketConnected = false;
+
+    function initSocketIO() {
+        // Load SocketIO client
+        if (typeof io === 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.socket.io/4.6.0/socket.io.min.js';
+            script.onload = connectSocket;
+            document.head.appendChild(script);
+        } else {
+            connectSocket();
+        }
+    }
+
+    function connectSocket() {
+        try {
+            socket = io(window.location.origin, {
+                transports: ['websocket', 'polling']
+            });
+
+            socket.on('connect', () => {
+                console.log('SocketIO connected');
+                socketConnected = true;
+                // Join the tenant's sync room
+                socket.emit('join_sync_room', { tenant_id: TENANT_ID });
+            });
+
+            socket.on('disconnect', () => {
+                console.log('SocketIO disconnected');
+                socketConnected = false;
+            });
+
+            socket.on('sync_progress', (data) => {
+                console.log('Sync progress:', data);
+                updateProgressUI(
+                    data.progress_percent || 0,
+                    data.success_count || 0,
+                    data.error_count || 0,
+                    data.skipped_count || 0,
+                    data.processed_files || 0
+                );
+
+                // Update current file being processed
+                if (data.current_file) {
+                    document.getElementById('sync_progress_text').textContent =
+                        `${Math.round(data.progress_percent || 0)}% - ${data.current_file}`;
+                }
+            });
+
+            socket.on('sync_completed', (data) => {
+                console.log('Sync completed:', data);
+
+                // Stop polling if running
+                if (syncPollingInterval) {
+                    clearInterval(syncPollingInterval);
+                    syncPollingInterval = null;
+                }
+
+                if (data.status === 'completed') {
+                    showSyncResult('success',
+                        `同步完成！成功 ${data.success_count || 0} 張，失敗 ${data.error_count || 0} 張`
+                    );
+                } else if (data.status === 'failed') {
+                    showSyncResult('error', data.error || '同步失敗');
+                } else if (data.status === 'cancelled') {
+                    showSyncResult('warning', '同步已取消');
+                }
+
+                // Refresh folder info
+                setTimeout(() => fetchDriveFolderInfo(), 1000);
+            });
+
+            socket.on('room_joined', (data) => {
+                console.log('Joined sync room:', data.room);
+            });
+
+        } catch (error) {
+            console.error('SocketIO connection failed:', error);
+            socketConnected = false;
+        }
+    }
+
+    // Initialize SocketIO when page loads
+    {% if is_edit %}
+    document.addEventListener('DOMContentLoaded', initSocketIO);
+    {% endif %}
+
     // ==================== Google Drive Functions ====================
 
     let syncPollingInterval = null;
@@ -651,13 +791,26 @@
         document.getElementById('sync_skipped_count').textContent = skipped;
     }
 
-    // Start polling for sync status
+    // Start polling for sync status (fallback when WebSocket not connected)
     function startSyncPolling() {
+        // If WebSocket is connected, don't use polling
+        if (socketConnected) {
+            console.log('Using WebSocket for progress updates');
+            return;
+        }
+
         if (syncPollingInterval) {
             clearInterval(syncPollingInterval);
         }
 
         syncPollingInterval = setInterval(async () => {
+            // Stop polling if WebSocket connected
+            if (socketConnected) {
+                clearInterval(syncPollingInterval);
+                syncPollingInterval = null;
+                return;
+            }
+
             try {
                 const response = await fetch(`/admin/api/drive/sync-status/${TENANT_ID}`);
                 const data = await response.json();
@@ -753,5 +906,61 @@
         }
     });
     {% endif %}
+
+    // ==================== Schedule Settings ====================
+
+    function toggleScheduleSettings() {
+        const checkbox = document.getElementById('google_drive_sync_enabled');
+        const settings = document.getElementById('schedule_settings');
+        settings.style.display = checkbox.checked ? 'block' : 'none';
+    }
+
+    async function saveScheduleSettings() {
+        const enabled = document.getElementById('google_drive_sync_enabled').checked;
+        const schedule = document.getElementById('sync_schedule_time').value;
+        const saveBtn = document.getElementById('save_schedule_btn');
+        const statusSpan = document.getElementById('schedule_save_status');
+
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 1s linear infinite;"></i> 儲存中...';
+        statusSpan.textContent = '';
+
+        try {
+            const response = await fetch(`/admin/api/drive/schedule/${TENANT_ID}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: enabled,
+                    schedule: schedule
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                statusSpan.style.color = 'var(--accent-green)';
+                statusSpan.textContent = '✓ 已儲存';
+                saveBtn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> 已儲存';
+                saveBtn.style.background = 'var(--accent-green)';
+
+                setTimeout(() => {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i data-lucide="save" style="width: 16px; height: 16px;"></i> 儲存排程設定';
+                    saveBtn.style.background = '';
+                    statusSpan.textContent = '';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                }, 2000);
+            } else {
+                throw new Error(data.error || '儲存失敗');
+            }
+        } catch (error) {
+            statusSpan.style.color = 'var(--accent-red)';
+            statusSpan.textContent = `❌ ${error.message}`;
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i data-lucide="save" style="width: 16px; height: 16px;"></i> 重試';
+        }
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
 </script>
 {% endblock %}

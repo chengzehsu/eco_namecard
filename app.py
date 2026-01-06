@@ -131,6 +131,11 @@ app.secret_key = admin_secret_key
 from src.namecard.api.admin import admin_bp
 app.register_blueprint(admin_bp)
 
+# ==================== SocketIO 初始化 ====================
+from src.namecard.api.admin.socketio_events import init_socketio, get_socketio
+socketio = init_socketio(app)
+logger.info("SocketIO initialized for real-time sync progress")
+
 # #region agent log
 _debug_log("C", "app.py:before_tenant_db", "INITIALIZING_TENANT_DB", {})
 # #endregion
@@ -232,13 +237,24 @@ def main():
                 multi_tenant=True)
     
     try:
-        # 啟動 Flask 應用
-        app.run(
-            host=settings.app_host,
-            port=settings.app_port,
-            debug=settings.debug,
-            threaded=True
-        )
+        # 使用 SocketIO 啟動（支援 WebSocket）
+        from src.namecard.api.admin.socketio_events import get_socketio
+        sio = get_socketio()
+        if sio:
+            sio.run(
+                app,
+                host=settings.app_host,
+                port=settings.app_port,
+                debug=settings.debug,
+            )
+        else:
+            # Fallback to regular Flask
+            app.run(
+                host=settings.app_host,
+                port=settings.app_port,
+                debug=settings.debug,
+                threaded=True
+            )
     except KeyboardInterrupt:
         logger.info("Application stopped by user")
     except Exception as e:

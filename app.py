@@ -246,6 +246,7 @@ def main():
                 host=settings.app_host,
                 port=settings.app_port,
                 debug=settings.debug,
+                allow_unsafe_werkzeug=True,
             )
         else:
             # Fallback to regular Flask

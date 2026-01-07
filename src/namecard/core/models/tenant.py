@@ -8,7 +8,8 @@ TenantContext for runtime service instances.
 from pydantic import BaseModel, Field
 from typing import Optional, Any
 from datetime import datetime
-from linebot import LineBotApi
+# LINE SDK v3
+from linebot.v3.messaging import Configuration
 
 
 class TenantConfig(BaseModel):
@@ -125,11 +126,12 @@ class TenantContext:
     Runtime context for processing requests with tenant-specific services.
 
     Lazy-loads service instances to avoid unnecessary initialization.
+    Uses LINE SDK v3 Configuration instead of LineBotApi.
     """
 
     def __init__(self, tenant: TenantConfig):
         self.tenant = tenant
-        self._line_bot_api: Optional[LineBotApi] = None
+        self._configuration: Optional[Configuration] = None  # v3
         self._card_processor: Optional[Any] = None
         self._notion_client: Optional[Any] = None
 
@@ -144,17 +146,22 @@ class TenantContext:
         return self.tenant.name
 
     @property
-    def line_bot_api(self) -> LineBotApi:
-        """Lazy-loaded LINE Bot API instance"""
-        if self._line_bot_api is None:
+    def line_bot_api(self) -> Configuration:
+        """Lazy-loaded LINE Bot API Configuration (v3)"""
+        if self._configuration is None:
             token = self.tenant.line_channel_access_token
             # #region agent log
             import structlog; structlog.get_logger().warning("DEBUG_TOKEN_CHECK", tenant_id=self.tenant.id, tenant_name=self.tenant.name, token_length=len(token) if token else 0, token_empty=not token)
             if not token or len(token) < 50:
                 structlog.get_logger().error("DEBUG_TOKEN_INVALID", tenant_id=self.tenant.id, token_length=len(token) if token else 0, hint="Token appears invalid or decryption may have failed")
             # #endregion
-            self._line_bot_api = LineBotApi(token)
-        return self._line_bot_api
+            self._configuration = Configuration(access_token=token)
+        return self._configuration
+    
+    @property
+    def channel_access_token(self) -> str:
+        """Get channel access token (for UnifiedEventHandler)"""
+        return self.tenant.line_channel_access_token
 
     @property
     def card_processor(self) -> Any:

@@ -572,7 +572,7 @@ class CardProcessor:
                 contents=[self.card_prompt, image],
                 config=types.GenerateContentConfig(
                     temperature=0.1,  # 低溫度確保一致性
-                    max_output_tokens=2048,
+                    max_output_tokens=8192,  # 充足空間避免回應被截斷
                     response_mime_type="application/json",
                     safety_settings=safety_settings
                 )
@@ -610,7 +610,7 @@ class CardProcessor:
                             contents=[self.card_prompt, image],
                             config=types.GenerateContentConfig(
                                 temperature=0.1,
-                                max_output_tokens=2048,
+                                max_output_tokens=8192,  # 充足空間避免回應被截斷
                                 response_mime_type="application/json",
                                 safety_settings=safety_settings
                             )
@@ -745,7 +745,7 @@ class CardProcessor:
                             contents=[self.card_prompt, image],
                             config=types.GenerateContentConfig(
                                 temperature=0.1,
-                                max_output_tokens=2048,
+                                max_output_tokens=8192,  # 充足空間避免回應被截斷
                                 response_mime_type="application/json",
                                 safety_settings=safety_settings
                             )

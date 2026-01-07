@@ -1,0 +1,251 @@
+{% extends "layout.html" %}
+
+{% block title %}方案管理{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+        <i data-lucide="package" style="width: 24px; height: 24px; margin-right: 10px;"></i>
+        訂閱方案管理
+    </h1>
+</div>
+
+<div class="card">
+    <h2>所有方案</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>方案名稱</th>
+                <th>LINE 用戶數</th>
+                <th>月掃描配額</th>
+                <th>每日/批次限制</th>
+                <th>月費</th>
+                <th>版本</th>
+                <th>狀態</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for plan in plans %}
+            <tr>
+                <td>
+                    <strong style="color: var(--text-primary);">{{ plan.display_name }}</strong>
+                    <br>
+                    <small class="text-muted">{{ plan.description or '' }}</small>
+                </td>
+                <td>
+                    {% if plan.user_limit %}
+                    {{ plan.user_limit }} 人
+                    {% else %}
+                    <span class="text-accent">無限制</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="text-accent">{{ plan.monthly_scan_quota or 0 }}</span> 張/月
+                </td>
+                <td>
+                    {{ plan.daily_card_limit or 10 }} / {{ plan.batch_size_limit or 5 }}
+                </td>
+                <td>
+                    {% if plan.price_monthly and plan.price_monthly > 0 %}
+                    <span class="text-success">NT$ {{ (plan.price_monthly / 100)|int }}</span>
+                    {% else %}
+                    <span class="text-muted">免費</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge badge-success">v{{ plan.version_number or 1 }}</span>
+                </td>
+                <td>
+                    {% if plan.is_active %}
+                    <span class="badge badge-success">啟用</span>
+                    {% else %}
+                    <span class="badge badge-danger">停用</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="actions">
+                        <button class="btn btn-sm btn-secondary" onclick="editPlan('{{ plan.id }}')">
+                            <i data-lucide="edit" style="width: 14px; height: 14px;"></i>
+                            編輯
+                        </button>
+                        <button class="btn btn-sm btn-primary"
+                            onclick="createVersion('{{ plan.id }}', '{{ plan.display_name }}')">
+                            <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
+                            新版本
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Grandfathering 說明</h2>
+    <p class="text-secondary" style="line-height: 1.8;">
+        <i data-lucide="info" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+        當您建立方案的「新版本」時，<strong>現有租戶會保持其當前限制不變</strong>，直到下次續約才會套用新版本。這確保了價格調整不會影響既有客戶。
+    </p>
+</div>
+
+<!-- Edit Plan Modal -->
+<div id="editModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>編輯方案</h3>
+        <form id="editForm">
+            <input type="hidden" id="editPlanId">
+            <div class="form-group">
+                <label>顯示名稱</label>
+                <input type="text" id="editDisplayName">
+            </div>
+            <div class="form-group">
+                <label>描述</label>
+                <input type="text" id="editDescription">
+            </div>
+            <div class="form-group form-check">
+                <input type="checkbox" id="editIsActive">
+                <label for="editIsActive">啟用</label>
+            </div>
+            <div class="actions" style="margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('editModal')">取消</button>
+                <button type="submit" class="btn btn-primary">儲存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Version Modal -->
+<div id="versionModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3 id="versionModalTitle">建立新版本</h3>
+        <form id="versionForm">
+            <input type="hidden" id="versionPlanId">
+            <div class="form-group">
+                <label>LINE 用戶數限制 (留空 = 無限制)</label>
+                <input type="number" id="versionUserLimit" placeholder="例：20">
+            </div>
+            <div class="form-group">
+                <label>每月掃描配額</label>
+                <input type="number" id="versionScanQuota" value="50">
+            </div>
+            <div class="form-group">
+                <label>每日每用戶限制</label>
+                <input type="number" id="versionDailyLimit" value="10">
+            </div>
+            <div class="form-group">
+                <label>批次大小限制</label>
+                <input type="number" id="versionBatchLimit" value="5">
+            </div>
+            <div class="form-group">
+                <label>月費 (NT$ 元)</label>
+                <input type="number" id="versionPrice" value="0" placeholder="例：299">
+            </div>
+            <div class="actions" style="margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('versionModal')">取消</button>
+                <button type="submit" class="btn btn-primary">建立新版本</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: var(--bg-secondary);
+        padding: 24px;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-color);
+        min-width: 400px;
+        max-width: 500px;
+    }
+
+    .modal-content h3 {
+        margin-bottom: 20px;
+        color: var(--text-primary);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function editPlan(planId) {
+        fetch(`/admin/api/plans/${planId}`)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('editPlanId').value = planId;
+                document.getElementById('editDisplayName').value = data.plan.display_name;
+                document.getElementById('editDescription').value = data.plan.description || '';
+                document.getElementById('editIsActive').checked = data.plan.is_active;
+                document.getElementById('editModal').style.display = 'flex';
+            });
+    }
+
+    function createVersion(planId, planName) {
+        document.getElementById('versionPlanId').value = planId;
+        document.getElementById('versionModalTitle').textContent = `建立 ${planName} 新版本`;
+        document.getElementById('versionModal').style.display = 'flex';
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
+
+    document.getElementById('editForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const planId = document.getElementById('editPlanId').value;
+        const response = await fetch(`/admin/api/plans/${planId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                display_name: document.getElementById('editDisplayName').value,
+                description: document.getElementById('editDescription').value,
+                is_active: document.getElementById('editIsActive').checked,
+            })
+        });
+        const result = await response.json();
+        if (result.success) {
+            location.reload();
+        } else {
+            alert('更新失敗: ' + result.error);
+        }
+    });
+
+    document.getElementById('versionForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const planId = document.getElementById('versionPlanId').value;
+        const userLimit = document.getElementById('versionUserLimit').value;
+        const response = await fetch(`/admin/api/plans/${planId}/versions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_limit: userLimit ? parseInt(userLimit) : null,
+                monthly_scan_quota: parseInt(document.getElementById('versionScanQuota').value),
+                daily_card_limit: parseInt(document.getElementById('versionDailyLimit').value),
+                batch_size_limit: parseInt(document.getElementById('versionBatchLimit').value),
+                price_monthly: parseInt(document.getElementById('versionPrice').value) * 100,
+            })
+        });
+        const result = await response.json();
+        if (result.success) {
+            alert(result.message);
+            location.reload();
+        } else {
+            alert('建立失敗: ' + result.error);
+        }
+    });
+</script>
+{% endblock %}

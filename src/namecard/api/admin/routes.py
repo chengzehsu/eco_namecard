@@ -1240,3 +1240,237 @@ def save_drive_schedule(tenant_id: str):
             "success": False,
             "error": f"儲存排程失敗：{str(e)}",
         }), 500
+
+
+# ==================== Subscription Plan Management ====================
+
+
+@admin_bp.route("/plans")
+@login_required
+def list_plans():
+    """List all subscription plans"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    plans = sub_service.list_plans(include_inactive=True)
+    
+    return render_template(
+        "plans/list.html",
+        plans=plans,
+        admin_username=session.get("admin_username"),
+    )
+
+
+@admin_bp.route("/api/plans")
+@login_required
+def api_list_plans():
+    """Get all subscription plans as JSON"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    plans = sub_service.list_plans(include_inactive=request.args.get("include_inactive") == "true")
+    
+    return jsonify({"plans": plans})
+
+
+@admin_bp.route("/api/plans/<plan_id>")
+@login_required
+def api_get_plan(plan_id: str):
+    """Get a single plan with version details"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    plan = sub_service.get_plan(plan_id)
+    
+    if not plan:
+        return jsonify({"error": "Plan not found"}), 404
+    
+    versions = sub_service.get_plan_versions(plan_id)
+    
+    return jsonify({
+        "plan": plan,
+        "versions": versions,
+    })
+
+
+@admin_bp.route("/api/plans/<plan_id>/versions", methods=["POST"])
+@login_required
+def api_create_plan_version(plan_id: str):
+    """Create a new version of a plan (for grandfathering)"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    
+    # Verify plan exists
+    plan = sub_service.get_plan(plan_id)
+    if not plan:
+        return jsonify({"success": False, "error": "Plan not found"}), 404
+    
+    try:
+        data = request.json
+        version = sub_service.create_plan_version(
+            plan_id=plan_id,
+            user_limit=data.get("user_limit"),
+            monthly_scan_quota=data.get("monthly_scan_quota", 50),
+            daily_card_limit=data.get("daily_card_limit", 10),
+            batch_size_limit=data.get("batch_size_limit", 5),
+            price_monthly=data.get("price_monthly", 0),
+            price_yearly=data.get("price_yearly"),
+        )
+        
+        return jsonify({
+            "success": True,
+            "version": version,
+            "message": f"已建立 {plan['display_name']} 方案 v{version['version_number']}",
+        })
+    except Exception as e:
+        logger.error("Failed to create plan version", plan_id=plan_id, error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@admin_bp.route("/api/plans/<plan_id>", methods=["PUT"])
+@login_required
+def api_update_plan(plan_id: str):
+    """Update plan metadata (not version-controlled params)"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    
+    try:
+        data = request.json
+        plan = sub_service.update_plan(
+            plan_id=plan_id,
+            display_name=data.get("display_name"),
+            description=data.get("description"),
+            is_active=data.get("is_active"),
+            sort_order=data.get("sort_order"),
+        )
+        
+        if not plan:
+            return jsonify({"success": False, "error": "Plan not found"}), 404
+        
+        return jsonify({
+            "success": True,
+            "plan": plan,
+            "message": "方案已更新",
+        })
+    except Exception as e:
+        logger.error("Failed to update plan", plan_id=plan_id, error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==================== Quota Management ====================
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/quota")
+@login_required
+def api_get_tenant_quota(tenant_id: str):
+    """Get tenant quota status"""
+    from src.namecard.core.services.quota_service import get_quota_service
+    
+    quota_service = get_quota_service()
+    status = quota_service.get_quota_status(tenant_id)
+    
+    if "error" in status:
+        return jsonify(status), 404
+    
+    return jsonify(status)
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/quota/add", methods=["POST"])
+@login_required
+def api_add_tenant_quota(tenant_id: str):
+    """Add bonus quota to a tenant"""
+    from src.namecard.core.services.quota_service import get_quota_service
+    
+    quota_service = get_quota_service()
+    
+    try:
+        data = request.json
+        amount = data.get("amount", 0)
+        
+        if amount <= 0:
+            return jsonify({"success": False, "error": "配額數量必須大於 0"}), 400
+        
+        result = quota_service.add_bonus_quota(
+            tenant_id=tenant_id,
+            amount=amount,
+            description=data.get("description", "管理員授予配額"),
+            payment_reference=data.get("payment_reference"),
+            created_by=session.get("admin_id", "admin"),
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error("Failed to add quota", tenant_id=tenant_id, error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/quota/transactions")
+@login_required
+def api_get_quota_transactions(tenant_id: str):
+    """Get quota transaction history for a tenant"""
+    from src.namecard.core.services.quota_service import get_quota_service
+    
+    quota_service = get_quota_service()
+    limit = request.args.get("limit", 50, type=int)
+    transactions = quota_service.get_quota_transactions(tenant_id, limit)
+    
+    return jsonify({"transactions": transactions})
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/subscription")
+@login_required
+def api_get_tenant_subscription(tenant_id: str):
+    """Get tenant subscription details"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    subscription = sub_service.get_tenant_subscription(tenant_id)
+    
+    if not subscription:
+        return jsonify({"error": "Tenant not found"}), 404
+    
+    return jsonify(subscription)
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/subscription/assign", methods=["POST"])
+@login_required
+def api_assign_tenant_plan(tenant_id: str):
+    """Assign a subscription plan to a tenant"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    
+    try:
+        data = request.json
+        plan_id = data.get("plan_id")
+        duration_months = data.get("duration_months", 1)
+        
+        if not plan_id:
+            return jsonify({"success": False, "error": "請選擇方案"}), 400
+        
+        result = sub_service.assign_plan(tenant_id, plan_id, duration_months)
+        return jsonify(result)
+    except Exception as e:
+        logger.error("Failed to assign plan", tenant_id=tenant_id, error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@admin_bp.route("/api/tenants/<tenant_id>/subscription/renew", methods=["POST"])
+@login_required
+def api_renew_tenant_subscription(tenant_id: str):
+    """Renew tenant subscription with latest plan version"""
+    from src.namecard.core.services.subscription_service import get_subscription_service
+    
+    sub_service = get_subscription_service()
+    
+    try:
+        data = request.json or {}
+        duration_months = data.get("duration_months", 1)
+        
+        result = sub_service.renew_subscription(tenant_id, duration_months)
+        return jsonify(result)
+    except Exception as e:
+        logger.error("Failed to renew subscription", tenant_id=tenant_id, error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500

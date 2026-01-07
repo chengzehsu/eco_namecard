@@ -3,12 +3,15 @@ LINE Bot 名片識別系統 - 主應用（多租戶版）
 
 支援多租戶模式：根據 LINE Channel ID 動態路由到對應的租戶配置。
 向後相容：如果沒有找到租戶配置，則使用全域預設設定。
+已遷移至 LINE SDK v3 API。
 """
 
 from flask import Flask, request, jsonify
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, ImageMessage
+# LINE SDK v3 imports
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageContent
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
 import structlog
 import os
 import sys
@@ -65,18 +68,18 @@ _debug_log("D", "main.py:before_linebot_init", "INITIALIZING_DEFAULT_LINEBOT", {
 })
 # #endregion
 
-# 初始化預設 LINE Bot (使用全域設定) - 容錯模式
-default_line_bot_api = None
+# 初始化預設 LINE Bot (使用全域設定) - v3 API
+default_configuration = None  # v3: Configuration object
 default_handler = None
 default_card_processor = None
 default_notion_client = None
 default_event_handler = None
 
 try:
-    print("[INIT] Initializing LINE Bot API...", flush=True)
-    default_line_bot_api = LineBotApi(settings.line_channel_access_token or "dummy_token")
+    print("[INIT] Initializing LINE Bot API (v3)...", flush=True)
+    default_configuration = Configuration(access_token=settings.line_channel_access_token or "dummy_token")
     default_handler = WebhookHandler(settings.line_channel_secret or "dummy_secret")
-    print("[INIT] LINE Bot API initialized OK", flush=True)
+    print("[INIT] LINE Bot API (v3) initialized OK", flush=True)
 except Exception as _linebot_err:
     print(f"[INIT] LINE Bot API init failed (non-fatal): {_linebot_err}", flush=True)
 
@@ -96,12 +99,13 @@ except Exception as _notion_err:
     print(f"[INIT] NotionClient init failed (non-fatal): {_notion_err}", flush=True)
 
 # 預設事件處理器 - 只有在所有服務都初始化成功時才創建
-if default_line_bot_api and default_card_processor and default_notion_client:
+if default_configuration and default_card_processor and default_notion_client:
     try:
         default_event_handler = UnifiedEventHandler(
-            line_bot_api=default_line_bot_api,
+            line_bot_api=default_configuration,  # v3: 傳入 Configuration
             card_processor=default_card_processor,
-            notion_client=default_notion_client
+            notion_client=default_notion_client,
+            channel_access_token=settings.line_channel_access_token,  # v3 專用
         )
         print("[INIT] UnifiedEventHandler initialized OK", flush=True)
     except Exception as _handler_err:
@@ -312,7 +316,7 @@ def callback():
         return process_multi_tenant(body, signature, tenant_context)
     else:
         # #region agent log
-        _debug_log("D", "main.py:callback:default_mode", "FALLING_BACK_TO_DEFAULT", {"default_event_handler_exists": default_event_handler is not None, "default_line_bot_api_exists": default_line_bot_api is not None})
+        _debug_log("D", "main.py:callback:default_mode", "FALLING_BACK_TO_DEFAULT", {"default_event_handler_exists": default_event_handler is not None, "default_configuration_exists": default_configuration is not None})
         # #endregion
         # 向後相容：使用預設配置
         logger.info("Default mode (no tenant found)")
@@ -439,14 +443,14 @@ def process_default(body: str, signature: str):
     return 'OK'
 
 
-def process_events_with_handler(body: str, event_handler: UnifiedEventHandler, line_bot_api: LineBotApi):
+def process_events_with_handler(body: str, event_handler: UnifiedEventHandler, configuration=None):
     """
     使用指定的 event_handler 處理事件
 
     Args:
         body: Webhook 請求體
         event_handler: 事件處理器
-        line_bot_api: LINE Bot API 實例
+        configuration: LINE Configuration (v3) - 不再需要，保留向後相容
     """
     try:
         webhook_data = json.loads(body)
@@ -522,12 +526,12 @@ def process_events_manually(body: str):
         # #endregion
         logger.error("Cannot process events: default_event_handler is None")
         return
-    process_events_with_handler(body, default_event_handler, default_line_bot_api)
+    process_events_with_handler(body, default_event_handler, default_configuration)
 
 
 # ==================== LINE SDK 事件處理器（生產環境，向後相容）====================
 
-@default_handler.add(MessageEvent, message=TextMessage)
+@default_handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message_event(event):
     """處理文字訊息事件（LINE SDK，預設模式）"""
     try:
@@ -545,7 +549,7 @@ def handle_text_message_event(event):
         logger.error("SDK text message handling failed", error=str(e))
 
 
-@default_handler.add(MessageEvent, message=ImageMessage)
+@default_handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image_message_event(event):
     """處理圖片訊息事件（LINE SDK，預設模式）"""
     try:

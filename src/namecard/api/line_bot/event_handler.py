@@ -5,16 +5,23 @@
 """
 
 import structlog
-from typing import Optional, Union
-from linebot import LineBotApi
-from linebot.models import (
-    TextSendMessage,
-    FlexSendMessage,
+from typing import Optional, Union, TYPE_CHECKING
+
+# LINE SDK v3 imports
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    PushMessageRequest,
+    TextMessage,
+    FlexMessage,
+    FlexContainer,
     QuickReply,
-    QuickReplyButton,
+    QuickReplyItem,
     MessageAction,
 )
-from linebot.exceptions import LineBotApiError
+from linebot.v3.messaging.rest import ApiException as MessagingApiException
 
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
@@ -38,25 +45,40 @@ class UnifiedEventHandler:
     """統一的事件處理器，處理所有 LINE Bot 訊息
 
     支援多租戶模式：可選的 tenant_id 參數用於追蹤和隔離。
+    已遷移至 LINE SDK v3 API。
     """
 
     def __init__(
         self,
-        line_bot_api: LineBotApi,
+        line_bot_api,  # 保持向後相容：可接受 v2 LineBotApi 或 v3 Configuration
         card_processor: CardProcessor,
         notion_client: NotionClient,
         tenant_id: Optional[str] = None,
+        channel_access_token: Optional[str] = None,  # v3 專用
     ):
         """
         初始化事件處理器
 
         Args:
-            line_bot_api: LINE Bot API 實例
+            line_bot_api: LINE Bot API 實例 (v2) 或 Configuration (v3)
             card_processor: 名片處理器
             notion_client: Notion 客戶端
             tenant_id: 租戶 ID (多租戶模式)，預設為 None (單租戶)
+            channel_access_token: Channel Access Token (v3 模式使用)
         """
-        self.line_bot_api = line_bot_api
+        # 支援向後相容：檢查是否為 v3 Configuration
+        if isinstance(line_bot_api, Configuration):
+            self.configuration = line_bot_api
+            self._use_v3 = True
+        elif channel_access_token:
+            # 提供了 access token，使用 v3
+            self.configuration = Configuration(access_token=channel_access_token)
+            self._use_v3 = True
+        else:
+            # 向後相容 v2
+            self.line_bot_api = line_bot_api
+            self._use_v3 = False
+        
         self.card_processor = card_processor
         self.notion_client = notion_client
         self.tenant_id = tenant_id
@@ -122,9 +144,56 @@ class UnifiedEventHandler:
                 self._send_reply(reply_token, "⛔ 您已被暫時封鎖，請稍後再試")
                 return
 
-            # 檢查速率限制
+            # 檢查速率限制（向後相容的每日限制）
             status = user_service.get_user_status(user_id)
-            if status.daily_usage >= 50:
+            
+            # 如果有租戶 ID，使用 QuotaService 進行配額檢查
+            if self.tenant_id:
+                try:
+                    from src.namecard.core.services.quota_service import get_quota_service
+                    from datetime import datetime
+                    quota_service = get_quota_service()
+                    
+                    # 檢查掃描配額
+                    quota_check = quota_service.check_scan_quota(self.tenant_id)
+                    if not quota_check["has_quota"]:
+                        # 計算下月重置日期
+                        now = datetime.now()
+                        if now.month == 12:
+                            next_month = datetime(now.year + 1, 1, 1)
+                        else:
+                            next_month = datetime(now.year, now.month + 1, 1)
+                        days_until_reset = (next_month - now).days
+                        
+                        self._send_reply(
+                            reply_token,
+                            f"⚠️ 本月掃描配額已用完\n\n"
+                            f"📊 已使用 {quota_check['current_month_scans']}/{quota_check['total_quota']} 張\n"
+                            f"🔄 將於 {days_until_reset} 天後 ({next_month.strftime('%m/%d')}) 重置\n\n"
+                            f"💡 需要更多配額？請洽詢服務人員升級方案"
+                        )
+                        return
+                    
+                    # 檢查用戶限制（只有新用戶時才檢查）
+                    from src.namecard.core.services.tenant_service import get_tenant_service
+                    tenant_service = get_tenant_service()
+                    existing_user = tenant_service.get_line_user(self.tenant_id, user_id)
+                    
+                    if not existing_user:
+                        user_limit_check = quota_service.check_user_limit(self.tenant_id)
+                        if not user_limit_check["allowed"]:
+                            self._send_reply(
+                                reply_token,
+                                f"⚠️ 很抱歉，本服務目前用戶數已達上限\n\n"
+                                f"👥 目前用戶數：{user_limit_check['current_users']}/{user_limit_check['user_limit']}\n\n"
+                                f"📞 如需使用，請聯繫貴公司的服務管理員協助升級"
+                            )
+                            return
+                except Exception as e:
+                    logger.warning("Quota check failed, falling back to default limit", error=str(e))
+            
+            # 向後相容：無租戶時使用舊的每日限制
+            if not self.tenant_id and status.daily_usage >= 50:
                 self._send_reply(reply_token, f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試")
                 return
 
@@ -212,6 +281,12 @@ class UnifiedEventHandler:
 
                     # 獲取並儲存用戶資訊（名稱、頭像）
                     self._save_user_profile(user_id, tenant_service)
+                    
+                    # 消耗掃描配額（只有成功處理的才消耗）
+                    if success_count > 0:
+                        from src.namecard.core.services.quota_service import get_quota_service
+                        quota_service = get_quota_service()
+                        quota_service.consume_scan(self.tenant_id, success_count)
                 except Exception as e:
                     logger.warning("Failed to record usage stats", error=str(e))
 
@@ -234,12 +309,12 @@ class UnifiedEventHandler:
             else:
                 logger.warning("DEBUG_IMGBB_SKIPPED_NO_SUCCESS", success_count=success_count, saved_page_ids_count=len(saved_page_ids))
 
-        except LineBotApiError as e:
+        except (MessagingApiException, Exception) as e:
             logger.error("LINE API error in image processing", error=str(e), user_id=user_id)
             error_handler.handle_line_error(e, user_id)
             # 嘗試用 push message 發送錯誤訊息
             try:
-                self.line_bot_api.push_message(user_id, TextSendMessage(text="❌ 圖片下載失敗，請重試"))
+                self._push_message(user_id, "❌ 圖片下載失敗，請重試")
             except:
                 pass
 
@@ -361,7 +436,7 @@ class UnifiedEventHandler:
             else:
                 result_msg = "❌ 重試失敗，請稍後再試"
 
-            self.line_bot_api.push_message(user_id, TextSendMessage(text=result_msg))
+            self._push_message(user_id, result_msg)
         except Exception as e:
             logger.error("Failed to send retry result", error=str(e))
 
@@ -454,17 +529,28 @@ Email：{card.email or '未識別'}"""
         """發送錯誤訊息"""
         self._send_reply(reply_token, error_msg)
 
-    def _send_flex_message(self, reply_token: str, flex_message: FlexSendMessage) -> None:
+    def _send_flex_message(self, reply_token: str, flex_message) -> None:
         """
         發送 Flex Message
 
         Args:
             reply_token: 回覆 token
-            flex_message: FlexSendMessage 實例
+            flex_message: FlexMessage 實例 (v3) 或 FlexSendMessage (v2)
         """
         try:
-            self.line_bot_api.reply_message(reply_token, flex_message)
-        except LineBotApiError as e:
+            if self._use_v3:
+                with ApiClient(self.configuration) as api_client:
+                    line_bot_api = MessagingApi(api_client)
+                    # v3: FlexMessage 需要包裝成 ReplyMessageRequest
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=reply_token,
+                            messages=[flex_message]
+                        )
+                    )
+            else:
+                self.line_bot_api.reply_message(reply_token, flex_message)
+        except (MessagingApiException, Exception) as e:
             logger.error(
                 "Failed to send flex message", error=str(e), reply_token=reply_token[:20] + "..."
             )
@@ -482,11 +568,66 @@ Email：{card.email or '未識別'}"""
             quick_reply: 快速回覆選項（可選）
         """
         try:
-            message = TextSendMessage(text=text, quick_reply=quick_reply)
-            self.line_bot_api.reply_message(reply_token, message)
-        except LineBotApiError as e:
+            if self._use_v3:
+                with ApiClient(self.configuration) as api_client:
+                    line_bot_api = MessagingApi(api_client)
+                    message = TextMessage(text=text, quick_reply=quick_reply)
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=reply_token,
+                            messages=[message]
+                        )
+                    )
+            else:
+                # v2 向後相容
+                from linebot.models import TextSendMessage as TextSendMessageV2
+                message = TextSendMessageV2(text=text, quick_reply=quick_reply)
+                self.line_bot_api.reply_message(reply_token, message)
+        except (MessagingApiException, Exception) as e:
             logger.error("Failed to send reply", error=str(e), reply_token=reply_token[:20] + "...")
             raise
+
+    def _push_message(self, user_id: str, text: str) -> None:
+        """
+        發送 Push Message（不需要 reply_token）
+
+        Args:
+            user_id: LINE 用戶 ID
+            text: 訊息內容
+        """
+        try:
+            if self._use_v3:
+                with ApiClient(self.configuration) as api_client:
+                    line_bot_api = MessagingApi(api_client)
+                    line_bot_api.push_message(
+                        PushMessageRequest(
+                            to=user_id,
+                            messages=[TextMessage(text=text)]
+                        )
+                    )
+            else:
+                from linebot.models import TextSendMessage as TextSendMessageV2
+                self.line_bot_api.push_message(user_id, TextSendMessageV2(text=text))
+        except Exception as e:
+            logger.error("Failed to push message", error=str(e), user_id=user_id[:10] + "...")
+            raise
+
+    def _get_profile(self, user_id: str):
+        """
+        獲取用戶 Profile
+
+        Args:
+            user_id: LINE 用戶 ID
+            
+        Returns:
+            Profile object with display_name and picture_url
+        """
+        if self._use_v3:
+            with ApiClient(self.configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                return line_bot_api.get_profile(user_id)
+        else:
+            return self.line_bot_api.get_profile(user_id)
 
     def _save_user_profile(self, user_id: str, tenant_service=None) -> None:
         """
@@ -500,8 +641,8 @@ Email：{card.email or '未識別'}"""
             return
 
         try:
-            # 獲取用戶 profile
-            profile = self.line_bot_api.get_profile(user_id)
+            # 獲取用戶 profile（使用 v3 相容方法）
+            profile = self._get_profile(user_id)
             display_name = profile.display_name
             picture_url = profile.picture_url
 

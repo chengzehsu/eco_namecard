@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 import re
 
@@ -30,13 +30,15 @@ class BusinessCard(BaseModel):
     line_user_id: str = Field(..., description="LINE 用戶 ID")
     processed: bool = Field(False, description="是否已處理")
     
-    @validator('email')
+    @field_validator('email')
+    @classmethod
     def validate_email(cls, v):
         if v and not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
             return None  # 無效 email 設為 None
         return v
     
-    @validator('phone')
+    @field_validator('phone')
+    @classmethod
     def validate_phone(cls, v):
         if v:
             # 移除所有非數字字符
@@ -45,7 +47,8 @@ class BusinessCard(BaseModel):
                 return None
         return v
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def clean_name(cls, v):
         """清理名字中的多餘空白（特別是中文名字）"""
         if v:
@@ -56,7 +59,8 @@ class BusinessCard(BaseModel):
             v = re.sub(r'\s+', ' ', v)
         return v
 
-    @validator('address')
+    @field_validator('address')
+    @classmethod
     def normalize_address(cls, v):
         if v:
             # 台灣地址正規化

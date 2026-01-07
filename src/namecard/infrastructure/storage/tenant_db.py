@@ -62,6 +62,8 @@ class TenantDatabase:
                         schema_sql = f.read()
                     conn.executescript(schema_sql)
                     logger.info("Database schema initialized", db_path=self.db_path)
+                    # Also run migrations to ensure commercialization tables exist
+                    self._run_migrations(conn)
                 else:
                     # Inline schema if file not found
                     self._create_inline_schema(conn)
@@ -188,6 +190,165 @@ class TenantDatabase:
                 conn.execute("ALTER TABLE drive_sync_logs ADD COLUMN is_scheduled INTEGER DEFAULT 0")
                 logger.info("Migration: is_scheduled column added to drive_sync_logs")
 
+        # ==================== Commercialization Tables ====================
+        
+        # Check if subscription_plans table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='subscription_plans'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS subscription_plans (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,
+                    description TEXT,
+                    is_active INTEGER DEFAULT 1,
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_subscription_plans_name ON subscription_plans(name);
+            """
+            )
+            logger.info("Migration: subscription_plans table created")
+            
+            # Insert default plans
+            default_plans = [
+                ("free", "Free", "免費試用方案", 1, 0),
+                ("starter", "Starter", "小型團隊方案", 1, 1),
+                ("business", "Business", "中型企業方案", 1, 2),
+                ("enterprise", "Enterprise", "大型企業方案", 1, 3),
+            ]
+            for plan_id, display_name, desc, is_active, sort_order in default_plans:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO subscription_plans (id, name, display_name, description, is_active, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (plan_id, plan_id, display_name, desc, is_active, sort_order)
+                )
+            logger.info("Migration: Default subscription plans inserted")
+        
+        # Check if plan_versions table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_versions'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS plan_versions (
+                    id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    version_number INTEGER NOT NULL,
+                    user_limit INTEGER DEFAULT 5,
+                    monthly_scan_quota INTEGER DEFAULT 50,
+                    daily_card_limit INTEGER DEFAULT 10,
+                    batch_size_limit INTEGER DEFAULT 5,
+                    price_monthly INTEGER DEFAULT 0,
+                    price_yearly INTEGER,
+                    is_current INTEGER DEFAULT 1,
+                    effective_from TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(plan_id, version_number),
+                    FOREIGN KEY (plan_id) REFERENCES subscription_plans(id)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_plan_versions_plan ON plan_versions(plan_id);
+                CREATE INDEX IF NOT EXISTS idx_plan_versions_current ON plan_versions(is_current);
+            """
+            )
+            logger.info("Migration: plan_versions table created")
+            
+            # Insert default plan versions (v1)
+            # uuid already imported at module level
+            default_versions = [
+                # (plan_id, user_limit, monthly_scan_quota, daily_card_limit, batch_size_limit, price_monthly)
+                ("free", 5, 50, 10, 5, 0),
+                ("starter", 20, 500, 20, 10, 29900),
+                ("business", 100, 3000, 50, 20, 99900),
+                ("enterprise", None, 10000, 100, 50, 299900),
+            ]
+            for plan_id, user_limit, scan_quota, daily_limit, batch_limit, price in default_versions:
+                version_id = str(uuid.uuid4())
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO plan_versions 
+                    (id, plan_id, version_number, user_limit, monthly_scan_quota, 
+                     daily_card_limit, batch_size_limit, price_monthly, is_current, effective_from)
+                    VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1, datetime('now'))
+                    """,
+                    (version_id, plan_id, user_limit, scan_quota, daily_limit, batch_limit, price)
+                )
+            logger.info("Migration: Default plan versions (v1) inserted")
+        
+        # Check if quota_transactions table exists, create if not
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='quota_transactions'"
+        )
+        if cursor.fetchone() is None:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS quota_transactions (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    transaction_type TEXT NOT NULL,
+                    quota_amount INTEGER NOT NULL,
+                    balance_after INTEGER NOT NULL,
+                    description TEXT,
+                    payment_reference TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    created_by TEXT,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_quota_trans_tenant ON quota_transactions(tenant_id);
+                CREATE INDEX IF NOT EXISTS idx_quota_trans_date ON quota_transactions(created_at);
+            """
+            )
+            logger.info("Migration: quota_transactions table created")
+        
+        # Add new columns to tenants table for commercialization
+        cursor = conn.execute("PRAGMA table_info(tenants)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if "plan_version_id" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN plan_version_id TEXT")
+            logger.info("Migration: plan_version_id column added to tenants")
+        
+        if "plan_started_at" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN plan_started_at TEXT")
+            logger.info("Migration: plan_started_at column added to tenants")
+        
+        if "plan_expires_at" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN plan_expires_at TEXT")
+            logger.info("Migration: plan_expires_at column added to tenants")
+        
+        if "next_plan_version_id" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN next_plan_version_id TEXT")
+            logger.info("Migration: next_plan_version_id column added to tenants")
+        
+        if "bonus_scan_quota" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN bonus_scan_quota INTEGER DEFAULT 0")
+            logger.info("Migration: bonus_scan_quota column added to tenants")
+        
+        if "current_month_scans" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN current_month_scans INTEGER DEFAULT 0")
+            logger.info("Migration: current_month_scans column added to tenants")
+        
+        if "quota_reset_date" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN quota_reset_date TEXT")
+            logger.info("Migration: quota_reset_date column added to tenants")
+        
+        if "registration_status" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN registration_status TEXT DEFAULT 'active'")
+            logger.info("Migration: registration_status column added to tenants")
+        
+        if "registered_email" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN registered_email TEXT")
+            logger.info("Migration: registered_email column added to tenants")
+
     def _create_inline_schema(self, conn: sqlite3.Connection):
         """Create schema inline if schema.sql not found"""
         conn.executescript(
@@ -213,7 +374,17 @@ class TenantDatabase:
                 google_drive_last_sync TEXT,
                 google_drive_sync_status TEXT DEFAULT 'idle',
                 google_drive_sync_schedule TEXT,
-                google_drive_sync_enabled INTEGER DEFAULT 0
+                google_drive_sync_enabled INTEGER DEFAULT 0,
+                -- Commercialization columns
+                plan_version_id TEXT,
+                plan_started_at TEXT,
+                plan_expires_at TEXT,
+                next_plan_version_id TEXT,
+                bonus_scan_quota INTEGER DEFAULT 0,
+                current_month_scans INTEGER DEFAULT 0,
+                quota_reset_date TEXT,
+                registration_status TEXT DEFAULT 'active',
+                registered_email TEXT
             );
 
             CREATE TABLE IF NOT EXISTS admin_users (
@@ -267,6 +438,47 @@ class TenantDatabase:
                 updated_at TEXT DEFAULT (datetime('now')),
                 UNIQUE(tenant_id, line_user_id)
             );
+            
+            -- Commercialization tables
+            CREATE TABLE IF NOT EXISTS subscription_plans (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                description TEXT,
+                is_active INTEGER DEFAULT 1,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            
+            CREATE TABLE IF NOT EXISTS plan_versions (
+                id TEXT PRIMARY KEY,
+                plan_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL,
+                user_limit INTEGER DEFAULT 5,
+                monthly_scan_quota INTEGER DEFAULT 50,
+                daily_card_limit INTEGER DEFAULT 10,
+                batch_size_limit INTEGER DEFAULT 5,
+                price_monthly INTEGER DEFAULT 0,
+                price_yearly INTEGER,
+                is_current INTEGER DEFAULT 1,
+                effective_from TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(plan_id, version_number),
+                FOREIGN KEY (plan_id) REFERENCES subscription_plans(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS quota_transactions (
+                id TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                transaction_type TEXT NOT NULL,
+                quota_amount INTEGER NOT NULL,
+                balance_after INTEGER NOT NULL,
+                description TEXT,
+                payment_reference TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                created_by TEXT,
+                FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+            );
 
             CREATE INDEX IF NOT EXISTS idx_tenants_line_channel_id ON tenants(line_channel_id);
             CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
@@ -274,9 +486,64 @@ class TenantDatabase:
             CREATE INDEX IF NOT EXISTS idx_user_stats_user ON user_stats(line_user_id);
             CREATE INDEX IF NOT EXISTS idx_line_users_tenant ON line_users(tenant_id);
             CREATE INDEX IF NOT EXISTS idx_line_users_user ON line_users(line_user_id);
+            CREATE INDEX IF NOT EXISTS idx_subscription_plans_name ON subscription_plans(name);
+            CREATE INDEX IF NOT EXISTS idx_plan_versions_plan ON plan_versions(plan_id);
+            CREATE INDEX IF NOT EXISTS idx_plan_versions_current ON plan_versions(is_current);
+            CREATE INDEX IF NOT EXISTS idx_quota_trans_tenant ON quota_transactions(tenant_id);
+            CREATE INDEX IF NOT EXISTS idx_quota_trans_date ON quota_transactions(created_at);
         """
         )
         logger.info("Database schema created inline")
+        
+        # Insert default plans and versions
+        self._insert_default_plans(conn)
+
+    def _insert_default_plans(self, conn: sqlite3.Connection):
+        """Insert default subscription plans and initial versions"""
+        # uuid already imported at module level
+        
+        # Check if plans already exist
+        cursor = conn.execute("SELECT COUNT(*) FROM subscription_plans")
+        if cursor.fetchone()[0] > 0:
+            return
+        
+        # Insert default plans
+        default_plans = [
+            ("free", "Free", "免費試用方案", 1, 0),
+            ("starter", "Starter", "小型團隊方案", 1, 1),
+            ("business", "Business", "中型企業方案", 1, 2),
+            ("enterprise", "Enterprise", "大型企業方案", 1, 3),
+        ]
+        for plan_id, display_name, desc, is_active, sort_order in default_plans:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO subscription_plans (id, name, display_name, description, is_active, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (plan_id, plan_id, display_name, desc, is_active, sort_order)
+            )
+        
+        # Insert default plan versions (v1)
+        default_versions = [
+            # (plan_id, user_limit, monthly_scan_quota, daily_card_limit, batch_size_limit, price_monthly)
+            ("free", 5, 50, 10, 5, 0),
+            ("starter", 20, 500, 20, 10, 29900),
+            ("business", 100, 3000, 50, 20, 99900),
+            ("enterprise", None, 10000, 100, 50, 299900),
+        ]
+        for plan_id, user_limit, scan_quota, daily_limit, batch_limit, price in default_versions:
+            version_id = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO plan_versions 
+                (id, plan_id, version_number, user_limit, monthly_scan_quota, 
+                 daily_card_limit, batch_size_limit, price_monthly, is_current, effective_from)
+                VALUES (?, ?, 1, ?, ?, ?, ?, ?, 1, datetime('now'))
+                """,
+                (version_id, plan_id, user_limit, scan_quota, daily_limit, batch_limit, price)
+            )
+        
+        logger.info("Default subscription plans and versions inserted")
 
     @contextmanager
     def get_connection(self):

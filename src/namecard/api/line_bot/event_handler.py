@@ -22,6 +22,12 @@ from linebot.v3.messaging import (
     MessageAction,
 )
 from linebot.v3.messaging.rest import ApiException as MessagingApiException
+# 也導入舊版異常（用於向後相容和測試）
+from linebot.v3.exceptions import InvalidSignatureError
+try:
+    from linebot.exceptions import LineBotApiError
+except ImportError:
+    LineBotApiError = MessagingApiException  # fallback
 
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
@@ -50,34 +56,31 @@ class UnifiedEventHandler:
 
     def __init__(
         self,
-        line_bot_api,  # 保持向後相容：可接受 v2 LineBotApi 或 v3 Configuration
+        line_bot_api,  # v3 Configuration 物件或 access_token 字串
         card_processor: CardProcessor,
         notion_client: NotionClient,
         tenant_id: Optional[str] = None,
-        channel_access_token: Optional[str] = None,  # v3 專用
+        channel_access_token: Optional[str] = None,
     ):
         """
-        初始化事件處理器
+        初始化事件處理器 (LINE SDK v3)
 
         Args:
-            line_bot_api: LINE Bot API 實例 (v2) 或 Configuration (v3)
+            line_bot_api: v3 Configuration 物件，或用於測試的 Mock 物件
             card_processor: 名片處理器
             notion_client: Notion 客戶端
-            tenant_id: 租戶 ID (多租戶模式)，預設為 None (單租戶)
-            channel_access_token: Channel Access Token (v3 模式使用)
+            tenant_id: 租戶 ID (多租戶模式)
+            channel_access_token: Channel Access Token (替代 line_bot_api 使用)
         """
-        # 支援向後相容：檢查是否為 v3 Configuration
-        if isinstance(line_bot_api, Configuration):
-            self.configuration = line_bot_api
-            self._use_v3 = True
-        elif channel_access_token:
-            # 提供了 access token，使用 v3
+        # 優先使用 channel_access_token 創建 Configuration
+        if channel_access_token:
             self.configuration = Configuration(access_token=channel_access_token)
-            self._use_v3 = True
+        elif isinstance(line_bot_api, Configuration):
+            self.configuration = line_bot_api
         else:
-            # 向後相容 v2
-            self.line_bot_api = line_bot_api
-            self._use_v3 = False
+            # 測試模式：直接儲存 mock 物件
+            self._mock_api = line_bot_api
+            self.configuration = None
         
         self.card_processor = card_processor
         self.notion_client = notion_client
@@ -199,8 +202,7 @@ class UnifiedEventHandler:
 
             # 下載圖片
             logger.warning("DEBUG_DOWNLOADING_IMAGE", message_id=message_id, user_id=user_id[:10] + "...")
-            message_content = self.line_bot_api.get_message_content(message_id)
-            image_data = message_content.content
+            image_data = self._get_message_content(message_id)
             logger.warning("DEBUG_IMAGE_DOWNLOADED", image_size=len(image_data), message_id=message_id)
 
             # 驗證圖片
@@ -309,16 +311,17 @@ class UnifiedEventHandler:
             else:
                 logger.warning("DEBUG_IMGBB_SKIPPED_NO_SUCCESS", success_count=success_count, saved_page_ids_count=len(saved_page_ids))
 
-        except (MessagingApiException, Exception) as e:
+        except (MessagingApiException, LineBotApiError) as e:
+            # LINE API 錯誤（下載圖片等）
             logger.error("LINE API error in image processing", error=str(e), user_id=user_id)
             error_handler.handle_line_error(e, user_id)
-            # 嘗試用 push message 發送錯誤訊息
             try:
                 self._push_message(user_id, "❌ 圖片下載失敗，請重試")
             except:
                 pass
 
         except Exception as e:
+            # AI 處理或其他錯誤
             logger.error("Image processing failed", error=str(e), user_id=user_id)
             error_msg = error_handler.handle_ai_error(e, user_id)
             self._send_error_message(reply_token, error_msg)
@@ -535,13 +538,13 @@ Email：{card.email or '未識別'}"""
 
         Args:
             reply_token: 回覆 token
-            flex_message: FlexMessage 實例 (v3) 或 FlexSendMessage (v2)
+            flex_message: FlexMessage 實例
         """
         try:
-            if self._use_v3:
+            if self.configuration:
+                # v3 API
                 with ApiClient(self.configuration) as api_client:
                     line_bot_api = MessagingApi(api_client)
-                    # v3: FlexMessage 需要包裝成 ReplyMessageRequest
                     line_bot_api.reply_message(
                         ReplyMessageRequest(
                             reply_token=reply_token,
@@ -549,7 +552,8 @@ Email：{card.email or '未識別'}"""
                         )
                     )
             else:
-                self.line_bot_api.reply_message(reply_token, flex_message)
+                # Mock 測試模式
+                self._mock_api.reply_message(reply_token, flex_message)
         except (MessagingApiException, Exception) as e:
             logger.error(
                 "Failed to send flex message", error=str(e), reply_token=reply_token[:20] + "..."
@@ -568,7 +572,8 @@ Email：{card.email or '未識別'}"""
             quick_reply: 快速回覆選項（可選）
         """
         try:
-            if self._use_v3:
+            if self.configuration:
+                # v3 API
                 with ApiClient(self.configuration) as api_client:
                     line_bot_api = MessagingApi(api_client)
                     message = TextMessage(text=text, quick_reply=quick_reply)
@@ -579,10 +584,8 @@ Email：{card.email or '未識別'}"""
                         )
                     )
             else:
-                # v2 向後相容
-                from linebot.models import TextSendMessage as TextSendMessageV2
-                message = TextSendMessageV2(text=text, quick_reply=quick_reply)
-                self.line_bot_api.reply_message(reply_token, message)
+                # Mock 測試模式
+                self._mock_api.reply_message(reply_token, text)
         except (MessagingApiException, Exception) as e:
             logger.error("Failed to send reply", error=str(e), reply_token=reply_token[:20] + "...")
             raise
@@ -596,7 +599,8 @@ Email：{card.email or '未識別'}"""
             text: 訊息內容
         """
         try:
-            if self._use_v3:
+            if self.configuration:
+                # v3 API
                 with ApiClient(self.configuration) as api_client:
                     line_bot_api = MessagingApi(api_client)
                     line_bot_api.push_message(
@@ -606,11 +610,31 @@ Email：{card.email or '未識別'}"""
                         )
                     )
             else:
-                from linebot.models import TextSendMessage as TextSendMessageV2
-                self.line_bot_api.push_message(user_id, TextSendMessageV2(text=text))
+                # Mock 測試模式
+                self._mock_api.push_message(user_id, text)
         except Exception as e:
             logger.error("Failed to push message", error=str(e), user_id=user_id[:10] + "...")
             raise
+
+    def _get_message_content(self, message_id: str) -> bytes:
+        """
+        下載訊息內容（圖片等）
+
+        Args:
+            message_id: 訊息 ID
+            
+        Returns:
+            bytes: 訊息內容
+        """
+        if self.configuration:
+            # v3 API - 使用 MessagingApiBlob
+            from linebot.v3.messaging import MessagingApiBlob
+            with ApiClient(self.configuration) as api_client:
+                blob_api = MessagingApiBlob(api_client)
+                return blob_api.get_message_content(message_id)
+        else:
+            # Mock 測試模式
+            return self._mock_api.get_message_content(message_id).content
 
     def _get_profile(self, user_id: str):
         """
@@ -622,12 +646,14 @@ Email：{card.email or '未識別'}"""
         Returns:
             Profile object with display_name and picture_url
         """
-        if self._use_v3:
+        if self.configuration:
+            # v3 API
             with ApiClient(self.configuration) as api_client:
                 line_bot_api = MessagingApi(api_client)
                 return line_bot_api.get_profile(user_id)
         else:
-            return self.line_bot_api.get_profile(user_id)
+            # Mock 測試模式
+            return self._mock_api.get_profile(user_id)
 
     def _save_user_profile(self, user_id: str, tenant_service=None) -> None:
         """
@@ -635,24 +661,20 @@ Email：{card.email or '未識別'}"""
 
         Args:
             user_id: LINE 用戶 ID
-            tenant_service: TenantService 實例（可選，避免重複 import）
+            tenant_service: TenantService 實例（可選）
         """
         if not self.tenant_id:
             return
 
         try:
-            # 獲取用戶 profile（使用 v3 相容方法）
             profile = self._get_profile(user_id)
             display_name = profile.display_name
             picture_url = profile.picture_url
 
-            # 取得 tenant_service
             if tenant_service is None:
                 from src.namecard.core.services.tenant_service import get_tenant_service
-
                 tenant_service = get_tenant_service()
 
-            # 儲存用戶資訊
             tenant_service.save_line_user(
                 tenant_id=self.tenant_id,
                 line_user_id=user_id,
@@ -663,3 +685,4 @@ Email：{card.email or '未識別'}"""
             logger.debug("User profile saved", user_id=user_id, display_name=display_name)
         except Exception as e:
             logger.warning("Failed to save user profile", error=str(e), user_id=user_id)
+

@@ -342,8 +342,8 @@ class UnifiedEventHandler:
             help_text,
             quick_reply=QuickReply(
                 items=[
-                    QuickReplyButton(action=MessageAction(label="開始批次", text="批次")),
-                    QuickReplyButton(action=MessageAction(label="查看狀態", text="狀態")),
+                    QuickReplyItem(action=MessageAction(label="開始批次", text="批次")),
+                    QuickReplyItem(action=MessageAction(label="查看狀態", text="狀態")),
                 ]
             ),
         )
@@ -357,8 +357,8 @@ class UnifiedEventHandler:
             "📦 批次模式已啟動\n\n請連續上傳多張名片照片\n完成後輸入「結束批次」",
             quick_reply=QuickReply(
                 items=[
-                    QuickReplyButton(action=MessageAction(label="結束批次", text="結束批次")),
-                    QuickReplyButton(action=MessageAction(label="查看進度", text="狀態")),
+                    QuickReplyItem(action=MessageAction(label="結束批次", text="結束批次")),
+                    QuickReplyItem(action=MessageAction(label="查看進度", text="狀態")),
                 ]
             ),
         )
@@ -468,7 +468,7 @@ class UnifiedEventHandler:
             "❓ 不認識的指令\n輸入「幫助」查看使用說明",
             quick_reply=QuickReply(
                 items=[
-                    QuickReplyButton(action=MessageAction(label="查看說明", text="幫助")),
+                    QuickReplyItem(action=MessageAction(label="查看說明", text="幫助")),
                 ]
             ),
         )

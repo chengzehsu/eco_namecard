@@ -840,6 +840,44 @@ def api_tenant_users(tenant_id: str):
 # ==================== Google Drive API ====================
 
 
+@admin_bp.route("/api/drive/service-account-email", methods=["GET"])
+@login_required
+def get_service_account_email():
+    """
+    返回 Service Account Email
+    
+    用於在租戶編輯頁面顯示給管理員
+    """
+    try:
+        from src.namecard.infrastructure.storage.google_drive_client import (
+            get_google_drive_client,
+        )
+        
+        drive_client = get_google_drive_client()
+        
+        if not drive_client:
+            return jsonify({
+                "success": False,
+                "error": "Google Drive 服務未設定",
+            })
+        
+        email = drive_client.service_account_email
+        if email:
+            return jsonify({
+                "success": True,
+                "email": email,
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "無法取得 Service Account Email",
+            })
+            
+    except Exception as e:
+        logger.error("GET_SERVICE_ACCOUNT_EMAIL_ERROR", error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @admin_bp.route("/api/drive/fetch-folder", methods=["POST"])
 @login_required
 def fetch_drive_folder():

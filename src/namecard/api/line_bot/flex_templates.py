@@ -1,5 +1,5 @@
 """
-Flex Message Templates for LINE Bot Namecard System
+Flex Message Templates for LINE Bot Namecard System (SDK v3)
 
 設計原則 (based on UI/UX Pro Max):
 - Minimal & Direct: 簡潔直接，留白適當
@@ -8,12 +8,12 @@ Flex Message Templates for LINE Bot Namecard System
 - 中文介面
 """
 
-from linebot.models import (
-    FlexSendMessage,
-    BubbleContainer,
-    BoxComponent,
-    TextComponent,
-    SeparatorComponent,
+from linebot.v3.messaging import (
+    FlexMessage,
+    FlexBubble,
+    FlexBox,
+    FlexText,
+    FlexSeparator,
 )
 from typing import Optional, List
 from src.namecard.core.models.card import BusinessCard, BatchProcessResult
@@ -37,19 +37,19 @@ class FlexColors:
     SUCCESS = "#06C755"           # 成功 (同 LINE Green)
 
 
-def _create_info_row(label: str, value: str) -> BoxComponent:
+def _create_info_row(label: str, value: str) -> FlexBox:
     """建立資訊列（標籤 + 值）"""
-    return BoxComponent(
+    return FlexBox(
         layout="horizontal",
         margin="sm",
         contents=[
-            TextComponent(
+            FlexText(
                 text=label,
                 size="sm",
                 color=FlexColors.TEXT_MUTED,
                 flex=2
             ),
-            TextComponent(
+            FlexText(
                 text=value or "-",
                 size="sm",
                 color=FlexColors.TEXT_PRIMARY,
@@ -60,19 +60,19 @@ def _create_info_row(label: str, value: str) -> BoxComponent:
     )
 
 
-def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
+def build_card_result_bubble(card: BusinessCard) -> FlexBubble:
     """
     建立單張名片識別結果卡片
 
     設計：簡潔現代風格，突出姓名和公司
     """
     # Header - LINE Green 背景
-    header = BoxComponent(
+    header = FlexBox(
         layout="vertical",
-        backgroundColor=FlexColors.PRIMARY,
-        paddingAll="16px",
+        background_color=FlexColors.PRIMARY,
+        padding_all="16px",
         contents=[
-            TextComponent(
+            FlexText(
                 text="名片識別成功",
                 color=FlexColors.WHITE,
                 size="md",
@@ -86,7 +86,7 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
 
     # 姓名（大字體突出）
     body_contents.append(
-        TextComponent(
+        FlexText(
             text=card.name or "未識別",
             size="xl",
             weight="bold",
@@ -103,7 +103,7 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
 
     if subtitle_parts:
         body_contents.append(
-            TextComponent(
+            FlexText(
                 text=" · ".join(subtitle_parts),
                 size="sm",
                 color=FlexColors.TEXT_SECONDARY,
@@ -113,7 +113,7 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
         )
 
     # 分隔線
-    body_contents.append(SeparatorComponent(margin="lg"))
+    body_contents.append(FlexSeparator(margin="lg"))
 
     # 聯絡資訊區塊
     info_box_contents = []
@@ -132,7 +132,7 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
 
     if info_box_contents:
         body_contents.append(
-            BoxComponent(
+            FlexBox(
                 layout="vertical",
                 margin="lg",
                 spacing="sm",
@@ -140,18 +140,18 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
             )
         )
 
-    body = BoxComponent(
+    body = FlexBox(
         layout="vertical",
-        paddingAll="16px",
+        padding_all="16px",
         contents=body_contents
     )
 
     # Footer - 儲存狀態
-    footer = BoxComponent(
+    footer = FlexBox(
         layout="vertical",
-        paddingAll="12px",
+        padding_all="12px",
         contents=[
-            TextComponent(
+            FlexText(
                 text="已儲存至 Notion",
                 size="xs",
                 color=FlexColors.SUCCESS,
@@ -161,7 +161,7 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
         ]
     )
 
-    return BubbleContainer(
+    return FlexBubble(
         size="mega",
         header=header,
         body=body,
@@ -169,18 +169,18 @@ def build_card_result_bubble(card: BusinessCard) -> BubbleContainer:
     )
 
 
-def build_multi_card_summary_bubble(total: int) -> BubbleContainer:
+def build_multi_card_summary_bubble(total: int) -> FlexBubble:
     """
     建立多張名片處理摘要卡片
 
     設計：簡潔統計，只顯示總數
     """
-    header = BoxComponent(
+    header = FlexBox(
         layout="vertical",
-        backgroundColor=FlexColors.PRIMARY,
-        paddingAll="16px",
+        background_color=FlexColors.PRIMARY,
+        padding_all="16px",
         contents=[
-            TextComponent(
+            FlexText(
                 text="名片識別完成",
                 color=FlexColors.WHITE,
                 size="md",
@@ -190,18 +190,18 @@ def build_multi_card_summary_bubble(total: int) -> BubbleContainer:
         ]
     )
 
-    body = BoxComponent(
+    body = FlexBox(
         layout="vertical",
-        paddingAll="20px",
+        padding_all="20px",
         contents=[
-            TextComponent(
+            FlexText(
                 text=str(total),
                 size="3xl",
                 weight="bold",
                 align="center",
                 color=FlexColors.TEXT_PRIMARY
             ),
-            TextComponent(
+            FlexText(
                 text="張名片已處理",
                 size="sm",
                 align="center",
@@ -211,14 +211,14 @@ def build_multi_card_summary_bubble(total: int) -> BubbleContainer:
         ]
     )
 
-    return BubbleContainer(
+    return FlexBubble(
         size="kilo",
         header=header,
         body=body
     )
 
 
-def build_batch_complete_bubble(batch_result: BatchProcessResult) -> BubbleContainer:
+def build_batch_complete_bubble(batch_result: BatchProcessResult) -> FlexBubble:
     """
     建立批次完成統計卡片
 
@@ -233,12 +233,12 @@ def build_batch_complete_bubble(batch_result: BatchProcessResult) -> BubbleConta
     else:
         duration_str = "-"
 
-    header = BoxComponent(
+    header = FlexBox(
         layout="vertical",
-        backgroundColor=FlexColors.PRIMARY,
-        paddingAll="16px",
+        background_color=FlexColors.PRIMARY,
+        padding_all="16px",
         contents=[
-            TextComponent(
+            FlexText(
                 text="批次處理完成",
                 color=FlexColors.WHITE,
                 size="lg",
@@ -248,23 +248,23 @@ def build_batch_complete_bubble(batch_result: BatchProcessResult) -> BubbleConta
         ]
     )
 
-    body = BoxComponent(
+    body = FlexBox(
         layout="vertical",
-        paddingAll="24px",
+        padding_all="24px",
         spacing="lg",
         contents=[
             # 總數統計
-            BoxComponent(
+            FlexBox(
                 layout="vertical",
                 contents=[
-                    TextComponent(
+                    FlexText(
                         text=str(batch_result.total_cards),
                         size="3xl",
                         weight="bold",
                         align="center",
                         color=FlexColors.TEXT_PRIMARY
                     ),
-                    TextComponent(
+                    FlexText(
                         text="張名片已處理",
                         size="sm",
                         align="center",
@@ -274,18 +274,18 @@ def build_batch_complete_bubble(batch_result: BatchProcessResult) -> BubbleConta
                 ]
             ),
             # 分隔線
-            SeparatorComponent(),
+            FlexSeparator(),
             # 處理時間
-            BoxComponent(
+            FlexBox(
                 layout="horizontal",
                 contents=[
-                    TextComponent(
+                    FlexText(
                         text="處理時間",
                         size="sm",
                         color=FlexColors.TEXT_SECONDARY,
                         flex=1
                     ),
-                    TextComponent(
+                    FlexText(
                         text=duration_str,
                         size="sm",
                         weight="bold",
@@ -298,7 +298,7 @@ def build_batch_complete_bubble(batch_result: BatchProcessResult) -> BubbleConta
         ]
     )
 
-    return BubbleContainer(
+    return FlexBubble(
         size="kilo",
         header=header,
         body=body
@@ -313,7 +313,7 @@ def create_card_result_message(
     cards: List[BusinessCard],
     is_batch_mode: bool = False,
     batch_progress: Optional[int] = None
-) -> FlexSendMessage:
+) -> FlexMessage:
     """
     建立名片處理結果的 Flex Message
 
@@ -323,7 +323,7 @@ def create_card_result_message(
         batch_progress: 批次模式下的累計數量
 
     Returns:
-        FlexSendMessage 準備發送
+        FlexMessage 準備發送
     """
     total = len(cards)
 
@@ -336,13 +336,13 @@ def create_card_result_message(
         bubble = build_multi_card_summary_bubble(total)
         alt_text = f"已處理 {total} 張名片"
 
-    return FlexSendMessage(
+    return FlexMessage(
         alt_text=alt_text,
         contents=bubble
     )
 
 
-def create_batch_complete_message(batch_result: BatchProcessResult) -> FlexSendMessage:
+def create_batch_complete_message(batch_result: BatchProcessResult) -> FlexMessage:
     """
     建立批次完成的 Flex Message
 
@@ -350,11 +350,11 @@ def create_batch_complete_message(batch_result: BatchProcessResult) -> FlexSendM
         batch_result: 批次處理結果
 
     Returns:
-        FlexSendMessage 準備發送
+        FlexMessage 準備發送
     """
     bubble = build_batch_complete_bubble(batch_result)
 
-    return FlexSendMessage(
+    return FlexMessage(
         alt_text=f"批次完成：共 {batch_result.total_cards} 張名片",
         contents=bubble
     )

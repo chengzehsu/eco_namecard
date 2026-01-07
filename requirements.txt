@@ -6,7 +6,7 @@ flask==3.0.0
 gunicorn==21.2.0
 
 # Google AI
-google-generativeai>=0.3.2
+google-genai>=0.3.0
 
 # Google Drive API
 google-api-python-client>=2.111.0,<3.0.0

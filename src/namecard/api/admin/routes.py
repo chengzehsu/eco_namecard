@@ -570,11 +570,11 @@ def test_tenant_connection(tenant_id: str):
     # Test Google API (if tenant has custom key)
     if tenant.google_api_key and not tenant.use_shared_google_api:
         try:
-            import google.generativeai as genai
+            from google import genai
 
-            genai.configure(api_key=tenant.google_api_key)
-            # 驗證 API key（創建 model 實例來測試）
-            _ = genai.GenerativeModel("gemini-1.5-flash")
+            client = genai.Client(api_key=tenant.google_api_key)
+            # 驗證 API key（使用 Client 實例來測試）
+            _ = client.models.generate_content(model="gemini-2.5-flash", contents="test")
             results["google"] = {"status": "success", "message": "API key valid"}
         except Exception as e:
             results["google"] = {"status": "error", "message": str(e)}

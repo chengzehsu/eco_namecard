@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image
 import io
 import json
@@ -126,8 +127,8 @@ class CardProcessor:
             fallback_api_key: 自訂備用 API Key，預設使用全域設定
         """
         self.config = config or ProcessingConfig()
-        self.model = None
-        self.fallback_model = None
+        self.client = None
+        self.fallback_client = None
         self._api_call_count = 0
         self._last_api_call = 0
 
@@ -280,30 +281,26 @@ class CardProcessor:
 """
     
     def _setup_gemini(self) -> None:
-        """設置 Gemini API 並初始化模型
+        """設置 Gemini API 並初始化 Client
 
-        初始化主要和備用 API key 的模型實例，實現 quota exceeded 時的自動切換
-
-        Raises:
-            APIKeyInvalidError: 當主要 API 金鑰無效時（備用 key 可選）
+        初始化主要和備用 API key 的 Client 實例
         """
         # 測試模式：跳過真實的 API 初始化
         if self.primary_api_key in ['test_key', 'test', '']:
             logger.warning("Running in test mode, skipping Gemini API initialization")
-            self.model = None
-            self.fallback_model = None
+            self.client = None
+            self.fallback_client = None
             return
 
-        # 初始化主要 API key 的模型
+        # 初始化主要 Client
         try:
-            genai.configure(api_key=self.primary_api_key)
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
-
+            self.client = genai.Client(api_key=self.primary_api_key)
+            
             # 測試主要 API 連接
-            _ = self.model.generate_content("test")
+            _ = self.client.models.generate_content(model="gemini-2.5-flash", contents="test")
 
             logger.info(
-                "Primary Gemini API configured successfully",
+                "Primary Gemini Client configured successfully",
                 model="gemini-2.5-flash",
                 has_fallback_key=bool(self.fallback_api_key),
                 operation="api_setup",
@@ -312,48 +309,40 @@ class CardProcessor:
 
         except Exception as e:
             logger.error(
-                "Failed to configure primary Gemini API",
+                "Failed to configure primary Gemini Client",
                 error=str(e),
                 operation="api_setup",
                 status="failed"
             )
             raise APIKeyInvalidError(details={"error": str(e), "key_type": "primary"}) from e
 
-        # 如果有 fallback API key，初始化 fallback 模型
+        # 如果有 fallback API key，初始化 fallback Client
         if self.fallback_api_key:
             try:
-                # 暫存當前配置
-                primary_model = self.model
-
-                # 配置 fallback key 並創建模型
-                genai.configure(api_key=self.fallback_api_key)
-                self.fallback_model = genai.GenerativeModel('gemini-2.5-flash')
+                self.fallback_client = genai.Client(api_key=self.fallback_api_key)
 
                 # 測試 fallback API 連接
-                _ = self.fallback_model.generate_content("test")
-
-                # 恢復主要 API key 配置
-                genai.configure(api_key=self.primary_api_key)
-                self.model = primary_model
+                # 使用 gemini-2.5-flash-lite 作為 fallback 模型，避免使用舊模型
+                _ = self.fallback_client.models.generate_content(model="gemini-2.5-flash-lite", contents="test")
 
                 logger.info(
-                    "Fallback Gemini API configured successfully",
-                    model="gemini-2.5-flash",
+                    "Fallback Gemini Client configured successfully",
+                    model="gemini-2.5-flash-lite",
                     operation="api_setup",
                     status="success"
                 )
 
             except Exception as e:
                 logger.warning(
-                    "Failed to configure fallback Gemini API (not critical)",
+                    "Failed to configure fallback Gemini Client (not critical)",
                     error=str(e),
                     operation="api_setup",
                     status="warning"
                 )
-                self.fallback_model = None  # Fallback 失敗不是致命錯誤
+                self.fallback_client = None
         else:
             logger.info("No fallback API key configured")
-            self.fallback_model = None
+            self.fallback_client = None
     
     def process_image(self, image_data: bytes, user_id: str) -> List[BusinessCard]:
         """
@@ -537,8 +526,8 @@ class CardProcessor:
         Raises:
             APIError: 當 API 呼叫失敗時
         """
-        if not self.model:
-            raise APIError("Gemini model not initialized")
+        if not self.client:
+            raise APIError("Gemini client not initialized")
         
         # 記錄 API 呼叫
         self._api_call_count += 1
@@ -557,45 +546,49 @@ class CardProcessor:
                 operation="ai_processing"
             )
 
-            # 配置安全設定：名片是專業文件，需要寬鬆的安全過濾設定
+            # 配置安全設定
             safety_settings = [
-                {
-                    "category": "HARM_CATEGORY_HARASSMENT",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_HATE_SPEECH",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "threshold": "BLOCK_NONE"
-                },
-                {
-                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    "threshold": "BLOCK_NONE"
-                }
+                types.SafetySetting(
+                    category="HARM_CATEGORY_HARASSMENT",
+                    threshold="BLOCK_NONE",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_HATE_SPEECH",
+                    threshold="BLOCK_NONE",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    threshold="BLOCK_NONE",
+                ),
+                types.SafetySetting(
+                    category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                    threshold="BLOCK_NONE",
+                ),
             ]
 
             # 生成內容
-            response = self.model.generate_content(
-                [self.card_prompt, image],
-                generation_config=genai.types.GenerationConfig(
+            response = self.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[self.card_prompt, image],
+                config=types.GenerateContentConfig(
                     temperature=0.1,  # 低溫度確保一致性
                     max_output_tokens=2048,
-                    response_mime_type="application/json"
-                ),
-                safety_settings=safety_settings
+                    response_mime_type="application/json",
+                    safety_settings=safety_settings
+                )
             )
 
-            # 檢查 finish_reason
-            if response.candidates and response.candidates[0].finish_reason == 2:
+            # 檢查 finish_reason (使用 getattr 安全存取，因為不同版本可能不同)
+            finish_reason = getattr(response.candidates[0], 'finish_reason', None) if response.candidates else None
+            
+            # 如果是 SAFETY 相關的 finish reason (通常是 2 或字串 "SAFETY")
+            if finish_reason == "SAFETY" or finish_reason == 2:
                 # 記錄詳細的安全過濾資訊
-                safety_ratings = response.candidates[0].safety_ratings if hasattr(response.candidates[0], 'safety_ratings') else []
+                safety_ratings = getattr(response.candidates[0], 'safety_ratings', []) if response.candidates else []
                 logger.warning(
-                    "Gemini 2.5-flash blocked by safety filter, triggering fallback to 2.0-flash",
+                    "Gemini 2.5-flash blocked by safety filter, triggering fallback",
                     api_call_count=self._api_call_count,
-                    finish_reason=response.candidates[0].finish_reason,
+                    finish_reason=finish_reason,
                     safety_ratings=[{
                         "category": rating.category,
                         "probability": rating.probability
@@ -603,32 +596,33 @@ class CardProcessor:
                     operation="fallback_trigger"
                 )
 
-                # 使用 fallback 模型重試
-                if self.fallback_model:
+                # 使用 fallback Client 重試
+                if self.fallback_client:
                     try:
                         logger.info(
-                            "Retrying with fallback model gemini-2.0-flash",
+                            "Retrying with fallback client (gemini-2.5-flash-lite)",
                             api_call_count=self._api_call_count,
                             operation="fallback_retry"
                         )
 
-                        fallback_response = self.fallback_model.generate_content(
-                            [self.card_prompt, image],
-                            generation_config=genai.types.GenerationConfig(
+                        fallback_response = self.fallback_client.models.generate_content(
+                            model="gemini-2.5-flash-lite",
+                            contents=[self.card_prompt, image],
+                            config=types.GenerateContentConfig(
                                 temperature=0.1,
                                 max_output_tokens=2048,
-                                response_mime_type="application/json"
-                            ),
-                            safety_settings=safety_settings
+                                response_mime_type="application/json",
+                                safety_settings=safety_settings
+                            )
                         )
 
                         if not fallback_response.text:
-                            raise EmptyAIResponseError(details={"model": "gemini-2.0-flash", "reason": "fallback_empty_response"})
+                            raise EmptyAIResponseError(details={"model": "gemini-2.5-flash-lite", "reason": "fallback_empty_response"})
 
                         logger.info(
-                            "Fallback model succeeded",
+                            "Fallback client succeeded",
                             api_call_count=self._api_call_count,
-                            model="gemini-2.0-flash",
+                            model="gemini-2.5-flash-lite",
                             response_length=len(fallback_response.text),
                             operation="fallback_success"
                         )
@@ -639,7 +633,7 @@ class CardProcessor:
                         raise
                     except Exception as fallback_error:
                         logger.error(
-                            "Fallback model also failed",
+                            "Fallback client also failed",
                             api_call_count=self._api_call_count,
                             error=str(fallback_error),
                             operation="fallback_failure"
@@ -705,52 +699,63 @@ class CardProcessor:
             # 根據錯誤訊息分類
             error_str = str(e).lower()
 
-            # API Quota 相關錯誤 - 檢查是否可以切換到 fallback API key
+            # API Quota 相關錯誤 - 檢查是否可以切換到 fallback Client
             if any(keyword in error_str for keyword in ['quota', 'limit', 'exceeded', 'rate limit', '429']):
                 # 如果主要 key 還沒達到配額限制，標記它並嘗試 fallback
-                if not self.primary_quota_exceeded and self.fallback_model:
+                if not self.primary_quota_exceeded and self.fallback_client:
                     logger.warning(
-                        "Primary API key quota exceeded, switching to fallback API key",
+                        "Primary API key quota exceeded, switching to fallback Client",
                         api_call_count=self._api_call_count,
                         operation="quota_fallback"
                     )
                     self.primary_quota_exceeded = True
-                    self.current_api_key = self.fallback_api_key
+                    # 更新當前 client 指向 fallback client
+                    self.client = self.fallback_client
 
                     try:
-                        # 重新配置為 fallback API key
-                        genai.configure(api_key=self.fallback_api_key)
-
-                        # 使用 fallback model 重試
+                        # 使用 fallback client 重試 (現在 self.client 已指向 fallback)
                         logger.info(
-                            "Retrying with fallback API key",
+                            "Retrying with fallback Client",
                             api_call_count=self._api_call_count,
                             operation="quota_retry"
                         )
 
                         # 配置安全設定
                         safety_settings = [
-                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                            types.SafetySetting(
+                                category="HARM_CATEGORY_HARASSMENT",
+                                threshold="BLOCK_NONE",
+                            ),
+                            types.SafetySetting(
+                                category="HARM_CATEGORY_HATE_SPEECH",
+                                threshold="BLOCK_NONE",
+                            ),
+                            types.SafetySetting(
+                                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                threshold="BLOCK_NONE",
+                            ),
+                            types.SafetySetting(
+                                category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                                threshold="BLOCK_NONE",
+                            ),
                         ]
 
-                        fallback_response = self.fallback_model.generate_content(
-                            [self.card_prompt, image],
-                            generation_config=genai.types.GenerationConfig(
+                        fallback_response = self.client.models.generate_content(
+                            model="gemini-2.5-flash-lite", # Quota fallback 使用 light model 節省
+                            contents=[self.card_prompt, image],
+                            config=types.GenerateContentConfig(
                                 temperature=0.1,
                                 max_output_tokens=2048,
-                                response_mime_type="application/json"
-                            ),
-                            safety_settings=safety_settings
+                                response_mime_type="application/json",
+                                safety_settings=safety_settings
+                            )
                         )
 
                         if not fallback_response.text:
                             raise EmptyAIResponseError(details={"model": "fallback", "reason": "quota_fallback_empty"})
 
                         logger.info(
-                            "Fallback API key succeeded",
+                            "Fallback Client succeeded",
                             api_call_count=self._api_call_count,
                             response_length=len(fallback_response.text),
                             operation="quota_fallback_success"
@@ -760,7 +765,7 @@ class CardProcessor:
 
                     except Exception as fallback_error:
                         logger.error(
-                            "Fallback API key also failed or quota exceeded",
+                            "Fallback Client also failed or quota exceeded",
                             error=str(fallback_error),
                             api_call_count=self._api_call_count,
                             operation="quota_fallback_failure"
@@ -776,7 +781,7 @@ class CardProcessor:
                 raise APIQuotaExceededError(details={
                     "original_error": str(e),
                     "error_type": type(e).__name__,
-                    "has_fallback": bool(self.fallback_model),
+                    "has_fallback": bool(self.fallback_client),
                     "already_using_fallback": self.primary_quota_exceeded
                 }) from e
 

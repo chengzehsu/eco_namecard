@@ -60,7 +60,7 @@ strict_equality = true
 module = [
     "linebot.*",
     "notion_client.*",
-    "google.generativeai.*",
+    "google.genai.*",
     "structlog.*",
     "sentry_sdk.*"
 ]

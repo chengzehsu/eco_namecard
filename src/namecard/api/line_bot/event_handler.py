@@ -42,6 +42,8 @@ from src.namecard.infrastructure.storage.image_upload_worker import (
 from src.namecard.api.line_bot.flex_templates import (
     create_card_result_message,
     create_batch_complete_message,
+    create_progress_message,
+    create_error_message,
 )
 
 logger = structlog.get_logger()
@@ -366,15 +368,29 @@ class UnifiedEventHandler:
         logger.info("Batch mode started", user_id=user_id)
 
     def _show_status(self, user_id: str, reply_token: str) -> None:
-        """顯示狀態"""
+        """顯示狀態（批次模式使用 Flex Message 進度卡片）"""
         status = user_service.get_user_status(user_id)
 
-        # 批次狀態
-        if status.is_batch_mode:
-            batch_status = user_service.get_batch_status(user_id)
-            if batch_status:
-                self._send_reply(reply_token, batch_status)
+        # 批次狀態 - 使用 Flex Message 進度卡片
+        if status.is_batch_mode and status.current_batch:
+            batch = status.current_batch
+            try:
+                # 使用視覺化進度卡片
+                flex_message = create_progress_message(
+                    current=batch.total_cards,
+                    total=50,  # 每日限制作為總數
+                    success_count=batch.successful_cards,
+                    failed_count=batch.failed_cards
+                )
+                self._send_flex_message(reply_token, flex_message)
                 return
+            except Exception as e:
+                # Fallback 到純文字
+                logger.warning("Progress Flex Message failed", error=str(e))
+                batch_status = user_service.get_batch_status(user_id)
+                if batch_status:
+                    self._send_reply(reply_token, batch_status)
+                    return
 
         # 一般狀態
         status_text = f"""📊 使用狀態
@@ -385,28 +401,34 @@ class UnifiedEventHandler:
         self._send_reply(reply_token, status_text)
 
     def _end_batch_mode(self, user_id: str, reply_token: str) -> None:
-        """結束批次模式"""
+        """結束批次模式（使用 Flex Message 統計卡片）"""
         batch_result = user_service.end_batch_mode(user_id)
 
         if not batch_result:
             self._send_reply(reply_token, "⚠️ 目前不在批次模式")
             return
 
-        # 生成總結
-        duration = batch_result.completed_at - batch_result.started_at
         success_rate = batch_result.success_rate * 100
 
-        summary_text = f"""📊 批次完成！
+        try:
+            # 使用 Flex Message 批次完成卡片
+            flex_message = create_batch_complete_message(batch_result)
+            self._send_flex_message(reply_token, flex_message)
+        except Exception as e:
+            # Fallback 到純文字
+            logger.warning("Batch complete Flex Message failed", error=str(e))
+            duration = batch_result.completed_at - batch_result.started_at
+            summary_text = f"""🎉 批次完成！
 
 總計：{batch_result.total_cards} 張
 成功：{batch_result.successful_cards} 張 ({success_rate:.0f}%)
 失敗：{batch_result.failed_cards} 張
 時間：{duration.seconds // 60}:{duration.seconds % 60:02d}"""
 
-        if batch_result.errors:
-            summary_text += f"\n\n⚠️ {batch_result.errors[0][:50]}"
+            if batch_result.errors:
+                summary_text += f"\n\n⚠️ {batch_result.errors[0][:50]}"
 
-        self._send_reply(reply_token, summary_text)
+            self._send_reply(reply_token, summary_text)
 
         logger.info(
             "Batch mode ended",
@@ -482,7 +504,7 @@ class UnifiedEventHandler:
         error_messages: list,
         status,
     ) -> None:
-        """發送處理結果訊息（使用 Flex Message）"""
+        """發送處理結果訊息（使用改善的 Flex Message）"""
         total = len(cards)
 
         if success_count > 0:
@@ -494,6 +516,8 @@ class UnifiedEventHandler:
                     batch_progress=status.current_batch.total_cards
                     if status.is_batch_mode and status.current_batch
                     else None,
+                    success_count=success_count,
+                    failed_count=failed_count,
                 )
                 self._send_flex_message(reply_token, flex_message)
                 logger.info("Sent Flex Message result", cards_count=len(cards))
@@ -524,13 +548,42 @@ Email：{card.email or '未識別'}"""
                 self._send_reply(reply_token, result_text)
 
         elif failed_count > 0:
-            # 全部失敗
-            error_text = error_messages[0] if error_messages else "❌ 儲存失敗，請稍後重試"
-            self._send_reply(reply_token, error_text)
+            # 全部失敗 - 使用結構化錯誤 Flex Message
+            self._send_error_flex_message(reply_token, "storage_error", error_messages)
 
     def _send_error_message(self, reply_token: str, error_msg: str) -> None:
-        """發送錯誤訊息"""
-        self._send_reply(reply_token, error_msg)
+        """發送錯誤訊息（使用 Flex Message）"""
+        # 根據錯誤訊息判斷錯誤類型
+        error_key = "system_error"
+        if "品質" in error_msg or "模糊" in error_msg or "解析度" in error_msg:
+            error_key = "low_quality"
+        elif "名片" in error_msg or "識別" in error_msg:
+            error_key = "not_business_card"
+        elif "額度" in error_msg or "配額" in error_msg or "上限" in error_msg:
+            error_key = "quota_exceeded"
+        elif "儲存" in error_msg or "Notion" in error_msg:
+            error_key = "storage_error"
+
+        try:
+            flex_message = create_error_message(error_key=error_key)
+            self._send_flex_message(reply_token, flex_message)
+        except Exception as e:
+            # Fallback 到純文字
+            logger.warning("Error Flex Message failed", error=str(e))
+            self._send_reply(reply_token, error_msg)
+
+    def _send_error_flex_message(
+        self, reply_token: str, error_key: str, error_messages: list = None
+    ) -> None:
+        """發送結構化錯誤 Flex Message"""
+        try:
+            flex_message = create_error_message(error_key=error_key)
+            self._send_flex_message(reply_token, flex_message)
+        except Exception as e:
+            # Fallback 到純文字
+            logger.warning("Error Flex Message failed", error=str(e))
+            error_text = error_messages[0] if error_messages else "❌ 處理失敗，請稍後重試"
+            self._send_reply(reply_token, error_text)
 
     def _send_flex_message(self, reply_token: str, flex_message) -> None:
         """

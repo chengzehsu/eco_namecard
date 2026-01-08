@@ -1,4 +1,4 @@
 {
   "build_command": "pip install -r requirements.txt",
-  "start_command": "bash -c 'python -m src.namecard.infrastructure.storage.rq_worker &' && gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile - app:application"
+  "start_command": "honcho start"
 }

@@ -889,6 +889,7 @@ def retry_all_failed():
 def restart_worker():
     """重啟內嵌 RQ Worker"""
     from src.namecard.infrastructure.redis_client import get_redis_client
+    import sys
     
     try:
         redis_client = get_redis_client()
@@ -898,14 +899,22 @@ def restart_worker():
         # 清除 Worker 鎖，讓新的 Worker 可以啟動
         redis_client.delete("embedded_rq_worker_lock")
         
-        # 嘗試啟動新的 Worker
-        import app as main_app
-        if hasattr(main_app, 'start_embedded_rq_worker'):
-            main_app.start_embedded_rq_worker()
+        # 重設全域變數並啟動新的 Worker
+        # 直接訪問已載入的 app 模組
+        if 'app' in sys.modules:
+            main_app = sys.modules['app']
+            if hasattr(main_app, '_embedded_worker_started'):
+                main_app._embedded_worker_started = False
+            if hasattr(main_app, 'start_embedded_rq_worker'):
+                main_app.start_embedded_rq_worker()
+                return jsonify({
+                    "status": "ok",
+                    "message": "Worker lock cleared and restart triggered"
+                })
         
         return jsonify({
             "status": "ok",
-            "message": "Worker lock cleared and restart triggered"
+            "message": "Worker lock cleared (manual restart may be needed)"
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500

@@ -920,6 +920,52 @@ def restart_worker():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+@app.route("/admin/worker/process-pending", methods=['POST'])
+def process_pending_jobs():
+    """手動處理 RQ 隊列中的待處理任務（同步處理）"""
+    from src.namecard.infrastructure.storage.image_upload_worker import get_rq_redis_client, RQ_QUEUE_NAME
+    
+    try:
+        redis_client = get_rq_redis_client()
+        if not redis_client:
+            return jsonify({"status": "error", "error": "Redis not available"}), 500
+        
+        # 獲取隊列中的任務數量
+        from rq import Queue
+        queue = Queue(RQ_QUEUE_NAME, connection=redis_client)
+        job_count = len(queue)
+        
+        if job_count == 0:
+            return jsonify({"status": "ok", "message": "No pending jobs", "processed": 0})
+        
+        # 限制一次處理的任務數量
+        max_process = min(job_count, 10)
+        processed = 0
+        errors = []
+        
+        for _ in range(max_process):
+            job = queue.dequeue()
+            if not job:
+                break
+            
+            try:
+                # 執行任務
+                job.perform()
+                processed += 1
+            except Exception as e:
+                errors.append(f"Job {job.id}: {str(e)}")
+        
+        return jsonify({
+            "status": "ok",
+            "total_pending": job_count,
+            "processed": processed,
+            "remaining": job_count - processed,
+            "errors": errors if errors else None
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 if __name__ == '__main__':
     # 僅用於本地測試，生產環境使用 gunicorn
     app.run(

@@ -134,31 +134,36 @@ def process_upload_task_rq(
     # 延遲導入以避免循環依賴
     from src.namecard.infrastructure.storage.notion_client import NotionClient
 
-    logger.info("RQ: Processing image upload task", user_id=user_id, page_count=len(page_ids))
+    logger.warning("DEBUG_RQ_TASK_START", user_id=user_id, page_count=len(page_ids), image_size=len(image_data_b64))
 
     # 解碼圖片資料
     image_data = base64.b64decode(image_data_b64)
+    logger.warning("DEBUG_RQ_IMAGE_DECODED", decoded_size=len(image_data))
 
     # 創建 NotionClient
     notion_client = NotionClient(api_key=notion_api_key, database_id=notion_database_id)
 
     # 1. 上傳圖片到 ImgBB
     image_storage = get_image_storage()
+    logger.warning("DEBUG_RQ_IMAGE_STORAGE", storage_available=image_storage is not None)
+    
     if not image_storage:
         error_msg = "Image storage not available"
-        logger.warning(error_msg)
+        logger.warning("DEBUG_RQ_NO_STORAGE", error=error_msg)
         _record_failed_task_standalone(user_id, page_ids, error_msg, image_data)
         return {"success": False, "error": error_msg}
 
+    logger.warning("DEBUG_RQ_UPLOADING_TO_IMGBB", image_size=len(image_data))
     image_url = image_storage.upload(image_data)
+    logger.warning("DEBUG_RQ_IMGBB_RESULT", success=image_url is not None, url_preview=image_url[:50] + "..." if image_url else None)
 
     if not image_url:
         error_msg = "ImgBB upload failed"
-        logger.warning("Image upload failed", user_id=user_id)
+        logger.warning("DEBUG_RQ_IMGBB_FAILED", user_id=user_id)
         _record_failed_task_standalone(user_id, page_ids, error_msg, image_data)
         return {"success": False, "error": error_msg}
 
-    logger.info("Image uploaded, updating Notion pages", url=image_url[:50] + "...")
+    logger.warning("DEBUG_RQ_UPDATING_NOTION", url=image_url[:50] + "...", page_count=len(page_ids))
 
     # 2. 更新所有 Notion 頁面
     success_count = 0
@@ -356,27 +361,31 @@ class ImageUploadWorker:
 
     def _process_task(self, task: ImageUploadTask) -> None:
         """處理單一上傳任務"""
-        logger.info(
-            "Processing image upload task", user_id=task.user_id, page_count=len(task.page_ids)
+        logger.warning(
+            "DEBUG_MEMORY_TASK_START", user_id=task.user_id, page_count=len(task.page_ids), image_size=len(task.image_data)
         )
 
         # 1. 上傳圖片到 ImgBB
         image_storage = get_image_storage()
+        logger.warning("DEBUG_MEMORY_IMAGE_STORAGE", storage_available=image_storage is not None)
+        
         if not image_storage:
             error_msg = "Image storage not available"
-            logger.warning(error_msg)
+            logger.warning("DEBUG_MEMORY_NO_STORAGE", error=error_msg)
             self._record_failed_task(task, error_msg)
             return
 
+        logger.warning("DEBUG_MEMORY_UPLOADING_TO_IMGBB", image_size=len(task.image_data))
         image_url = image_storage.upload(task.image_data)
+        logger.warning("DEBUG_MEMORY_IMGBB_RESULT", success=image_url is not None, url_preview=image_url[:50] + "..." if image_url else None)
 
         if not image_url:
             error_msg = "ImgBB upload failed"
-            logger.warning("Image upload failed", user_id=task.user_id)
+            logger.warning("DEBUG_MEMORY_IMGBB_FAILED", user_id=task.user_id)
             self._record_failed_task(task, error_msg)
             return
 
-        logger.info("Image uploaded, updating Notion pages", url=image_url[:50] + "...")
+        logger.warning("DEBUG_MEMORY_UPDATING_NOTION", url=image_url[:50] + "...", page_count=len(task.page_ids))
 
         # 2. 更新所有 Notion 頁面
         success_count = 0
@@ -472,13 +481,66 @@ def get_upload_worker() -> ImageUploadWorker:
         return _worker
 
 
+def _sync_upload_image(
+    image_data: bytes, page_ids: List[str], notion_client: "NotionClient", user_id: str
+) -> None:
+    """
+    同步上傳圖片（當 RQ 不可用時使用）
+    
+    直接在當前線程執行上傳，確保可靠性
+    """
+    logger.warning("DEBUG_SYNC_UPLOAD_START", user_id=user_id[:10] + "..." if user_id else None, page_count=len(page_ids))
+    
+    # 1. 上傳圖片到 ImgBB
+    image_storage = get_image_storage()
+    if not image_storage:
+        logger.warning("DEBUG_SYNC_NO_STORAGE", error="Image storage not available")
+        _record_failed_task_standalone(user_id, page_ids, "Image storage not available", image_data)
+        return
+    
+    logger.warning("DEBUG_SYNC_UPLOADING_TO_IMGBB", image_size=len(image_data))
+    image_url = image_storage.upload(image_data)
+    logger.warning("DEBUG_SYNC_IMGBB_RESULT", success=image_url is not None, url_preview=image_url[:50] + "..." if image_url else None)
+    
+    if not image_url:
+        logger.warning("DEBUG_SYNC_IMGBB_FAILED", user_id=user_id)
+        _record_failed_task_standalone(user_id, page_ids, "ImgBB upload failed", image_data)
+        return
+    
+    # 2. 更新所有 Notion 頁面
+    logger.warning("DEBUG_SYNC_UPDATING_NOTION", url=image_url[:50] + "...", page_count=len(page_ids))
+    success_count = 0
+    failed_page_ids = []
+    
+    for page_id in page_ids:
+        try:
+            result = notion_client.update_page_with_image(page_id, image_url)
+            if result:
+                success_count += 1
+                logger.info("Sync: Page updated with image", page_id=page_id[:10] + "...")
+            else:
+                failed_page_ids.append(page_id)
+        except Exception as e:
+            logger.error("Sync: Failed to update page", page_id=page_id[:10] + "...", error=str(e))
+            failed_page_ids.append(page_id)
+    
+    if failed_page_ids:
+        _record_failed_task_standalone(
+            user_id, failed_page_ids, 
+            f"Failed to update {len(failed_page_ids)} pages",
+            image_data=None, image_url=image_url
+        )
+    
+    logger.warning("DEBUG_SYNC_UPLOAD_COMPLETE", success_count=success_count, total_pages=len(page_ids))
+
+
 def submit_image_upload(
     image_data: bytes, page_ids: List[str], notion_client: "NotionClient", user_id: str
 ) -> None:
     """
     提交圖片上傳任務
 
-    自動選擇 RQ（如果可用）或內存隊列
+    優先使用 RQ，若不可用則同步上傳（確保可靠性）
 
     Args:
         image_data: 圖片二進位資料
@@ -486,18 +548,26 @@ def submit_image_upload(
         notion_client: NotionClient 實例
         user_id: 用戶 ID
     """
+    logger.warning("DEBUG_SUBMIT_IMAGE_UPLOAD_START", 
+                   user_id=user_id[:10] + "..." if user_id else None,
+                   page_count=len(page_ids),
+                   image_size=len(image_data),
+                   notion_db_id=notion_client.database_id[:10] + "..." if notion_client.database_id else None)
+    
     # 優先使用 RQ
-    if _is_rq_available():
-        if submit_to_rq(image_data, page_ids, user_id, notion_client):
+    rq_available = _is_rq_available()
+    logger.warning("DEBUG_RQ_CHECK", rq_available=rq_available)
+    
+    if rq_available:
+        rq_success = submit_to_rq(image_data, page_ids, user_id, notion_client)
+        logger.warning("DEBUG_RQ_SUBMIT_RESULT", success=rq_success)
+        if rq_success:
             return
-        logger.warning("RQ submit failed, falling back to in-memory queue")
+        logger.warning("RQ submit failed, falling back to sync upload")
 
-    # Fallback 到內存隊列
-    worker = get_upload_worker()
-    task = ImageUploadTask(
-        image_data=image_data, page_ids=page_ids, notion_client=notion_client, user_id=user_id
-    )
-    worker.submit(task)
+    # Fallback 到同步上傳（比內存隊列更可靠）
+    logger.warning("DEBUG_USING_SYNC_UPLOAD", reason="RQ not available")
+    _sync_upload_image(image_data, page_ids, notion_client, user_id)
 
 
 # ============================================================

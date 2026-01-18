@@ -24,6 +24,9 @@ pydantic-settings>=2.1.0
 Pillow==10.1.0
 requests==2.31.0
 
+# Phone Number Processing
+phonenumbers>=8.13.0
+
 # Logging
 structlog>=23.2.0
 

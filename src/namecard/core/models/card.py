@@ -3,6 +3,13 @@ from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 import re
 
+# 導入電話正規化工具
+try:
+    from src.namecard.core.utils.phone_utils import normalize_phone, is_valid_phone
+    PHONE_UTILS_AVAILABLE = True
+except ImportError:
+    PHONE_UTILS_AVAILABLE = False
+
 
 class BusinessCard(BaseModel):
     """名片資料模型"""
@@ -11,7 +18,10 @@ class BusinessCard(BaseModel):
     company: Optional[str] = Field(None, description="公司名稱")
     title: Optional[str] = Field(None, description="職稱")
     department: Optional[str] = Field(None, description="部門")
-    phone: Optional[str] = Field(None, description="電話號碼")
+    phone: Optional[str] = Field(None, description="電話號碼（正規化後）")
+    phone_raw: Optional[str] = Field(None, description="原始電話號碼")
+    mobile: Optional[str] = Field(None, description="手機號碼（正規化後）")
+    mobile_raw: Optional[str] = Field(None, description="原始手機號碼")
     email: Optional[str] = Field(None, description="電子郵件")
     address: Optional[str] = Field(None, description="地址")
     website: Optional[str] = Field(None, description="網站")
@@ -37,15 +47,68 @@ class BusinessCard(BaseModel):
             return None  # 無效 email 設為 None
         return v
     
-    @field_validator('phone')
+    @field_validator('phone', 'mobile', mode='before')
     @classmethod
-    def validate_phone(cls, v):
-        if v:
-            # 移除所有非數字字符
-            phone_digits = re.sub(r'[^\d]', '', v)
-            if len(phone_digits) < 8 or len(phone_digits) > 15:
-                return None
-        return v
+    def normalize_phone_number(cls, v):
+        """正規化電話號碼為國際格式"""
+        if not v:
+            return None
+        
+        if PHONE_UTILS_AVAILABLE:
+            # 使用進階正規化
+            normalized = normalize_phone(v, default_region="TW", format_type="e164")
+            return normalized if normalized else v
+        else:
+            # 基本正規化
+            return cls._basic_phone_normalize(v)
+    
+    @field_validator('fax', mode='before')
+    @classmethod
+    def normalize_fax_number(cls, v):
+        """正規化傳真號碼"""
+        if not v:
+            return None
+        
+        if PHONE_UTILS_AVAILABLE:
+            normalized = normalize_phone(v, default_region="TW", format_type="e164")
+            return normalized if normalized else v
+        else:
+            return cls._basic_phone_normalize(v)
+    
+    @staticmethod
+    def _basic_phone_normalize(phone: str) -> Optional[str]:
+        """基本電話正規化（不依賴 phonenumbers）"""
+        if not phone:
+            return None
+        
+        # 移除所有非數字和 + 號
+        cleaned = re.sub(r'[^\d+]', '', phone)
+        
+        if not cleaned:
+            return None
+        
+        # 長度檢查
+        digits_only = re.sub(r'[^\d]', '', cleaned)
+        if len(digits_only) < 8 or len(digits_only) > 15:
+            return None
+        
+        # 處理台灣手機號碼
+        if cleaned.startswith('09') and len(digits_only) == 10:
+            return f"+886{cleaned[1:]}"
+        
+        # 處理 886 開頭
+        if cleaned.startswith('886') and not cleaned.startswith('+'):
+            return f"+{cleaned}"
+        
+        # 處理台灣市話
+        if re.match(r'^0[2-8]', cleaned) and 9 <= len(digits_only) <= 10:
+            return f"+886{cleaned[1:]}"
+        
+        # 如果已經是 + 開頭，保持不變
+        if cleaned.startswith('+'):
+            return cleaned
+        
+        return cleaned
 
     @field_validator('name')
     @classmethod

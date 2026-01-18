@@ -724,6 +724,193 @@ def debug_tenant_notion(tenant_id: str):
         }), 500
 
 
+# ==================== Worker 管理端點 ====================
+
+@app.route("/admin/worker/status", methods=['GET'])
+def worker_status():
+    """查看 Worker 和隊列狀態"""
+    from src.namecard.infrastructure.storage.image_upload_worker import (
+        get_queue_info, get_failed_tasks, _is_rq_available
+    )
+    from src.namecard.infrastructure.redis_client import get_redis_client
+    
+    try:
+        redis_client = get_redis_client()
+        redis_connected = False
+        if redis_client:
+            try:
+                redis_client.ping()
+                redis_connected = True
+            except:
+                pass
+        
+        queue_info = get_queue_info()
+        
+        # 檢查內嵌 Worker 鎖
+        embedded_worker_active = False
+        embedded_worker_info = None
+        if redis_client and redis_connected:
+            try:
+                lock_value = redis_client.get("embedded_rq_worker_lock")
+                if lock_value:
+                    embedded_worker_active = True
+                    embedded_worker_info = lock_value.decode() if isinstance(lock_value, bytes) else lock_value
+            except:
+                pass
+        
+        return jsonify({
+            "status": "ok",
+            "redis_connected": redis_connected,
+            "rq_available": _is_rq_available(),
+            "embedded_worker_active": embedded_worker_active,
+            "embedded_worker_info": embedded_worker_info,
+            "queue_info": queue_info,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/admin/worker/failed-tasks", methods=['GET'])
+def list_failed_tasks():
+    """列出所有失敗的上傳任務"""
+    from src.namecard.infrastructure.redis_client import get_redis_client
+    import json
+    
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            return jsonify({"status": "error", "error": "Redis not available"}), 500
+        
+        # 查詢所有失敗任務
+        pattern = "failed_upload:*"
+        keys = redis_client.keys(pattern)
+        
+        failed_tasks = []
+        for key in keys:
+            # 處理 key 可能是 bytes 或 str
+            key_str = key.decode() if isinstance(key, bytes) else key
+            data = redis_client.get(key)
+            if data:
+                # 處理 data 可能是 bytes 或 str
+                data_str = data.decode() if isinstance(data, bytes) else data
+                task_data = json.loads(data_str)
+                # 不返回大的 image_data
+                task_data.pop("image_data_b64", None)
+                task_data["redis_key"] = key_str
+                failed_tasks.append(task_data)
+        
+        # 按時間排序
+        failed_tasks.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        return jsonify({
+            "status": "ok",
+            "total_failed": len(failed_tasks),
+            "tasks": failed_tasks
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/admin/worker/retry-all", methods=['POST'])
+def retry_all_failed():
+    """重試所有失敗的上傳任務"""
+    from src.namecard.infrastructure.storage.image_upload_worker import (
+        get_failed_tasks, retry_failed_task
+    )
+    from src.namecard.infrastructure.storage.notion_client import NotionClient
+    from src.namecard.infrastructure.redis_client import get_redis_client
+    import json
+    
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            return jsonify({"status": "error", "error": "Redis not available"}), 500
+        
+        # 查詢所有失敗任務
+        pattern = "failed_upload:*"
+        keys = redis_client.keys(pattern)
+        
+        results = []
+        success_count = 0
+        
+        for key in keys:
+            data = redis_client.get(key)
+            if not data:
+                continue
+            
+            # 處理 data 可能是 bytes 或 str
+            data_str = data.decode() if isinstance(data, bytes) else data
+            task_data = json.loads(data_str)
+            user_id = task_data.get("user_id", "unknown")
+            task_id = task_data.get("task_id", "unknown")
+            page_ids = task_data.get("page_ids", [])
+            
+            try:
+                # 創建 NotionClient（使用預設配置或從任務中獲取）
+                notion_client = NotionClient(
+                    api_key=settings.notion_api_key,
+                    database_id=settings.notion_database_id
+                )
+                
+                success = retry_failed_task(user_id, task_id, notion_client)
+                
+                if success:
+                    success_count += 1
+                    results.append({
+                        "task_id": task_id,
+                        "user_id": user_id[:10] + "...",
+                        "page_count": len(page_ids),
+                        "status": "success"
+                    })
+                else:
+                    results.append({
+                        "task_id": task_id,
+                        "user_id": user_id[:10] + "...",
+                        "status": "failed"
+                    })
+            except Exception as e:
+                results.append({
+                    "task_id": task_id,
+                    "status": "error",
+                    "error": str(e)
+                })
+        
+        return jsonify({
+            "status": "ok",
+            "total_tasks": len(keys),
+            "success_count": success_count,
+            "results": results
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/admin/worker/restart", methods=['POST'])
+def restart_worker():
+    """重啟內嵌 RQ Worker"""
+    from src.namecard.infrastructure.redis_client import get_redis_client
+    
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            return jsonify({"status": "error", "error": "Redis not available"}), 500
+        
+        # 清除 Worker 鎖，讓新的 Worker 可以啟動
+        redis_client.delete("embedded_rq_worker_lock")
+        
+        # 嘗試啟動新的 Worker
+        import app as main_app
+        if hasattr(main_app, 'start_embedded_rq_worker'):
+            main_app.start_embedded_rq_worker()
+        
+        return jsonify({
+            "status": "ok",
+            "message": "Worker lock cleared and restart triggered"
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 if __name__ == '__main__':
     # 僅用於本地測試，生產環境使用 gunicorn
     app.run(

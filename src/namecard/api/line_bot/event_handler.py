@@ -142,15 +142,17 @@ class UnifiedEventHandler:
             reply_token: 回覆 token
         """
         try:
-            logger.info("Processing image message", user_id=user_id, message_id=message_id)
+            logger.warning("DEBUG_HANDLE_IMAGE_START", user_id=user_id[:10] + "...", message_id=message_id, tenant_id=self.tenant_id)
 
             # 檢查用戶是否被封鎖
             if security_service.is_user_blocked(user_id):
+                logger.warning("DEBUG_USER_BLOCKED", user_id=user_id[:10] + "...")
                 self._send_reply(reply_token, "⛔ 您已被暫時封鎖，請稍後再試")
                 return
 
             # 檢查速率限制（向後相容的每日限制）
             status = user_service.get_user_status(user_id)
+            logger.warning("DEBUG_USER_STATUS", daily_usage=status.daily_usage, is_batch_mode=status.is_batch_mode)
             
             # 如果有租戶 ID，使用 QuotaService 進行配額檢查
             if self.tenant_id:
@@ -161,7 +163,9 @@ class UnifiedEventHandler:
                     
                     # 檢查掃描配額
                     quota_check = quota_service.check_scan_quota(self.tenant_id)
+                    logger.warning("DEBUG_QUOTA_CHECK", has_quota=quota_check.get("has_quota"), remaining=quota_check.get("remaining_scans"), total=quota_check.get("total_quota"), current_month=quota_check.get("current_month_scans"))
                     if not quota_check["has_quota"]:
+                        logger.warning("DEBUG_QUOTA_EXHAUSTED", tenant_id=self.tenant_id, used=quota_check.get("current_month_scans"), total=quota_check.get("total_quota"))
                         # 計算下月重置日期
                         now = datetime.now()
                         if now.month == 12:
@@ -183,10 +187,13 @@ class UnifiedEventHandler:
                     from src.namecard.core.services.tenant_service import get_tenant_service
                     tenant_service = get_tenant_service()
                     existing_user = tenant_service.get_line_user(self.tenant_id, user_id)
+                    logger.warning("DEBUG_USER_CHECK", existing_user_found=existing_user is not None)
                     
                     if not existing_user:
                         user_limit_check = quota_service.check_user_limit(self.tenant_id)
+                        logger.warning("DEBUG_USER_LIMIT_CHECK", allowed=user_limit_check.get("allowed"), current=user_limit_check.get("current_users"), limit=user_limit_check.get("user_limit"))
                         if not user_limit_check["allowed"]:
+                            logger.warning("DEBUG_USER_LIMIT_EXCEEDED", tenant_id=self.tenant_id)
                             self._send_reply(
                                 reply_token,
                                 f"⚠️ 很抱歉，本服務目前用戶數已達上限\n\n"
@@ -195,13 +202,16 @@ class UnifiedEventHandler:
                             )
                             return
                 except Exception as e:
+                    logger.warning("DEBUG_QUOTA_CHECK_EXCEPTION", error=str(e), error_type=type(e).__name__)
                     logger.warning("Quota check failed, falling back to default limit", error=str(e))
             
             # 向後相容：無租戶時使用舊的每日限制
             if not self.tenant_id and status.daily_usage >= 50:
+                logger.warning("DEBUG_DAILY_LIMIT_EXCEEDED", daily_usage=status.daily_usage)
                 self._send_reply(reply_token, f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試")
                 return
 
+            logger.warning("DEBUG_ALL_CHECKS_PASSED", tenant_id=self.tenant_id, user_id=user_id[:10] + "...")
             # 下載圖片
             logger.warning("DEBUG_DOWNLOADING_IMAGE", message_id=message_id, user_id=user_id[:10] + "...")
             image_data = self._get_message_content(message_id)

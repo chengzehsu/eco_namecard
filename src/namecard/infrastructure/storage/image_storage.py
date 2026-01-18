@@ -44,12 +44,15 @@ class ImageStorage:
         Returns:
             圖片的公開 URL，失敗時回傳 None
         """
+        logger.warning("DEBUG_IMGBB_DO_UPLOAD_START", image_size=len(image_data), api_key_exists=bool(self.api_key))
+        
         if not self.api_key:
-            logger.warning("ImgBB API key not configured, skipping image upload")
+            logger.warning("DEBUG_IMGBB_NO_API_KEY")
             return None
 
         # 將圖片轉為 base64
         image_base64 = base64.b64encode(image_data).decode("utf-8")
+        logger.warning("DEBUG_IMGBB_BASE64_ENCODED", base64_length=len(image_base64))
         
         # 根據官方文檔，key 放在 URL 參數中
         upload_url = f"{self.base_url}?key={self.api_key}"

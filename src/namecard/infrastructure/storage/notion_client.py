@@ -941,6 +941,7 @@ class NotionClient:
         Returns:
             成功返回 True，失敗返回 False
         """
+        logger.warning("DEBUG_NOTION_UPDATE_IMAGE_START", page_id=page_id[:10] + "...", image_url=image_url[:50] + "...")
         try:
             # 創建圖片區塊
             image_block = {
@@ -953,18 +954,20 @@ class NotionClient:
             }
 
             # 使用 Notion API 添加子區塊到頁面
-            self.client.blocks.children.append(
+            result = self.client.blocks.children.append(
                 block_id=page_id,
                 children=[image_block]
             )
 
-            logger.info("Image added to Notion page",
-                       page_id=page_id[:10] + "...",
-                       image_url=image_url[:50] + "...")
+            logger.warning("DEBUG_NOTION_UPDATE_IMAGE_SUCCESS", 
+                          page_id=page_id[:10] + "...",
+                          image_url=image_url[:50] + "...",
+                          result_type=type(result).__name__)
             return True
 
         except Exception as e:
-            logger.error("Failed to update page with image",
+            logger.error("DEBUG_NOTION_UPDATE_IMAGE_FAILED",
                         error=str(e),
+                        error_type=type(e).__name__,
                         page_id=page_id[:10] + "...")
             return False

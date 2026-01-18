@@ -90,6 +90,15 @@ docker run -p 5002:5002 --env-file .env linebot-namecard
 - `BatchProcessResult`: Session tracking with success rates
 - `ProcessingStatus`: User state with daily usage limits
 
+**Phone Normalization** (`src/namecard/core/utils/phone_utils.py`)
+
+- 使用 Google `phonenumbers` 庫進行電話正規化
+- 支援台灣手機/市話/國際電話
+- 自動轉換為 E.164 格式（如 `+886912345678`）
+- `normalize_phone(phone, default_region="TW", format_type="e164")`
+- `parse_phone_info(phone)` - 返回詳細資訊（國碼、電信業者等）
+- `is_valid_phone(phone)` - 驗證電話號碼有效性
+
 ### Configuration System
 
 Centralized in `simple_config.py` using Pydantic BaseSettings:
@@ -775,3 +784,93 @@ curl https://eco-namecard.zeabur.app/debug/queue-info
   "failed_jobs": 2
 }
 ```
+
+### Worker Admin API (v1.2.0+)
+
+```bash
+# 查看 Worker 狀態
+curl https://eco-namecard.zeabur.app/admin/worker/status
+
+# 查看失敗的上傳任務
+curl https://eco-namecard.zeabur.app/admin/worker/failed-tasks
+
+# 重試所有失敗任務
+curl -X POST https://eco-namecard.zeabur.app/admin/worker/retry-all
+
+# 重啟內嵌 Worker
+curl -X POST https://eco-namecard.zeabur.app/admin/worker/restart
+```
+
+### 內嵌 RQ Worker (v1.2.0+)
+
+系統會在啟動時自動啟動內嵌 RQ Worker：
+
+- 使用 Redis 分散式鎖確保只有一個 Worker 運行
+- 支援多 Gunicorn 進程環境
+- 環境變數 `ENABLE_EMBEDDED_RQ_WORKER=true` (預設開啟)
+
+**Fallback 機制**：
+
+當 Redis 不可用時，系統自動切換到同步上傳模式：
+- 圖片直接在請求中上傳到 ImgBB
+- 然後更新 Notion 頁面
+- 不需要 RQ Worker
+
+---
+
+## Phone Number Normalization (電話號碼正規化)
+
+### 概述
+
+使用 Google `phonenumbers` 庫（libphonenumber Python 版本）進行電話號碼正規化。
+
+### 支援格式
+
+| 輸入格式 | 輸出 (E.164) |
+|---------|--------------|
+| `0912345678` | `+886912345678` |
+| `0912-345-678` | `+886912345678` |
+| `02-12345678` | `+886212345678` |
+| `(02) 1234-5678` | `+886212345678` |
+| `+1-123-456-7890` | `+11234567890` |
+| `+86-138-1234-5678` | `+8613812345678` |
+
+### 使用方式
+
+```python
+from src.namecard.core.utils.phone_utils import normalize_phone, parse_phone_info
+
+# 基本正規化
+phone = normalize_phone("0912-345-678", format_type="e164")
+# 結果: "+886912345678"
+
+# 詳細資訊
+info = parse_phone_info("0912345678")
+# 結果: {
+#   "valid": True,
+#   "e164": "+886912345678",
+#   "international": "+886 912 345 678",
+#   "national": "0912 345 678",
+#   "country_code": 886,
+#   "region": "TW",
+#   "carrier": "Chunghwa Telecom",
+#   "location": "Taiwan"
+# }
+```
+
+### AI 識別策略
+
+AI 在識別名片時會優先提取手機號碼：
+- 優先順序：手機 (09開頭) > 市話 (02,03,04等) > 其他
+- 只有明確標示「傳真」「Fax」的才放入 fax 欄位
+- 其他電話號碼放入 phone 欄位
+
+### BusinessCard 模型欄位
+
+| 欄位 | 說明 | 正規化 |
+|------|------|--------|
+| `phone` | 電話（正規化後）| ✅ E.164 |
+| `phone_raw` | 原始電話 | ❌ |
+| `mobile` | 手機（正規化後）| ✅ E.164 |
+| `mobile_raw` | 原始手機 | ❌ |
+| `fax` | 傳真（正規化後）| ✅ E.164 |

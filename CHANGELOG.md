@@ -5,6 +5,31 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.0.0/)，
 並且本專案遵循 [語義化版本](https://semver.org/lang/zh-TW/)。
 
+## [1.2.0] - 2026-01-18
+
+### 新增
+- 📱 **電話號碼正規化** - 使用 Google libphonenumber 庫
+  - 支援台灣手機（0912-345-678 → +886912345678）
+  - 支援台灣市話（02-1234-5678 → +886212345678）
+  - 支援國際電話（+1-123-456-7890 → +11234567890）
+  - 自動正規化為 E.164 國際格式
+  - AI 識別優先提取手機號碼
+
+- 🔧 **Worker 穩定性改善**
+  - 內嵌 RQ Worker 自動啟動（Redis 分散式鎖）
+  - 同步上傳 Fallback（當 Redis 不可用時）
+  - 新增 `/admin/worker/status` 監控端點
+  - 新增 `/admin/worker/failed-tasks` 查看失敗任務
+  - 新增 `/admin/worker/retry-all` 重試所有失敗任務
+
+### 新增依賴
+- `phonenumbers>=8.13.0` - 電話號碼解析和正規化
+
+### 新增檔案
+- `src/namecard/core/utils/phone_utils.py` - 電話號碼正規化工具
+
+---
+
 ## [1.0.0] - 2024-08-14
 
 ### 新增

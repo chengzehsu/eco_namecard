@@ -47,14 +47,22 @@ class TestBusinessCard:
         assert card.email is None
     
     def test_phone_validation(self):
-        """測試電話號碼驗證"""
-        # 有效電話
+        """測試電話號碼驗證和正規化"""
+        # 台灣市話 - 應正規化為 E.164 格式
         card = BusinessCard(
             name="測試",
             phone="02-1234-5678",
             line_user_id="user123"
         )
-        assert card.phone == "02-1234-5678"
+        assert card.phone == "+886212345678"
+        
+        # 台灣手機 - 應正規化為 E.164 格式
+        card = BusinessCard(
+            name="測試",
+            phone="0912-345-678",
+            line_user_id="user123"
+        )
+        assert card.phone == "+886912345678"
         
         # 過短電話應該被設為 None
         card = BusinessCard(
@@ -63,6 +71,40 @@ class TestBusinessCard:
             line_user_id="user123"
         )
         assert card.phone is None
+    
+    def test_phone_normalization_formats(self):
+        """測試各種電話格式的正規化"""
+        # 台灣手機（各種格式）
+        test_cases = [
+            ("0912345678", "+886912345678"),
+            ("0912-345-678", "+886912345678"),
+            ("0912 345 678", "+886912345678"),
+            ("+886912345678", "+886912345678"),
+        ]
+        
+        for input_phone, expected in test_cases:
+            card = BusinessCard(
+                name="測試",
+                phone=input_phone,
+                line_user_id="user123"
+            )
+            assert card.phone == expected, f"Failed for {input_phone}: got {card.phone}"
+        
+        # 台灣市話
+        card = BusinessCard(
+            name="測試",
+            phone="02-12345678",
+            line_user_id="user123"
+        )
+        assert card.phone == "+886212345678"
+        
+        # 國際電話
+        card = BusinessCard(
+            name="測試",
+            phone="+1-123-456-7890",
+            line_user_id="user123"
+        )
+        assert card.phone == "+11234567890"
     
     def test_address_normalization(self):
         """測試地址正規化"""

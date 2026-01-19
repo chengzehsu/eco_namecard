@@ -50,6 +50,16 @@ class TenantConfig(BaseModel):
     # Limits
     daily_card_limit: int = Field(default=50, description="Daily card limit per user")
     batch_size_limit: int = Field(default=10, description="Batch size limit")
+    
+    # Quota reset settings
+    quota_reset_cycle: str = Field(
+        default="monthly",
+        description="Quota reset cycle: daily, weekly, monthly"
+    )
+    quota_reset_day: int = Field(
+        default=1,
+        description="Reset day: 1-7 for weekly (Mon-Sun), 1-28 for monthly"
+    )
 
     class Config:
         from_attributes = True
@@ -94,6 +104,14 @@ class TenantCreateRequest(BaseModel):
     # Limits
     daily_card_limit: int = Field(default=50, ge=1, le=10000)
     batch_size_limit: int = Field(default=10, ge=1, le=50)
+    
+    # Quota reset settings
+    quota_reset_cycle: str = Field(
+        default="monthly",
+        pattern="^(daily|weekly|monthly)$",
+        description="Quota reset cycle"
+    )
+    quota_reset_day: int = Field(default=1, ge=1, le=28, description="Reset day")
 
 
 class TenantUpdateRequest(BaseModel):
@@ -119,6 +137,14 @@ class TenantUpdateRequest(BaseModel):
     # Limits
     daily_card_limit: Optional[int] = Field(default=None, ge=1, le=10000)
     batch_size_limit: Optional[int] = Field(default=None, ge=1, le=50)
+    
+    # Quota reset settings
+    quota_reset_cycle: Optional[str] = Field(
+        default=None,
+        pattern="^(daily|weekly|monthly)$",
+        description="Quota reset cycle"
+    )
+    quota_reset_day: Optional[int] = Field(default=None, ge=1, le=28)
 
 
 class TenantContext:

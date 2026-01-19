@@ -341,6 +341,14 @@ class TenantDatabase:
             conn.execute("ALTER TABLE tenants ADD COLUMN quota_reset_date TEXT")
             logger.info("Migration: quota_reset_date column added to tenants")
         
+        if "quota_reset_cycle" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN quota_reset_cycle TEXT DEFAULT 'monthly'")
+            logger.info("Migration: quota_reset_cycle column added to tenants")
+        
+        if "quota_reset_day" not in columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN quota_reset_day INTEGER DEFAULT 1")
+            logger.info("Migration: quota_reset_day column added to tenants")
+        
         if "registration_status" not in columns:
             conn.execute("ALTER TABLE tenants ADD COLUMN registration_status TEXT DEFAULT 'active'")
             logger.info("Migration: registration_status column added to tenants")
@@ -383,6 +391,8 @@ class TenantDatabase:
                 bonus_scan_quota INTEGER DEFAULT 0,
                 current_month_scans INTEGER DEFAULT 0,
                 quota_reset_date TEXT,
+                quota_reset_cycle TEXT DEFAULT 'monthly',
+                quota_reset_day INTEGER DEFAULT 1,
                 registration_status TEXT DEFAULT 'active',
                 registered_email TEXT
             );
@@ -669,6 +679,8 @@ class TenantDatabase:
             "use_shared_google_api",
             "daily_card_limit",
             "batch_size_limit",
+            "quota_reset_cycle",
+            "quota_reset_day",
             "google_drive_folder_url",
             "google_drive_last_sync",
             "google_drive_sync_status",

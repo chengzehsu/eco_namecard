@@ -190,7 +190,7 @@
             <div class="form-group">
                 <label for="daily_card_limit">每日名片上限</label>
                 <input type="number" id="daily_card_limit" name="daily_card_limit"
-                    value="{{ tenant.daily_card_limit if tenant else 50 }}" min="1" max="1000">
+                    value="{{ tenant.daily_card_limit if tenant else 50 }}" min="1" max="10000">
                 <small>每個用戶每天可處理的名片數量</small>
             </div>
 
@@ -199,6 +199,31 @@
                 <input type="number" id="batch_size_limit" name="batch_size_limit"
                     value="{{ tenant.batch_size_limit if tenant else 10 }}" min="1" max="50">
                 <small>批次模式中的最大名片數量</small>
+            </div>
+        </div>
+
+        <!-- Quota Reset Settings -->
+        <h2 style="margin-top: 30px;">
+            <i data-lucide="refresh-cw" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+            配額重置設定
+        </h2>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="form-group">
+                <label for="quota_reset_cycle">重置週期</label>
+                <select id="quota_reset_cycle" name="quota_reset_cycle">
+                    <option value="daily" {{ 'selected' if tenant and tenant.quota_reset_cycle == 'daily' else '' }}>每日</option>
+                    <option value="weekly" {{ 'selected' if tenant and tenant.quota_reset_cycle == 'weekly' else '' }}>每週</option>
+                    <option value="monthly" {{ 'selected' if (not tenant) or (tenant.quota_reset_cycle == 'monthly') or (not tenant.quota_reset_cycle) else '' }}>每月</option>
+                </select>
+                <small>配額何時重置為 0</small>
+            </div>
+
+            <div class="form-group" id="reset-day-group">
+                <label for="quota_reset_day" id="reset-day-label">重置日</label>
+                <input type="number" id="quota_reset_day" name="quota_reset_day"
+                    value="{{ tenant.quota_reset_day if tenant and tenant.quota_reset_day else 1 }}" min="1" max="28">
+                <small id="reset-day-hint">每月幾號重置（1-28）</small>
             </div>
         </div>
     </form>
@@ -423,6 +448,45 @@
             input.required = !checkbox.checked;
         }
     }
+
+    // Handle quota reset cycle changes
+    function updateResetDayField() {
+        const cycleSelect = document.getElementById('quota_reset_cycle');
+        const resetDayGroup = document.getElementById('reset-day-group');
+        const resetDayInput = document.getElementById('quota_reset_day');
+        const resetDayLabel = document.getElementById('reset-day-label');
+        const resetDayHint = document.getElementById('reset-day-hint');
+        
+        if (!cycleSelect || !resetDayGroup) return;
+        
+        const cycle = cycleSelect.value;
+        
+        if (cycle === 'daily') {
+            resetDayGroup.style.display = 'none';
+        } else if (cycle === 'weekly') {
+            resetDayGroup.style.display = 'block';
+            resetDayInput.max = 7;
+            resetDayInput.min = 1;
+            if (parseInt(resetDayInput.value) > 7) resetDayInput.value = 1;
+            resetDayLabel.textContent = '重置日（週幾）';
+            resetDayHint.textContent = '1=週一, 2=週二, ..., 7=週日';
+        } else { // monthly
+            resetDayGroup.style.display = 'block';
+            resetDayInput.max = 28;
+            resetDayInput.min = 1;
+            resetDayLabel.textContent = '重置日（每月幾號）';
+            resetDayHint.textContent = '每月幾號重置（1-28）';
+        }
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        const cycleSelect = document.getElementById('quota_reset_cycle');
+        if (cycleSelect) {
+            cycleSelect.addEventListener('change', updateResetDayField);
+            updateResetDayField(); // Initialize on load
+        }
+    });
 
     // 驗證 Notion Database
     async function fetchNotionDatabaseInfo() {

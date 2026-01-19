@@ -166,19 +166,42 @@ class UnifiedEventHandler:
                     logger.warning("DEBUG_QUOTA_CHECK", has_quota=quota_check.get("has_quota"), remaining=quota_check.get("remaining_scans"), total=quota_check.get("total_quota"), current_month=quota_check.get("current_month_scans"))
                     if not quota_check["has_quota"]:
                         logger.warning("DEBUG_QUOTA_EXHAUSTED", tenant_id=self.tenant_id, used=quota_check.get("current_month_scans"), total=quota_check.get("total_quota"))
-                        # 計算下月重置日期
+                        
+                        # 根據重置週期計算下次重置時間
+                        from datetime import timedelta
+                        from src.namecard.core.services.tenant_service import get_tenant_service
+                        tenant_service = get_tenant_service()
+                        tenant = tenant_service.get_tenant(self.tenant_id)
+                        
                         now = datetime.now()
-                        if now.month == 12:
-                            next_month = datetime(now.year + 1, 1, 1)
-                        else:
-                            next_month = datetime(now.year, now.month + 1, 1)
-                        days_until_reset = (next_month - now).days
+                        reset_cycle = getattr(tenant, 'quota_reset_cycle', 'monthly') or 'monthly'
+                        reset_day = getattr(tenant, 'quota_reset_day', 1) or 1
+                        
+                        if reset_cycle == "daily":
+                            reset_msg = "明日凌晨"
+                            days_until = 1
+                        elif reset_cycle == "weekly":
+                            # 計算下次重置的週幾
+                            weekday_names = ['一', '二', '三', '四', '五', '六', '日']
+                            current_weekday = now.weekday() + 1  # 1-7
+                            days_until = (reset_day - current_weekday) % 7
+                            if days_until == 0:
+                                days_until = 7
+                            next_reset = now + timedelta(days=days_until)
+                            reset_msg = f"{days_until} 天後 (週{weekday_names[reset_day-1]})"
+                        else:  # monthly
+                            if now.month == 12:
+                                next_month = datetime(now.year + 1, 1, reset_day)
+                            else:
+                                next_month = datetime(now.year, now.month + 1, min(reset_day, 28))
+                            days_until = (next_month - now).days
+                            reset_msg = f"{days_until} 天後 ({next_month.strftime('%m/%d')})"
                         
                         self._send_reply(
                             reply_token,
-                            f"⚠️ 本月掃描配額已用完\n\n"
+                            f"⚠️ 掃描配額已用完\n\n"
                             f"📊 已使用 {quota_check['current_month_scans']}/{quota_check['total_quota']} 張\n"
-                            f"🔄 將於 {days_until_reset} 天後 ({next_month.strftime('%m/%d')}) 重置\n\n"
+                            f"🔄 將於 {reset_msg} 重置\n\n"
                             f"💡 需要更多配額？請洽詢服務人員升級方案"
                         )
                         return

@@ -290,6 +290,8 @@ def create_tenant():
                     use_shared_google_api=use_shared_google_api,
                     daily_card_limit=int(request.form.get("daily_card_limit", 50) or 50),
                     batch_size_limit=int(request.form.get("batch_size_limit", 10) or 10),
+                    quota_reset_cycle=request.form.get("quota_reset_cycle", "monthly") or "monthly",
+                    quota_reset_day=int(request.form.get("quota_reset_day", 1) or 1),
                 )
             except ValidationError as ve:
                 # Pydantic validation error - provide user-friendly message
@@ -401,6 +403,15 @@ def edit_tenant(tenant_id: str):
             batch_limit = int(request.form.get("batch_size_limit", 10))
             if batch_limit != tenant.batch_size_limit:
                 update_data["batch_size_limit"] = batch_limit
+
+            # Quota reset settings
+            reset_cycle = request.form.get("quota_reset_cycle", "monthly") or "monthly"
+            if reset_cycle != getattr(tenant, "quota_reset_cycle", "monthly"):
+                update_data["quota_reset_cycle"] = reset_cycle
+            
+            reset_day = int(request.form.get("quota_reset_day", 1) or 1)
+            if reset_day != getattr(tenant, "quota_reset_day", 1):
+                update_data["quota_reset_day"] = reset_day
 
             if update_data:
                 update_request = TenantUpdateRequest(**update_data)

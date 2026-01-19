@@ -187,7 +187,7 @@ class QuotaService:
             - message: Human-readable status message
         """
         # First, check if monthly reset is needed
-        self._check_monthly_reset(tenant_id)
+        self._check_quota_reset(tenant_id)
         
         status = self.get_quota_status(tenant_id)
         if "error" in status:
@@ -232,7 +232,7 @@ class QuotaService:
         MAX_RETRIES = 3  # Prevent infinite recursion in race conditions
         
         # First, check if monthly reset is needed
-        self._check_monthly_reset(tenant_id)
+        self._check_quota_reset(tenant_id)
         
         # Atomic update: only succeed if there's enough quota
         # This prevents race conditions in concurrent requests
@@ -323,15 +323,20 @@ class QuotaService:
             "message": f"已使用 {count} 張配額，剩餘 {new_remaining} 張",
         }
 
-    def _check_monthly_reset(self, tenant_id: str):
+    def _check_quota_reset(self, tenant_id: str):
         """
-        Check if monthly quota reset is needed and perform if necessary.
+        Check if quota reset is needed based on tenant's reset cycle configuration.
         
-        Monthly reset happens on the 1st of each month.
+        Supports three cycles:
+        - daily: Reset every day at midnight
+        - weekly: Reset on specific weekday (1=Monday to 7=Sunday)
+        - monthly: Reset on specific day of month (1-28)
         """
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT quota_reset_date, current_month_scans FROM tenants WHERE id = ?",
+                """SELECT quota_reset_date, current_month_scans, 
+                          quota_reset_cycle, quota_reset_day 
+                   FROM tenants WHERE id = ?""",
                 (tenant_id,)
             )
             row = cursor.fetchone()
@@ -340,12 +345,61 @@ class QuotaService:
                 return
             
             reset_date = row["quota_reset_date"]
-            current_month = datetime.now().strftime("%Y-%m")
+            cycle = row["quota_reset_cycle"] or "monthly"
+            reset_day = row["quota_reset_day"] or 1
+            now = datetime.now()
             
-            # Reset if no reset date or if we're in a new month
-            if not reset_date or not reset_date.startswith(current_month):
+            should_reset = False
+            new_reset_date = None
+            
+            if cycle == "daily":
+                # Reset every day - check if reset_date is not today
+                today = now.strftime("%Y-%m-%d")
+                if not reset_date or reset_date != today:
+                    should_reset = True
+                    new_reset_date = today
+                    
+            elif cycle == "weekly":
+                # Reset on specific weekday (1=Monday to 7=Sunday)
+                # Python's weekday(): 0=Monday to 6=Sunday
+                current_weekday = now.weekday() + 1  # Convert to 1-7
+                
+                # Calculate the start of the current week's reset period
+                days_since_reset_day = (current_weekday - reset_day) % 7
+                week_start = now - timedelta(days=days_since_reset_day)
+                week_start_str = week_start.strftime("%Y-%m-%d")
+                
+                if not reset_date or reset_date < week_start_str:
+                    should_reset = True
+                    new_reset_date = week_start_str
+                    
+            else:  # monthly (default)
+                # Reset on specific day of month
+                current_month = now.strftime("%Y-%m")
+                
+                # Determine the reset date for current month
+                # Use min(reset_day, last_day_of_month) for safety
+                last_day = 28  # Safe default
+                try:
+                    if now.month == 12:
+                        next_month = now.replace(year=now.year + 1, month=1, day=1)
+                    else:
+                        next_month = now.replace(month=now.month + 1, day=1)
+                    last_day = (next_month - timedelta(days=1)).day
+                except ValueError:
+                    pass
+                
+                effective_reset_day = min(reset_day, last_day)
+                month_reset_date = f"{current_month}-{effective_reset_day:02d}"
+                
+                # Reset if no reset date or if we've passed the reset day this month
+                if not reset_date or reset_date < month_reset_date:
+                    if now.day >= effective_reset_day:
+                        should_reset = True
+                        new_reset_date = month_reset_date
+            
+            if should_reset and new_reset_date:
                 old_scans = row["current_month_scans"] or 0
-                new_reset_date = datetime.now().strftime("%Y-%m-01")
                 
                 conn.execute(
                     """
@@ -357,8 +411,9 @@ class QuotaService:
                 )
                 
                 logger.info(
-                    "Monthly quota reset",
+                    "Quota reset performed",
                     tenant_id=tenant_id,
+                    cycle=cycle,
                     old_scans=old_scans,
                     reset_date=new_reset_date,
                 )

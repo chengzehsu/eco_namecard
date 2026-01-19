@@ -5,6 +5,24 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.0.0/)，
 並且本專案遵循 [語義化版本](https://semver.org/lang/zh-TW/)。
 
+## [1.2.1] - 2026-01-19
+
+### 新增
+- 🔄 **彈性配額重置機制**
+  - 支援三種重置週期：每日 (daily)、每週 (weekly)、每月 (monthly)
+  - 可在租戶層級配置重置週期和重置日
+  - 每日模式：每日凌晨自動重置
+  - 每週模式：可選週一至週日的任一天重置
+  - 每月模式：可選 1-28 號的任一天重置（預設 1 號）
+  - 用戶訊息根據重置週期顯示正確的等待時間
+  - 管理後台新增重置週期設定介面
+
+- 📈 **每日名片上限提高**
+  - `daily_card_limit` 最大值從 1000 提升至 10000
+  - 支援新客戶大量匯入歷史名片
+
+---
+
 ## [1.2.0] - 2026-01-18
 
 ### 新增
@@ -16,7 +34,7 @@
   - AI 識別優先提取手機號碼
 
 - 🔧 **Worker 穩定性改善**
-  - 內嵌 RQ Worker 自動啟動（Redis 分散式鎖）
+  - 獨立 RQ Worker 進程（透過 honcho/Procfile 管理）
   - 同步上傳 Fallback（當 Redis 不可用時）
   - 新增 `/admin/worker/status` 監控端點
   - 新增 `/admin/worker/failed-tasks` 查看失敗任務

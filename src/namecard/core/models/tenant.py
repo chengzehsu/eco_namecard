@@ -92,7 +92,7 @@ class TenantCreateRequest(BaseModel):
     use_shared_google_api: bool = True
 
     # Limits
-    daily_card_limit: int = Field(default=50, ge=1, le=1000)
+    daily_card_limit: int = Field(default=50, ge=1, le=10000)
     batch_size_limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -117,7 +117,7 @@ class TenantUpdateRequest(BaseModel):
     use_shared_google_api: Optional[bool] = None
 
     # Limits
-    daily_card_limit: Optional[int] = Field(default=None, ge=1, le=1000)
+    daily_card_limit: Optional[int] = Field(default=None, ge=1, le=10000)
     batch_size_limit: Optional[int] = Field(default=None, ge=1, le=50)
 
 

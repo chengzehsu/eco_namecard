@@ -41,8 +41,15 @@ class AdminAuth:
                     password=password  # Only log once at startup
                 )
 
-            self.create_admin(username, password, is_super=True)
-            logger.info("Initial admin user created", username=username)
+            try:
+                self.create_admin(username, password, is_super=True)
+                logger.info("Initial admin user created", username=username)
+            except Exception as e:
+                # 處理競態條件：另一個進程可能已經創建了 admin
+                if "UNIQUE constraint" in str(e):
+                    logger.info("Admin already created by another process", username=username)
+                else:
+                    raise
 
         elif reset_password and password:
             # Admin exists and reset is requested with a new password

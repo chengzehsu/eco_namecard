@@ -746,24 +746,28 @@ def worker_status():
         
         queue_info = get_queue_info()
         
-        # 檢查內嵌 Worker 鎖
-        embedded_worker_active = False
-        embedded_worker_info = None
+        # 檢查 RQ Worker 進程狀態（使用 RQ Worker 註冊表）
+        workers_info = []
         if redis_client and redis_connected:
             try:
-                lock_value = redis_client.get("embedded_rq_worker_lock")
-                if lock_value:
-                    embedded_worker_active = True
-                    embedded_worker_info = lock_value.decode() if isinstance(lock_value, bytes) else lock_value
-            except:
-                pass
+                from rq import Worker
+                workers = Worker.all(connection=redis_client)
+                for w in workers:
+                    workers_info.append({
+                        "name": w.name,
+                        "state": w.get_state(),
+                        "queues": [q.name for q in w.queues],
+                        "current_job": str(w.get_current_job()) if w.get_current_job() else None
+                    })
+            except Exception as e:
+                workers_info = [{"error": str(e)}]
         
         return jsonify({
             "status": "ok",
             "redis_connected": redis_connected,
             "rq_available": _is_rq_available(),
-            "embedded_worker_active": embedded_worker_active,
-            "embedded_worker_info": embedded_worker_info,
+            "worker_count": len(workers_info),
+            "workers": workers_info,
             "queue_info": queue_info,
         })
     except Exception as e:
@@ -887,34 +891,30 @@ def retry_all_failed():
 
 @app.route("/admin/worker/restart", methods=['POST'])
 def restart_worker():
-    """重啟內嵌 RQ Worker"""
+    """
+    Worker 現在由獨立進程運行（通過 honcho/Procfile）。
+    此端點用於清除舊的 Worker 鎖和查看 Worker 狀態。
+    實際重啟需要在 Zeabur Dashboard 重新部署。
+    """
     from src.namecard.infrastructure.redis_client import get_redis_client
-    import sys
     
     try:
         redis_client = get_redis_client()
         if not redis_client:
             return jsonify({"status": "error", "error": "Redis not available"}), 500
         
-        # 清除 Worker 鎖，讓新的 Worker 可以啟動
+        # 清除可能殘留的舊鎖
         redis_client.delete("embedded_rq_worker_lock")
         
-        # 重設全域變數並啟動新的 Worker
-        # 直接訪問已載入的 app 模組
-        if 'app' in sys.modules:
-            main_app = sys.modules['app']
-            if hasattr(main_app, '_embedded_worker_started'):
-                main_app._embedded_worker_started = False
-            if hasattr(main_app, 'start_embedded_rq_worker'):
-                main_app.start_embedded_rq_worker()
-                return jsonify({
-                    "status": "ok",
-                    "message": "Worker lock cleared and restart triggered"
-                })
+        # 檢查當前 Worker 狀態
+        from rq import Worker
+        workers = Worker.all(connection=redis_client)
         
         return jsonify({
-            "status": "ok",
-            "message": "Worker lock cleared (manual restart may be needed)"
+            "status": "info",
+            "message": "Worker 由獨立進程運行。如需重啟，請在 Zeabur Dashboard 重新部署。",
+            "current_workers": len(workers),
+            "worker_names": [w.name for w in workers]
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500

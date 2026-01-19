@@ -444,30 +444,38 @@ class ImageUploadWorker:
 # 全域 worker 實例（單例）
 _worker: Optional[ImageUploadWorker] = None
 _worker_lock = threading.Lock()
-_use_rq: Optional[bool] = None  # 緩存 RQ 可用性檢查結果
 
 
 def _is_rq_available() -> bool:
-    """檢查 RQ 是否可用（帶緩存）"""
-    global _use_rq
-
-    if _use_rq is not None:
-        return _use_rq
-
+    """
+    檢查 RQ 是否可用且有 Worker 運行
+    
+    關鍵改進：不僅檢查 Redis 連接，還檢查是否有 Worker 運行。
+    如果沒有 Worker，返回 False 讓系統使用同步上傳，避免任務堆積。
+    
+    注意：不緩存結果，每次都檢查 Worker 狀態（Worker 可能隨時啟動/停止）
+    """
     if not RQ_AVAILABLE:
-        _use_rq = False
         return False
 
     # 使用 RQ 專用的 Redis 客戶端（decode_responses=False）
     redis_client = get_rq_redis_client()
     if not redis_client:
-        _use_rq = False
         logger.info("Redis not available, RQ disabled")
         return False
 
-    _use_rq = True
-    logger.info("RQ is available and will be used for image uploads")
-    return True
+    # 關鍵：檢查是否有 Worker 運行
+    try:
+        from rq import Worker
+        workers = Worker.all(connection=redis_client)
+        if not workers:
+            logger.warning("No RQ workers running, will use sync upload to ensure reliability")
+            return False
+        logger.info("RQ workers found", worker_count=len(workers))
+        return True
+    except Exception as e:
+        logger.error("Failed to check RQ workers", error=str(e))
+        return False
 
 
 def get_upload_worker() -> ImageUploadWorker:

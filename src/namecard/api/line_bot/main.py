@@ -923,46 +923,60 @@ def restart_worker():
 @app.route("/admin/worker/process-pending", methods=['POST'])
 def process_pending_jobs():
     """手動處理 RQ 隊列中的待處理任務（同步處理）"""
-    from src.namecard.infrastructure.storage.image_upload_worker import get_rq_redis_client, RQ_QUEUE_NAME
+    from src.namecard.infrastructure.storage.image_upload_worker import (
+        get_rq_redis_client, RQ_QUEUE_NAME, process_upload_task_rq
+    )
     
     try:
         redis_client = get_rq_redis_client()
         if not redis_client:
             return jsonify({"status": "error", "error": "Redis not available"}), 500
         
-        # 獲取隊列中的任務數量
+        # 獲取隊列中的任務
         from rq import Queue
         queue = Queue(RQ_QUEUE_NAME, connection=redis_client)
-        job_count = len(queue)
+        jobs = queue.jobs  # 獲取所有待處理任務
+        job_count = len(jobs)
         
         if job_count == 0:
             return jsonify({"status": "ok", "message": "No pending jobs", "processed": 0})
         
-        # 限制一次處理的任務數量
-        max_process = min(job_count, 10)
+        # 處理所有任務（不限制數量，因為用戶需要處理全部）
         processed = 0
         errors = []
+        processed_job_ids = []
         
-        for _ in range(max_process):
-            job = queue.dequeue()
-            if not job:
-                break
-            
+        for job in jobs:
             try:
                 # 執行任務
-                job.perform()
+                result = job.perform()
                 processed += 1
+                processed_job_ids.append(job.id)
+                logger.info("Manually processed job", job_id=job.id, result=result)
             except Exception as e:
-                errors.append(f"Job {job.id}: {str(e)}")
+                error_msg = f"Job {job.id}: {str(e)}"
+                errors.append(error_msg)
+                logger.error("Failed to process job", job_id=job.id, error=str(e))
+        
+        # 清理已處理的任務
+        for job_id in processed_job_ids:
+            try:
+                from rq.job import Job
+                job = Job.fetch(job_id, connection=redis_client)
+                job.delete()
+            except Exception:
+                pass  # 任務可能已被自動清理
         
         return jsonify({
             "status": "ok",
             "total_pending": job_count,
             "processed": processed,
             "remaining": job_count - processed,
-            "errors": errors if errors else None
+            "errors": errors if errors else None,
+            "message": f"成功處理 {processed}/{job_count} 個任務"
         })
     except Exception as e:
+        logger.error("process_pending_jobs error", error=str(e))
         return jsonify({"status": "error", "error": str(e)}), 500
 
 

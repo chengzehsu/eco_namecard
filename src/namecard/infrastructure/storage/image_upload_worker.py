@@ -35,6 +35,7 @@ def get_rq_redis_client():
     獲取專用於 RQ 的 Redis 客戶端
     
     RQ 需要 decode_responses=False 來正確處理序列化的任務資料
+    使用較長的超時和 keepalive 確保連接穩定
     """
     global _rq_redis_client
     
@@ -53,7 +54,9 @@ def get_rq_redis_client():
             _rq_redis_client = redis.from_url(
                 settings.redis_url,
                 decode_responses=False,  # RQ 需要 False
-                socket_timeout=settings.redis_socket_timeout,
+                socket_timeout=30,  # 30 秒超時（比 Worker 短，因為這是給 API 用的）
+                socket_keepalive=True,
+                health_check_interval=15,
             )
         else:
             _rq_redis_client = redis.Redis(
@@ -62,7 +65,9 @@ def get_rq_redis_client():
                 password=settings.redis_password,
                 db=settings.redis_db,
                 decode_responses=False,  # RQ 需要 False
-                socket_timeout=settings.redis_socket_timeout,
+                socket_timeout=30,  # 30 秒超時
+                socket_keepalive=True,
+                health_check_interval=15,
             )
         
         # 測試連接

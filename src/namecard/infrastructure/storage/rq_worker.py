@@ -35,8 +35,13 @@ def create_rq_redis_client():
     創建專用於 RQ 的 Redis 客戶端
     
     RQ 需要 decode_responses=False 來正確處理序列化的任務資料
+    RQ Worker 需要長期連接，所以使用較長的超時和 keepalive
     """
     import redis
+    
+    # RQ Worker 需要較長的超時（用於 PubSub 監聽）
+    # 設置 None 表示無超時，讓 Worker 可以一直等待任務
+    rq_socket_timeout = None  # 無超時，Worker 會一直等待
     
     # 優先使用 REDIS_URL
     if settings.redis_url:
@@ -44,7 +49,9 @@ def create_rq_redis_client():
         return redis.from_url(
             settings.redis_url,
             decode_responses=False,  # RQ 需要 False
-            socket_timeout=settings.redis_socket_timeout,
+            socket_timeout=rq_socket_timeout,
+            socket_keepalive=True,  # 保持 TCP 連接活躍
+            health_check_interval=30,  # 每 30 秒檢查連接健康
         )
     else:
         logger.info(
@@ -59,7 +66,9 @@ def create_rq_redis_client():
             password=settings.redis_password,
             db=settings.redis_db,
             decode_responses=False,  # RQ 需要 False
-            socket_timeout=settings.redis_socket_timeout,
+            socket_timeout=rq_socket_timeout,
+            socket_keepalive=True,  # 保持 TCP 連接活躍
+            health_check_interval=30,  # 每 30 秒檢查連接健康
         )
 
 

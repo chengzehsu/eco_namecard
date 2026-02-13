@@ -253,106 +253,357 @@
 </div>
 
 {% if is_edit %}
-<!-- Subscription & Quota Management -->
-<div class="card" style="margin-top: 20px;">
-    <h2>
-        <i data-lucide="crown" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
-        訂閱方案管理
-    </h2>
+<!-- Subscription & Quota Management - Premium Design -->
+<style>
+    .subscription-card {
+        background: linear-gradient(145deg, rgba(124, 58, 237, 0.08) 0%, rgba(59, 130, 246, 0.05) 100%);
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        border-radius: 16px;
+        padding: 28px;
+        margin-top: 24px;
+        position: relative;
+        overflow: hidden;
+    }
+    .subscription-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: var(--accent-gradient);
+    }
+    .subscription-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+    .subscription-header h2 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+        padding: 0;
+        border: none;
+        text-transform: none;
+        letter-spacing: normal;
+    }
+    .subscription-header .crown-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent-gradient);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+    }
 
-    <!-- Current Plan Display -->
-    <div id="subscription-info" style="margin-bottom: 20px;">
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-            <span style="color: var(--text-muted);">目前方案：</span>
-            <span id="current-plan-badge" class="badge" style="font-size: 1rem; padding: 6px 12px;">載入中...</span>
-            <span id="plan-expiry" style="color: var(--text-muted); font-size: 0.9rem;"></span>
+    /* Plan Display Card */
+    .plan-display {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .plan-stat-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .plan-stat-card:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(124, 58, 237, 0.3);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    }
+    .plan-stat-card .stat-icon {
+        width: 40px;
+        height: 40px;
+        margin: 0 auto 12px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .plan-stat-card .stat-icon.purple { background: rgba(124, 58, 237, 0.15); color: #a78bfa; }
+    .plan-stat-card .stat-icon.blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+    .plan-stat-card .stat-icon.green { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+    .plan-stat-card .stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1.2;
+    }
+    .plan-stat-card .stat-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 4px;
+    }
+    .plan-stat-card .stat-detail {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-top: 8px;
+    }
+
+    /* Progress Bars */
+    .quota-progress-section {
+        background: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+    .quota-progress-item {
+        margin-bottom: 16px;
+    }
+    .quota-progress-item:last-child { margin-bottom: 0; }
+    .quota-progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .quota-progress-header .label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .quota-progress-header .value {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .quota-progress-bar {
+        height: 10px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 5px;
+        overflow: hidden;
+        position: relative;
+    }
+    .quota-progress-fill {
+        height: 100%;
+        border-radius: 5px;
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+    }
+    .quota-progress-fill.purple {
+        background: linear-gradient(90deg, #7c3aed, #a78bfa);
+        box-shadow: 0 0 12px rgba(124, 58, 237, 0.4);
+    }
+    .quota-progress-fill.green {
+        background: linear-gradient(90deg, #22c55e, #4ade80);
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+    }
+    .quota-progress-fill.warning {
+        background: linear-gradient(90deg, #f59e0b, #fbbf24);
+        box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+    }
+    .quota-progress-fill.danger {
+        background: linear-gradient(90deg, #ef4444, #f87171);
+        box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+    }
+
+    /* Action Sections */
+    .subscription-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    .action-box {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+    }
+    .action-box h3 {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .action-box .action-row {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+    }
+    .action-box .form-group {
+        margin-bottom: 0;
+    }
+    .action-box select,
+    .action-box input {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        width: 100%;
+        transition: all 0.15s ease;
+    }
+    .action-box select:focus,
+    .action-box input:focus {
+        outline: none;
+        border-color: var(--accent-purple);
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+    }
+    .action-status {
+        margin-top: 12px;
+        font-size: 0.85rem;
+        padding: 8px 12px;
+        border-radius: 6px;
+        display: none;
+    }
+    .action-status.success {
+        display: block;
+        background: rgba(34, 197, 94, 0.1);
+        color: #4ade80;
+        border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+    .action-status.error {
+        display: block;
+        background: rgba(239, 68, 68, 0.1);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    @media (max-width: 768px) {
+        .plan-display { grid-template-columns: 1fr; }
+        .subscription-actions { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="subscription-card">
+    <div class="subscription-header">
+        <div class="crown-icon">
+            <i data-lucide="crown" style="width: 18px; height: 18px; color: white;"></i>
         </div>
+        <h2>訂閱方案管理</h2>
+    </div>
 
-        <!-- Quota Progress -->
-        <div id="quota-section" style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                <!-- User Quota -->
-                <div>
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span style="font-weight: 500;">LINE 用戶數</span>
-                        <span id="user-quota-text">-</span>
-                    </div>
-                    <div style="height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
-                        <div id="user-quota-bar" style="height: 100%; background: var(--accent-purple); width: 0%; transition: width 0.3s;"></div>
-                    </div>
-                </div>
-                <!-- Scan Quota -->
-                <div>
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <span style="font-weight: 500;">本月掃描配額</span>
-                        <span id="scan-quota-text">-</span>
-                    </div>
-                    <div style="height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
-                        <div id="scan-quota-bar" style="height: 100%; background: var(--accent-green); width: 0%; transition: width 0.3s;"></div>
-                    </div>
-                </div>
+    <!-- Plan Stats Cards -->
+    <div class="plan-display">
+        <div class="plan-stat-card">
+            <div class="stat-icon purple">
+                <i data-lucide="package" style="width: 20px; height: 20px;"></i>
             </div>
-            <div style="margin-top: 10px; font-size: 0.85rem; color: var(--text-muted);">
-                <span id="bonus-quota-info"></span>
+            <div class="stat-value" id="current-plan-name">--</div>
+            <div class="stat-label">目前方案</div>
+            <div class="stat-detail" id="plan-expiry-text">載入中...</div>
+        </div>
+        <div class="plan-stat-card">
+            <div class="stat-icon blue">
+                <i data-lucide="users" style="width: 20px; height: 20px;"></i>
             </div>
+            <div class="stat-value" id="user-count-value">--</div>
+            <div class="stat-label">LINE 用戶</div>
+            <div class="stat-detail" id="user-limit-text">上限 -- 人</div>
+        </div>
+        <div class="plan-stat-card">
+            <div class="stat-icon green">
+                <i data-lucide="scan" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div class="stat-value" id="scan-remaining-value">--</div>
+            <div class="stat-label">剩餘掃描</div>
+            <div class="stat-detail" id="scan-total-text">本月配額 -- 張</div>
         </div>
     </div>
 
-    <!-- Assign Plan Section -->
-    <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px;">
-        <h3 style="font-size: 1rem; margin-bottom: 15px;">
-            <i data-lucide="repeat" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
-            變更方案
-        </h3>
-        <div style="display: flex; gap: 10px; align-items: flex-end;">
-            <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                <label for="assign-plan-select">選擇方案</label>
-                <select id="assign-plan-select">
-                    <option value="">-- 請選擇 --</option>
-                    <option value="free">Free（5人 / 50張/月）</option>
-                    <option value="starter">Starter（20人 / 500張/月）</option>
-                    <option value="business">Business（100人 / 3000張/月）</option>
-                    <option value="enterprise">Enterprise（無限 / 10000張/月）</option>
-                </select>
+    <!-- Progress Bars -->
+    <div class="quota-progress-section">
+        <div class="quota-progress-item">
+            <div class="quota-progress-header">
+                <span class="label">
+                    <i data-lucide="users" style="width: 14px; height: 14px;"></i>
+                    用戶使用量
+                </span>
+                <span class="value" id="user-progress-text">0 / 0</span>
             </div>
-            <div class="form-group" style="width: 120px; margin-bottom: 0;">
-                <label for="assign-duration">期限</label>
-                <select id="assign-duration">
-                    <option value="1">1 個月</option>
-                    <option value="3">3 個月</option>
-                    <option value="6">6 個月</option>
-                    <option value="12" selected>12 個月</option>
-                </select>
+            <div class="quota-progress-bar">
+                <div class="quota-progress-fill purple" id="user-progress-bar" style="width: 0%;"></div>
             </div>
-            <button type="button" id="assign-plan-btn" class="btn btn-primary" onclick="assignPlan()" style="height: 42px;">
-                <i data-lucide="check" style="width: 16px; height: 16px;"></i>
-                指派方案
-            </button>
         </div>
-        <div id="assign-plan-status" style="margin-top: 10px; font-size: 0.9rem;"></div>
+        <div class="quota-progress-item">
+            <div class="quota-progress-header">
+                <span class="label">
+                    <i data-lucide="scan" style="width: 14px; height: 14px;"></i>
+                    掃描配額使用量
+                </span>
+                <span class="value" id="scan-progress-text">0 / 0</span>
+            </div>
+            <div class="quota-progress-bar">
+                <div class="quota-progress-fill green" id="scan-progress-bar" style="width: 0%;"></div>
+            </div>
+        </div>
+        <div id="bonus-info" style="margin-top: 12px; font-size: 0.8rem; color: var(--text-muted); display: none;">
+            <i data-lucide="gift" style="width: 12px; height: 12px; margin-right: 4px;"></i>
+            <span id="bonus-info-text"></span>
+        </div>
     </div>
 
-    <!-- Add Bonus Quota Section -->
-    <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px;">
-        <h3 style="font-size: 1rem; margin-bottom: 15px;">
-            <i data-lucide="plus-circle" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
-            加購配額
-        </h3>
-        <div style="display: flex; gap: 10px; align-items: flex-end;">
-            <div class="form-group" style="width: 150px; margin-bottom: 0;">
-                <label for="bonus-amount">掃描張數</label>
-                <input type="number" id="bonus-amount" value="100" min="1" max="10000">
+    <!-- Action Boxes -->
+    <div class="subscription-actions">
+        <div class="action-box">
+            <h3>
+                <i data-lucide="repeat" style="width: 16px; height: 16px;"></i>
+                變更方案
+            </h3>
+            <div class="action-row">
+                <div class="form-group" style="flex: 2;">
+                    <select id="assign-plan-select">
+                        <option value="">選擇方案...</option>
+                        <option value="free">Free（5人 / 50張）</option>
+                        <option value="starter">Starter（20人 / 500張）</option>
+                        <option value="business">Business（100人 / 3000張）</option>
+                        <option value="enterprise">Enterprise（無限）</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <select id="assign-duration">
+                        <option value="1">1 個月</option>
+                        <option value="3">3 個月</option>
+                        <option value="6">6 個月</option>
+                        <option value="12" selected>12 個月</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="assignPlan()" id="assign-plan-btn">
+                    指派
+                </button>
             </div>
-            <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                <label for="bonus-description">備註</label>
-                <input type="text" id="bonus-description" placeholder="例：加購配額、活動贈送">
-            </div>
-            <button type="button" class="btn btn-secondary" onclick="addBonusQuota()" style="height: 42px;">
-                <i data-lucide="gift" style="width: 16px; height: 16px;"></i>
-                加購
-            </button>
+            <div class="action-status" id="assign-plan-status"></div>
         </div>
-        <div id="bonus-status" style="margin-top: 10px; font-size: 0.9rem;"></div>
+        <div class="action-box">
+            <h3>
+                <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i>
+                加購配額
+            </h3>
+            <div class="action-row">
+                <div class="form-group" style="flex: 1;">
+                    <input type="number" id="bonus-amount" value="100" min="1" max="10000" placeholder="張數">
+                </div>
+                <div class="form-group" style="flex: 2;">
+                    <input type="text" id="bonus-description" placeholder="備註（選填）">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="addBonusQuota()">
+                    加購
+                </button>
+            </div>
+            <div class="action-status" id="bonus-status"></div>
+        </div>
     </div>
 </div>
 
@@ -874,56 +1125,88 @@
         if (!TENANT_ID) return;
 
         try {
-            // Load quota info
-            const quotaRes = await fetch(`/admin/api/tenants/${TENANT_ID}/quota`);
-            const quotaData = await quotaRes.json();
+            const quotaRes = await fetch('/admin/api/tenants/' + TENANT_ID + '/quota');
+            const q = await quotaRes.json();
 
-            if (quotaData.success) {
-                const q = quotaData.quota;
-
-                // Update plan badge
-                const planBadge = document.getElementById('current-plan-badge');
-                planBadge.textContent = q.plan_name || '未指派';
-                planBadge.className = q.plan_name ? 'badge badge-success' : 'badge badge-warning';
-
-                // Update user quota
-                const userQuotaText = document.getElementById('user-quota-text');
-                const userQuotaBar = document.getElementById('user-quota-bar');
-                if (q.user_limit) {
-                    const userPercent = Math.min((q.current_users / q.user_limit) * 100, 100);
-                    userQuotaText.textContent = `${q.current_users} / ${q.user_limit}`;
-                    userQuotaBar.style.width = `${userPercent}%`;
-                    userQuotaBar.style.background = userPercent > 90 ? 'var(--accent-red)' : 'var(--accent-purple)';
-                } else {
-                    userQuotaText.textContent = `${q.current_users} / 無限制`;
-                    userQuotaBar.style.width = '30%';
-                }
-
-                // Update scan quota
-                const scanQuotaText = document.getElementById('scan-quota-text');
-                const scanQuotaBar = document.getElementById('scan-quota-bar');
-                const totalQuota = q.total_scan_quota || q.monthly_scan_quota || 0;
-                const usedScans = q.current_month_scans || 0;
-                const scanPercent = totalQuota > 0 ? Math.min((usedScans / totalQuota) * 100, 100) : 0;
-                scanQuotaText.textContent = `${usedScans} / ${totalQuota}`;
-                scanQuotaBar.style.width = `${scanPercent}%`;
-                scanQuotaBar.style.background = scanPercent > 90 ? 'var(--accent-red)' : 'var(--accent-green)';
-
-                // Bonus quota info
-                const bonusInfo = document.getElementById('bonus-quota-info');
-                if (q.bonus_scan_quota > 0) {
-                    bonusInfo.textContent = `含加購配額 ${q.bonus_scan_quota} 張`;
-                }
-
-                // Plan expiry
-                const expirySpan = document.getElementById('plan-expiry');
-                if (q.plan_expires_at) {
-                    const expiry = new Date(q.plan_expires_at);
-                    expirySpan.textContent = `到期：${expiry.toLocaleDateString('zh-TW')}`;
-                }
+            // Check for error response
+            if (q.error) {
+                console.error('Quota API error:', q.error);
+                document.getElementById('current-plan-name').textContent = '錯誤';
+                document.getElementById('plan-expiry-text').textContent = q.error;
+                return;
             }
+
+            // Plan name card
+            const planName = q.plan_name || '未指派';
+            document.getElementById('current-plan-name').textContent = planName;
+
+            // Plan expiry
+            if (q.plan_expires_at) {
+                const expiry = new Date(q.plan_expires_at);
+                document.getElementById('plan-expiry-text').textContent = '到期：' + expiry.toLocaleDateString('zh-TW');
+            } else {
+                document.getElementById('plan-expiry-text').textContent = planName === '未指派' ? '尚未指派方案' : '永久有效';
+            }
+
+            // User count card
+            const currentUsers = q.current_users || 0;
+            const userLimit = q.user_limit;
+            document.getElementById('user-count-value').textContent = currentUsers;
+            document.getElementById('user-limit-text').textContent = userLimit ? ('上限 ' + userLimit + ' 人') : '無上限';
+
+            // User progress bar
+            const userPercent = userLimit ? Math.min((currentUsers / userLimit) * 100, 100) : 30;
+            const userProgressBar = document.getElementById('user-progress-bar');
+            userProgressBar.style.width = userPercent + '%';
+            document.getElementById('user-progress-text').textContent = userLimit ? (currentUsers + ' / ' + userLimit) : (currentUsers + ' / ∞');
+
+            // Color based on usage
+            userProgressBar.className = 'quota-progress-fill';
+            if (userPercent > 90) {
+                userProgressBar.classList.add('danger');
+            } else if (userPercent > 70) {
+                userProgressBar.classList.add('warning');
+            } else {
+                userProgressBar.classList.add('purple');
+            }
+
+            // Scan quota card
+            const totalQuota = q.total_scan_quota || q.monthly_scan_quota || 0;
+            const usedScans = q.current_month_scans || 0;
+            const remainingScans = q.remaining_scans || (totalQuota - usedScans);
+
+            document.getElementById('scan-remaining-value').textContent = remainingScans;
+            document.getElementById('scan-total-text').textContent = '本月配額 ' + totalQuota + ' 張';
+
+            // Scan progress bar
+            const scanPercent = totalQuota > 0 ? Math.min((usedScans / totalQuota) * 100, 100) : 0;
+            const scanProgressBar = document.getElementById('scan-progress-bar');
+            scanProgressBar.style.width = scanPercent + '%';
+            document.getElementById('scan-progress-text').textContent = usedScans + ' / ' + totalQuota;
+
+            scanProgressBar.className = 'quota-progress-fill';
+            if (scanPercent > 90) {
+                scanProgressBar.classList.add('danger');
+            } else if (scanPercent > 70) {
+                scanProgressBar.classList.add('warning');
+            } else {
+                scanProgressBar.classList.add('green');
+            }
+
+            // Bonus quota info
+            const bonusQuota = q.bonus_scan_quota || 0;
+            if (bonusQuota > 0) {
+                document.getElementById('bonus-info').style.display = 'block';
+                document.getElementById('bonus-info-text').textContent = '含加購配額 ' + bonusQuota + ' 張';
+            }
+
+            // Refresh icons
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+
         } catch (error) {
             console.error('Failed to load subscription info:', error);
+            document.getElementById('current-plan-name').textContent = '載入失敗';
+            document.getElementById('plan-expiry-text').textContent = '請重新整理頁面';
         }
     }
 
@@ -934,16 +1217,21 @@
         const btn = document.getElementById('assign-plan-btn');
 
         if (!planId) {
-            statusDiv.style.color = 'var(--accent-red)';
+            statusDiv.className = 'action-status error';
             statusDiv.textContent = '請選擇方案';
             return;
         }
 
         btn.disabled = true;
+        statusDiv.className = 'action-status';
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(255,255,255,0.05)';
+        statusDiv.style.color = 'var(--text-muted)';
+        statusDiv.style.border = '1px solid var(--border-color)';
         statusDiv.textContent = '處理中...';
 
         try {
-            const response = await fetch(`/admin/api/tenants/${TENANT_ID}/subscription/assign`, {
+            const response = await fetch('/admin/api/tenants/' + TENANT_ID + '/subscription/assign', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -955,21 +1243,19 @@
             const data = await response.json();
 
             if (data.success) {
-                statusDiv.style.color = 'var(--accent-green)';
-                statusDiv.textContent = '✅ 方案已成功指派！';
-                // Reload subscription info
+                statusDiv.className = 'action-status success';
+                statusDiv.textContent = '✓ 方案已成功指派！';
                 await loadSubscriptionInfo();
             } else {
-                statusDiv.style.color = 'var(--accent-red)';
-                statusDiv.textContent = '❌ ' + data.error;
+                statusDiv.className = 'action-status error';
+                statusDiv.textContent = '✗ ' + (data.error || '指派失敗');
             }
         } catch (error) {
-            statusDiv.style.color = 'var(--accent-red)';
-            statusDiv.textContent = '❌ 網路錯誤：' + error.message;
+            statusDiv.className = 'action-status error';
+            statusDiv.textContent = '✗ 網路錯誤：' + error.message;
         }
 
         btn.disabled = false;
-        if (typeof lucide !== 'undefined') lucide.createIcons();
     }
 
     async function addBonusQuota() {
@@ -978,16 +1264,20 @@
         const statusDiv = document.getElementById('bonus-status');
 
         if (!amount || parseInt(amount) <= 0) {
-            statusDiv.style.color = 'var(--accent-red)';
+            statusDiv.className = 'action-status error';
             statusDiv.textContent = '請輸入有效的配額數量';
             return;
         }
 
+        statusDiv.className = 'action-status';
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(255,255,255,0.05)';
         statusDiv.style.color = 'var(--text-muted)';
+        statusDiv.style.border = '1px solid var(--border-color)';
         statusDiv.textContent = '處理中...';
 
         try {
-            const response = await fetch(`/admin/api/tenants/${TENANT_ID}/quota/add`, {
+            const response = await fetch('/admin/api/tenants/' + TENANT_ID + '/quota/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -999,19 +1289,18 @@
             const data = await response.json();
 
             if (data.success) {
-                statusDiv.style.color = 'var(--accent-green)';
-                statusDiv.textContent = '✅ 已成功加購 ' + amount + ' 張配額';
+                statusDiv.className = 'action-status success';
+                statusDiv.textContent = '✓ 已成功加購 ' + amount + ' 張配額';
                 document.getElementById('bonus-amount').value = '100';
                 document.getElementById('bonus-description').value = '';
-                // Reload subscription info
                 await loadSubscriptionInfo();
             } else {
-                statusDiv.style.color = 'var(--accent-red)';
-                statusDiv.textContent = '❌ ' + data.error;
+                statusDiv.className = 'action-status error';
+                statusDiv.textContent = '✗ ' + (data.error || '加購失敗');
             }
         } catch (error) {
-            statusDiv.style.color = 'var(--accent-red)';
-            statusDiv.textContent = '❌ 網路錯誤：' + error.message;
+            statusDiv.className = 'action-status error';
+            statusDiv.textContent = '✗ 網路錯誤：' + error.message;
         }
     }
 

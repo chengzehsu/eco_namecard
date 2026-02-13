@@ -253,6 +253,109 @@
 </div>
 
 {% if is_edit %}
+<!-- Subscription & Quota Management -->
+<div class="card" style="margin-top: 20px;">
+    <h2>
+        <i data-lucide="crown" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;"></i>
+        訂閱方案管理
+    </h2>
+
+    <!-- Current Plan Display -->
+    <div id="subscription-info" style="margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+            <span style="color: var(--text-muted);">目前方案：</span>
+            <span id="current-plan-badge" class="badge" style="font-size: 1rem; padding: 6px 12px;">載入中...</span>
+            <span id="plan-expiry" style="color: var(--text-muted); font-size: 0.9rem;"></span>
+        </div>
+
+        <!-- Quota Progress -->
+        <div id="quota-section" style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <!-- User Quota -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-weight: 500;">LINE 用戶數</span>
+                        <span id="user-quota-text">-</span>
+                    </div>
+                    <div style="height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
+                        <div id="user-quota-bar" style="height: 100%; background: var(--accent-purple); width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <!-- Scan Quota -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span style="font-weight: 500;">本月掃描配額</span>
+                        <span id="scan-quota-text">-</span>
+                    </div>
+                    <div style="height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden;">
+                        <div id="scan-quota-bar" style="height: 100%; background: var(--accent-green); width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.85rem; color: var(--text-muted);">
+                <span id="bonus-quota-info"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assign Plan Section -->
+    <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px;">
+        <h3 style="font-size: 1rem; margin-bottom: 15px;">
+            <i data-lucide="repeat" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+            變更方案
+        </h3>
+        <div style="display: flex; gap: 10px; align-items: flex-end;">
+            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                <label for="assign-plan-select">選擇方案</label>
+                <select id="assign-plan-select">
+                    <option value="">-- 請選擇 --</option>
+                    <option value="free">Free（5人 / 50張/月）</option>
+                    <option value="starter">Starter（20人 / 500張/月）</option>
+                    <option value="business">Business（100人 / 3000張/月）</option>
+                    <option value="enterprise">Enterprise（無限 / 10000張/月）</option>
+                </select>
+            </div>
+            <div class="form-group" style="width: 120px; margin-bottom: 0;">
+                <label for="assign-duration">期限</label>
+                <select id="assign-duration">
+                    <option value="1">1 個月</option>
+                    <option value="3">3 個月</option>
+                    <option value="6">6 個月</option>
+                    <option value="12" selected>12 個月</option>
+                </select>
+            </div>
+            <button type="button" id="assign-plan-btn" class="btn btn-primary" onclick="assignPlan()" style="height: 42px;">
+                <i data-lucide="check" style="width: 16px; height: 16px;"></i>
+                指派方案
+            </button>
+        </div>
+        <div id="assign-plan-status" style="margin-top: 10px; font-size: 0.9rem;"></div>
+    </div>
+
+    <!-- Add Bonus Quota Section -->
+    <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px;">
+        <h3 style="font-size: 1rem; margin-bottom: 15px;">
+            <i data-lucide="plus-circle" style="width: 14px; height: 14px; margin-right: 6px; vertical-align: middle;"></i>
+            加購配額
+        </h3>
+        <div style="display: flex; gap: 10px; align-items: flex-end;">
+            <div class="form-group" style="width: 150px; margin-bottom: 0;">
+                <label for="bonus-amount">掃描張數</label>
+                <input type="number" id="bonus-amount" value="100" min="1" max="10000">
+            </div>
+            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                <label for="bonus-description">備註</label>
+                <input type="text" id="bonus-description" placeholder="例：加購配額、活動贈送">
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="addBonusQuota()" style="height: 42px;">
+                <i data-lucide="gift" style="width: 16px; height: 16px;"></i>
+                加購
+            </button>
+        </div>
+        <div id="bonus-status" style="margin-top: 10px; font-size: 0.9rem;"></div>
+    </div>
+</div>
+
 <!-- Google Drive Batch Processing -->
 <div class="card" style="margin-top: 20px;">
     <h2>
@@ -762,7 +865,155 @@
     // Initialize SocketIO when page loads
     {% if is_edit %}
     document.addEventListener('DOMContentLoaded', initSocketIO);
+    document.addEventListener('DOMContentLoaded', loadSubscriptionInfo);
     {% endif %}
+
+    // ==================== Subscription Management Functions ====================
+
+    async function loadSubscriptionInfo() {
+        if (!TENANT_ID) return;
+
+        try {
+            // Load quota info
+            const quotaRes = await fetch(`/admin/api/tenants/${TENANT_ID}/quota`);
+            const quotaData = await quotaRes.json();
+
+            if (quotaData.success) {
+                const q = quotaData.quota;
+
+                // Update plan badge
+                const planBadge = document.getElementById('current-plan-badge');
+                planBadge.textContent = q.plan_name || '未指派';
+                planBadge.className = q.plan_name ? 'badge badge-success' : 'badge badge-warning';
+
+                // Update user quota
+                const userQuotaText = document.getElementById('user-quota-text');
+                const userQuotaBar = document.getElementById('user-quota-bar');
+                if (q.user_limit) {
+                    const userPercent = Math.min((q.current_users / q.user_limit) * 100, 100);
+                    userQuotaText.textContent = `${q.current_users} / ${q.user_limit}`;
+                    userQuotaBar.style.width = `${userPercent}%`;
+                    userQuotaBar.style.background = userPercent > 90 ? 'var(--accent-red)' : 'var(--accent-purple)';
+                } else {
+                    userQuotaText.textContent = `${q.current_users} / 無限制`;
+                    userQuotaBar.style.width = '30%';
+                }
+
+                // Update scan quota
+                const scanQuotaText = document.getElementById('scan-quota-text');
+                const scanQuotaBar = document.getElementById('scan-quota-bar');
+                const totalQuota = q.total_scan_quota || q.monthly_scan_quota || 0;
+                const usedScans = q.current_month_scans || 0;
+                const scanPercent = totalQuota > 0 ? Math.min((usedScans / totalQuota) * 100, 100) : 0;
+                scanQuotaText.textContent = `${usedScans} / ${totalQuota}`;
+                scanQuotaBar.style.width = `${scanPercent}%`;
+                scanQuotaBar.style.background = scanPercent > 90 ? 'var(--accent-red)' : 'var(--accent-green)';
+
+                // Bonus quota info
+                const bonusInfo = document.getElementById('bonus-quota-info');
+                if (q.bonus_scan_quota > 0) {
+                    bonusInfo.textContent = `含加購配額 ${q.bonus_scan_quota} 張`;
+                }
+
+                // Plan expiry
+                const expirySpan = document.getElementById('plan-expiry');
+                if (q.plan_expires_at) {
+                    const expiry = new Date(q.plan_expires_at);
+                    expirySpan.textContent = `到期：${expiry.toLocaleDateString('zh-TW')}`;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load subscription info:', error);
+        }
+    }
+
+    async function assignPlan() {
+        const planId = document.getElementById('assign-plan-select').value;
+        const duration = document.getElementById('assign-duration').value;
+        const statusDiv = document.getElementById('assign-plan-status');
+        const btn = document.getElementById('assign-plan-btn');
+
+        if (!planId) {
+            statusDiv.style.color = 'var(--accent-red)';
+            statusDiv.textContent = '請選擇方案';
+            return;
+        }
+
+        btn.disabled = true;
+        statusDiv.textContent = '處理中...';
+
+        try {
+            const response = await fetch(`/admin/api/tenants/${TENANT_ID}/subscription/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    plan_id: planId,
+                    duration_months: parseInt(duration)
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                statusDiv.style.color = 'var(--accent-green)';
+                statusDiv.textContent = '✅ 方案已成功指派！';
+                // Reload subscription info
+                await loadSubscriptionInfo();
+            } else {
+                statusDiv.style.color = 'var(--accent-red)';
+                statusDiv.textContent = '❌ ' + data.error;
+            }
+        } catch (error) {
+            statusDiv.style.color = 'var(--accent-red)';
+            statusDiv.textContent = '❌ 網路錯誤：' + error.message;
+        }
+
+        btn.disabled = false;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    async function addBonusQuota() {
+        const amount = document.getElementById('bonus-amount').value;
+        const description = document.getElementById('bonus-description').value;
+        const statusDiv = document.getElementById('bonus-status');
+
+        if (!amount || parseInt(amount) <= 0) {
+            statusDiv.style.color = 'var(--accent-red)';
+            statusDiv.textContent = '請輸入有效的配額數量';
+            return;
+        }
+
+        statusDiv.style.color = 'var(--text-muted)';
+        statusDiv.textContent = '處理中...';
+
+        try {
+            const response = await fetch(`/admin/api/tenants/${TENANT_ID}/quota/add`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    amount: parseInt(amount),
+                    description: description || '管理員加購'
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                statusDiv.style.color = 'var(--accent-green)';
+                statusDiv.textContent = '✅ 已成功加購 ' + amount + ' 張配額';
+                document.getElementById('bonus-amount').value = '100';
+                document.getElementById('bonus-description').value = '';
+                // Reload subscription info
+                await loadSubscriptionInfo();
+            } else {
+                statusDiv.style.color = 'var(--accent-red)';
+                statusDiv.textContent = '❌ ' + data.error;
+            }
+        } catch (error) {
+            statusDiv.style.color = 'var(--accent-red)';
+            statusDiv.textContent = '❌ 網路錯誤：' + error.message;
+        }
+    }
 
     // ==================== Google Drive Functions ====================
 

@@ -91,12 +91,15 @@ try:
 except Exception as _card_err:
     print(f"[INIT] CardProcessor init failed (non-fatal): {_card_err}", flush=True)
 
-try:
-    print("[INIT] Initializing NotionClient...", flush=True)
-    default_notion_client = NotionClient()
-    print("[INIT] NotionClient initialized OK", flush=True)
-except Exception as _notion_err:
-    print(f"[INIT] NotionClient init failed (non-fatal): {_notion_err}", flush=True)
+if settings.notion_database_id:
+    try:
+        print("[INIT] Initializing NotionClient...", flush=True)
+        default_notion_client = NotionClient()
+        print("[INIT] NotionClient initialized OK", flush=True)
+    except Exception as _notion_err:
+        print(f"[INIT] NotionClient init failed (non-fatal): {_notion_err}", flush=True)
+else:
+    print("[INIT] Skipping default NotionClient (NOTION_DATABASE_ID unset; multi-tenant mode)", flush=True)
 
 # 預設事件處理器 - 只有在所有服務都初始化成功時才創建
 if default_configuration and default_card_processor and default_notion_client:

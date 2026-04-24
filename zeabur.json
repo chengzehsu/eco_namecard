@@ -70,9 +70,7 @@
     }
   },
   "build": {
-    "commands": [
-      "pip install -r requirements.txt"
-    ]
+    "commands": ["pip install -r requirements.txt"]
   },
   "start": {
     "command": "honcho start"
@@ -91,7 +89,12 @@
     "memory": "1Gi",
     "cpu": "1"
   },
-  "volumes": [],
+  "volumes": [
+    {
+      "id": "tenant-data",
+      "dir": "/app/data"
+    }
+  ],
   "regions": ["hkg"],
   "features": {
     "auto_deploy": true,

@@ -294,8 +294,11 @@ class CardProcessor:
 
         # 初始化主要 Client
         try:
-            self.client = genai.Client(api_key=self.primary_api_key)
-            
+            self.client = genai.Client(
+                api_key=self.primary_api_key,
+                http_options={"timeout": self.config.timeout_seconds * 1000},  # SDK 逾時單位為毫秒
+            )
+
             # 測試主要 API 連接
             _ = self.client.models.generate_content(model="gemini-2.5-flash", contents="test")
 
@@ -319,7 +322,10 @@ class CardProcessor:
         # 如果有 fallback API key，初始化 fallback Client
         if self.fallback_api_key:
             try:
-                self.fallback_client = genai.Client(api_key=self.fallback_api_key)
+                self.fallback_client = genai.Client(
+                    api_key=self.fallback_api_key,
+                    http_options={"timeout": self.config.timeout_seconds * 1000},  # SDK 逾時單位為毫秒
+                )
 
                 # 測試 fallback API 連接
                 # 使用 gemini-2.5-flash-lite 作為 fallback 模型，避免使用舊模型

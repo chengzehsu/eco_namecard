@@ -54,8 +54,15 @@ class TenantService:
         logger.info("TenantService initialized")
 
     def _create_cipher(self) -> Fernet:
-        """Create Fernet cipher from SECRET_KEY"""
-        secret_key = os.environ.get("SECRET_KEY", "default-secret-key-change-me")
+        """Create Fernet cipher from SECRET_KEY (未設定時 fail-fast)"""
+        secret_key = os.environ.get("SECRET_KEY")
+        if not secret_key:
+            # 缺少 SECRET_KEY 時，租戶憑證加解密金鑰不可預測，
+            # 直接 fail-fast，避免用不安全的預設值靜默啟動。
+            raise RuntimeError(
+                "SECRET_KEY 未設定，無法初始化租戶憑證加密。"
+                "請先設定 SECRET_KEY 環境變數再啟動服務。"
+            )
 
         # Derive a 32-byte key from SECRET_KEY using PBKDF2
         salt = b"tenant_service_salt_2024"
@@ -75,8 +82,13 @@ class TenantService:
         encrypted = self._cipher.encrypt(plaintext.encode("utf-8"))
         return base64.urlsafe_b64encode(encrypted).decode("utf-8")
 
-    def _decrypt(self, ciphertext: str) -> str:
-        """Decrypt a string"""
+    def _decrypt(self, ciphertext: str, field: str = "") -> str:
+        """Decrypt a string
+
+        Args:
+            ciphertext: 加密後的字串
+            field: 供錯誤記錄使用的欄位/租戶識別資訊
+        """
         if not ciphertext:
             return ""
         try:
@@ -84,8 +96,12 @@ class TenantService:
             decrypted = self._cipher.decrypt(encrypted)
             return decrypted.decode("utf-8")
         except Exception as e:
-            logger.error("Decryption failed", error=str(e))
-            return ""
+            # 解密失敗代表金鑰不符或資料損毀，不能靜默回空字串掩蓋錯誤，
+            # 先記錄再往上拋，避免用空憑證繼續執行。
+            logger.error("Decryption failed", field=field or "unknown", error=str(e))
+            raise RuntimeError(
+                f"租戶憑證欄位解密失敗: {field or 'unknown'}"
+            ) from e
 
     def _generate_slug(self, name: str) -> str:
         """Generate URL-friendly slug from name"""
@@ -156,6 +172,7 @@ class TenantService:
 
     def _row_to_config(self, row: Dict[str, Any]) -> TenantConfig:
         """Convert database row to TenantConfig with decrypted credentials"""
+        tenant_ref = f"tenant_id={row.get('id')}"
         return TenantConfig(
             id=row["id"],
             name=row["name"],
@@ -168,12 +185,24 @@ class TenantService:
             if row.get("updated_at")
             else datetime.now(),
             line_channel_id=row["line_channel_id"],
-            line_channel_access_token=self._decrypt(row["line_channel_access_token_encrypted"]),
-            line_channel_secret=self._decrypt(row["line_channel_secret_encrypted"]),
-            notion_api_key=self._decrypt(row["notion_api_key_encrypted"]),
+            line_channel_access_token=self._decrypt(
+                row["line_channel_access_token_encrypted"],
+                field=f"line_channel_access_token ({tenant_ref})",
+            ),
+            line_channel_secret=self._decrypt(
+                row["line_channel_secret_encrypted"],
+                field=f"line_channel_secret ({tenant_ref})",
+            ),
+            notion_api_key=self._decrypt(
+                row["notion_api_key_encrypted"],
+                field=f"notion_api_key ({tenant_ref})",
+            ),
             notion_database_id=row["notion_database_id"],
             use_shared_notion_api=bool(row.get("use_shared_notion_api", 1)),
-            google_api_key=self._decrypt(row["google_api_key_encrypted"])
+            google_api_key=self._decrypt(
+                row["google_api_key_encrypted"],
+                field=f"google_api_key ({tenant_ref})",
+            )
             if row.get("google_api_key_encrypted")
             else None,
             use_shared_google_api=bool(row.get("use_shared_google_api", 1)),

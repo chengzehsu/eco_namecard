@@ -7,6 +7,7 @@ ImgBB 圖片儲存服務
 
 import os
 import sys
+import time
 import base64
 import requests
 import structlog
@@ -31,8 +32,8 @@ class ImageStorage:
         """
         self.api_key = api_key
         self.base_url = "https://api.imgbb.com/1/upload"
-        self.timeout = 60  # 增加到 60 秒
-        self.max_retries = 2
+        self.timeout = 20  # 對齊 gunicorn --timeout 120 的預算
+        self.max_retries = 1
 
     def _do_upload(self, image_data: bytes) -> Optional[str]:
         """
@@ -58,8 +59,12 @@ class ImageStorage:
         upload_url = f"{self.base_url}?key={self.api_key}"
 
         for attempt in range(self.max_retries + 1):
+            # 重試之間加入短暫 backoff，避免立即重打
+            if attempt > 0:
+                time.sleep(2)
+
             try:
-                logger.info("Attempting ImgBB upload", 
+                logger.info("Attempting ImgBB upload",
                            attempt=attempt + 1, 
                            max_retries=self.max_retries + 1,
                            image_size_kb=len(image_data) // 1024)

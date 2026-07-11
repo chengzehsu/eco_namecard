@@ -92,7 +92,7 @@ class NotionClient:
         try:
             import notion_client
             sdk_version = getattr(notion_client, "__version__", "unknown")
-            logger.warning(
+            logger.debug(
                 "DEBUG_NOTION_TEST_CONNECTION_START",
                 database_id=self.database_id[:10] + "..." if self.database_id else "NONE",
                 database_id_full_length=len(self.database_id) if self.database_id else 0,
@@ -100,11 +100,11 @@ class NotionClient:
                 sdk_version=sdk_version,
                 api_version=NOTION_API_VERSION,
             )
-            
+
             # Step 1: 獲取 database 資訊，取得 data_sources 列表
-            logger.warning("DEBUG_NOTION_STEP1_CALLING_DB_RETRIEVE", database_id=self.database_id)
+            logger.debug("DEBUG_NOTION_STEP1_CALLING_DB_RETRIEVE", database_id=self.database_id)
             db_response = self.client.databases.retrieve(database_id=self.database_id)
-            logger.warning("DEBUG_NOTION_DB_RETRIEVED", response_keys=list(db_response.keys()), has_data_sources="data_sources" in db_response)
+            logger.debug("DEBUG_NOTION_DB_RETRIEVED", response_keys=list(db_response.keys()), has_data_sources="data_sources" in db_response)
             
             # 從 database 獲取 data_sources
             data_sources = db_response.get("data_sources", [])
@@ -130,7 +130,7 @@ class NotionClient:
             # Step 3: 使用 data_source 端點獲取 schema (properties)
             # GET /v1/data_sources/{data_source_id}
             request_path = f"data_sources/{self.data_source_id}"
-            logger.warning("DEBUG_NOTION_STEP3_CALLING_DATA_SOURCE", request_path=request_path)
+            logger.debug("DEBUG_NOTION_STEP3_CALLING_DATA_SOURCE", request_path=request_path)
             ds_response = self.client.request(
                 method="get",
                 path=request_path,
@@ -230,7 +230,7 @@ class NotionClient:
             (page_id, page_url) 元組，失敗時返回 None
         """
         try:
-            logger.warning(
+            logger.debug(
                 "DEBUG_SAVE_CARD_ENTRY",
                 user_id=card.line_user_id[:10] + "..." if card.line_user_id else None,
                 card_name=card.name,
@@ -241,7 +241,7 @@ class NotionClient:
 
             # 準備名片資料
             properties = self._prepare_card_properties(card)
-            logger.warning("DEBUG_CARD_PROPERTIES_PREPARED", properties_count=len(properties), property_keys=list(properties.keys()))
+            logger.debug("DEBUG_CARD_PROPERTIES_PREPARED", properties_count=len(properties), property_keys=list(properties.keys()))
 
             # 準備頁面內容（圖片）
             children = self._prepare_page_content(card)
@@ -249,7 +249,7 @@ class NotionClient:
             # 建立 Notion 頁面 (2025-09-03: 使用 data_source_id)
             # 參考: https://developers.notion.com/docs/upgrade-guide-2025-09-03#step-2-provide-data-source-ids
             if not self.data_source_id:
-                logger.warning("DEBUG_SAVE_CARD_NO_DATA_SOURCE_ID", database_id=self.database_id)
+                logger.debug("DEBUG_SAVE_CARD_NO_DATA_SOURCE_ID", database_id=self.database_id)
                 logger.error("Cannot create page: data_source_id not available")
                 return None
                 
@@ -263,13 +263,11 @@ class NotionClient:
             if children:
                 create_params["children"] = children
 
-            # #region agent log
-            try:
-                import json, time
-                open("/Users/user/Ecofirst_namecard/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "A,B,C,D", "location": "notion_client.py:save_business_card:before_create", "message": "About to call pages.create", "data": {"properties_keys": list(properties.keys()), "address_property": properties.get(NotionFields.ADDRESS), "data_source_id": self.data_source_id[:10] + "..." if self.data_source_id else None}, "timestamp": time.time()}) + "\n")
-            except Exception:
-                pass
-            # #endregion
+            logger.debug(
+                "About to call pages.create",
+                properties_keys=list(properties.keys()),
+                data_source_id=self.data_source_id[:10] + "..." if self.data_source_id else None,
+            )
             response = self.client.pages.create(**create_params)
 
             page_url = response.get("url", "")
@@ -408,14 +406,6 @@ class NotionClient:
         Returns:
             符合 Notion API 格式的 properties 字典
         """
-        # #region agent log
-        try:
-            import json, time
-            address_field_schema = self._db_schema.get(NotionFields.ADDRESS, {})
-            open("/Users/user/Ecofirst_namecard/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "A,B,C", "location": "notion_client.py:_prepare_card_properties:entry", "message": "Checking schema for address field", "data": {"address_field_name": NotionFields.ADDRESS, "address_schema": address_field_schema, "address_schema_type": address_field_schema.get("type"), "card_address_value": card.address, "all_schema_fields": {k: v.get("type") for k, v in self._db_schema.items()}}, "timestamp": time.time()}) + "\n")
-        except Exception:
-            pass
-        # #endregion
         properties = {}
 
         # 1. Name (title) - 必填
@@ -453,13 +443,6 @@ class NotionClient:
         # 5. 地址 - 根據 schema 動態調整格式
         if card.address:
             address_schema_type = self._db_schema.get(NotionFields.ADDRESS, {}).get("type", "rich_text")
-            # #region agent log
-            try:
-                import json, time
-                open("/Users/user/Ecofirst_namecard/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "A,B", "location": "notion_client.py:_prepare_card_properties:address", "message": "Setting address with dynamic type", "data": {"address_value": card.address, "schema_type": address_schema_type}, "timestamp": time.time()}) + "\n")
-            except Exception:
-                pass
-            # #endregion
             if address_schema_type == "multi_select":
                 # 如果 schema 是 multi_select，將地址作為單一選項
                 properties[NotionFields.ADDRESS] = {"multi_select": [{"name": card.address}]}
@@ -545,54 +528,9 @@ class NotionClient:
             新建資料庫的 ID，失敗時返回 None
         """
         try:
-            # #region agent log
-            try:
-                import json
-
-                open("/tmp/namecard_debug.log", "a").write(
-                    json.dumps(
-                        {
-                            "hypothesisId": "D",
-                            "location": "notion_client.py:create_database:entry",
-                            "message": "create_database called",
-                            "data": {
-                                "api_key_prefix": api_key[:15] + "..." if api_key else None,
-                                "tenant_name": tenant_name,
-                                "parent_page_id_arg": parent_page_id,
-                            },
-                            "timestamp": __import__("time").time(),
-                        }
-                    )
-                    + "\n"
-                )
-            except Exception:
-                pass
-            # #endregion
             # 使用工廠函數創建 Client (2025-09-03)
             client = create_notion_client(api_key)
             parent_id = parent_page_id or settings.notion_shared_parent_page_id
-            # #region agent log
-            try:
-                import json
-
-                open("/tmp/namecard_debug.log", "a").write(
-                    json.dumps(
-                        {
-                            "hypothesisId": "D",
-                            "location": "notion_client.py:create_database:after_parent_id",
-                            "message": "parent_id resolved",
-                            "data": {
-                                "final_parent_id": parent_id,
-                                "used_arg": parent_page_id is not None,
-                            },
-                            "timestamp": __import__("time").time(),
-                        }
-                    )
-                    + "\n"
-                )
-            except Exception:
-                pass
-            # #endregion
 
             # 資料庫名稱：{租戶名稱}的名片盒
             db_title = f"{tenant_name}的名片盒"
@@ -617,68 +555,12 @@ class NotionClient:
                 NotionFields.NOTES: {"rich_text": {}},
             }
 
-            # #region agent log
-            try:
-                import json
-
-                open("/tmp/namecard_debug.log", "a").write(
-                    json.dumps(
-                        {
-                            "hypothesisId": "A,B,C",
-                            "location": "notion_client.py:create_database:before_api_call",
-                            "message": "About to call Notion API",
-                            "data": {
-                                "parent_id": parent_id,
-                                "db_title": db_title,
-                                "properties_keys": list(properties.keys()),
-                            },
-                            "timestamp": __import__("time").time(),
-                        }
-                    )
-                    + "\n"
-                )
-            except Exception:
-                pass
-            # #endregion
-
-            # #region agent log - Try to verify page access first
-            try:
-                page_check = client.pages.retrieve(page_id=parent_id)
-                try:
-                    open("/tmp/namecard_debug.log", "a").write(
-                        json.dumps(
-                            {
-                                "hypothesisId": "A,B",
-                                "location": "notion_client.py:create_database:page_check",
-                                "message": "Parent page accessible",
-                                "data": {"page_id": parent_id},
-                            },
-                            default=str,
-                        )
-                        + "\n"
-                    )
-                except Exception:
-                    pass
-            except Exception as page_err:
-                try:
-                    open("/tmp/namecard_debug.log", "a").write(
-                        json.dumps(
-                            {
-                                "hypothesisId": "A,B",
-                                "location": "notion_client.py:create_database:page_check_failed",
-                                "message": "Parent page NOT accessible",
-                                "data": {
-                                    "page_id": parent_id,
-                                    "error": str(page_err),
-                                    "error_type": type(page_err).__name__,
-                                },
-                            }
-                        )
-                        + "\n"
-                    )
-                except Exception:
-                    pass
-            # #endregion
+            logger.debug(
+                "About to create Notion database",
+                parent_id=parent_id,
+                db_title=db_title,
+                properties_keys=list(properties.keys()),
+            )
 
             # 創建資料庫
             response = client.databases.create(
@@ -703,30 +585,6 @@ class NotionClient:
             return database_id
 
         except Exception as e:
-            # #region agent log
-            try:
-                import json
-
-                open("/tmp/namecard_debug.log", "a").write(
-                    json.dumps(
-                        {
-                            "hypothesisId": "A,B,C",
-                            "location": "notion_client.py:create_database:exception",
-                            "message": "Exception caught",
-                            "data": {
-                                "error": str(e),
-                                "error_type": type(e).__name__,
-                                "parent_id": parent_id if "parent_id" in locals() else None,
-                                "api_key_prefix": api_key[:15] + "..." if api_key else None,
-                            },
-                            "timestamp": __import__("time").time(),
-                        }
-                    )
-                    + "\n"
-                )
-            except Exception:
-                pass
-            # #endregion
             logger.error(
                 "Failed to create Notion database",
                 error=str(e),
@@ -941,7 +799,7 @@ class NotionClient:
         Returns:
             成功返回 True，失敗返回 False
         """
-        logger.warning("DEBUG_NOTION_UPDATE_IMAGE_START", page_id=page_id[:10] + "...", image_url=image_url[:50] + "...")
+        logger.debug("DEBUG_NOTION_UPDATE_IMAGE_START", page_id=page_id[:10] + "...", image_url=image_url[:50] + "...")
         try:
             # 創建圖片區塊
             image_block = {
@@ -959,7 +817,7 @@ class NotionClient:
                 children=[image_block]
             )
 
-            logger.warning("DEBUG_NOTION_UPDATE_IMAGE_SUCCESS", 
+            logger.debug("DEBUG_NOTION_UPDATE_IMAGE_SUCCESS",
                           page_id=page_id[:10] + "...",
                           image_url=image_url[:50] + "...",
                           result_type=type(result).__name__)

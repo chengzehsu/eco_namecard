@@ -108,13 +108,25 @@ class TestImageProcessingFlow:
             tenant_id="test_tenant"
         )
         
-        # 執行
-        handler.handle_image_message(
-            self.test_user_id,
-            self.test_message_id,
-            self.test_reply_token
-        )
-        
+        # 執行（mock 租戶配額路徑，讓流程放行）
+        with patch('src.namecard.core.services.quota_service.get_quota_service') as mock_get_quota, \
+             patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_tenant:
+            mock_quota = Mock()
+            mock_quota.check_scan_quota.return_value = {
+                "has_quota": True, "remaining_scans": 40,
+                "total_quota": 50, "current_month_scans": 10,
+            }
+            mock_quota.check_user_limit.return_value = {
+                "allowed": True, "current_users": 1, "user_limit": 100,
+            }
+            mock_get_quota.return_value = mock_quota
+            mock_get_tenant.return_value = Mock()  # get_line_user 回 Mock（truthy）→ 視為既有使用者
+            handler.handle_image_message(
+                self.test_user_id,
+                self.test_message_id,
+                self.test_reply_token
+            )
+
         # 驗證流程
         # 1. 圖片下載
         mock_line_api.get_message_content.assert_called_once_with(self.test_message_id)
@@ -189,13 +201,25 @@ class TestImageProcessingFlow:
             tenant_id="test_tenant"
         )
         
-        # 執行
-        handler.handle_image_message(
-            self.test_user_id,
-            self.test_message_id,
-            self.test_reply_token
-        )
-        
+        # 執行（mock 租戶配額路徑，讓流程放行）
+        with patch('src.namecard.core.services.quota_service.get_quota_service') as mock_get_quota, \
+             patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_tenant:
+            mock_quota = Mock()
+            mock_quota.check_scan_quota.return_value = {
+                "has_quota": True, "remaining_scans": 40,
+                "total_quota": 50, "current_month_scans": 10,
+            }
+            mock_quota.check_user_limit.return_value = {
+                "allowed": True, "current_users": 1, "user_limit": 100,
+            }
+            mock_get_quota.return_value = mock_quota
+            mock_get_tenant.return_value = Mock()  # get_line_user 回 Mock（truthy）→ 視為既有使用者
+            handler.handle_image_message(
+                self.test_user_id,
+                self.test_message_id,
+                self.test_reply_token
+            )
+
         # 驗證 ImgBB 上傳未被調用
         mock_submit_upload.assert_not_called()
         
@@ -491,10 +515,20 @@ class TestMultiTenantImageProcessing:
         
         # 創建 handler with tenant_id
         # 注意：get_tenant_service 是在 handle_image_message 內部動態 import 的
-        with patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_service:
+        with patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_service, \
+             patch('src.namecard.core.services.quota_service.get_quota_service') as mock_get_quota:
             mock_tenant_service = Mock()
             mock_get_service.return_value = mock_tenant_service
-            
+            mock_quota = Mock()
+            mock_quota.check_scan_quota.return_value = {
+                "has_quota": True, "remaining_scans": 40,
+                "total_quota": 50, "current_month_scans": 10,
+            }
+            mock_quota.check_user_limit.return_value = {
+                "allowed": True, "current_users": 1, "user_limit": 100,
+            }
+            mock_get_quota.return_value = mock_quota
+
             handler = UnifiedEventHandler(
                 line_bot_api=mock_line_api,
                 card_processor=mock_processor,

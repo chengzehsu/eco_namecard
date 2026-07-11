@@ -33,63 +33,44 @@ from simple_config import settings
 
 logger = structlog.get_logger()
 
-# #region agent log
-DEBUG_LOG_PATH = "/Users/user/Ecofirst_namecard/.cursor/debug.log"
-
 def _is_debug_log_enabled():
     """
-    檢查調試日誌是否啟用
-    
-    通過環境變數 RQ_WORKER_DEBUG_LOG 控制：
-    - 未設置或設置為 "true"/"1"/"yes" -> 啟用（默認）
-    - 設置為 "false"/"0"/"no" -> 禁用
-    
+    檢查除錯日誌是否啟用
+
+    透過環境變數 RQ_WORKER_DEBUG_LOG 控制：
+    - 未設定或設為 "false"/"0"/"no" -> 停用（預設）
+    - 設為 "true"/"1"/"yes" -> 啟用
+
     Returns:
-        bool: True 表示啟用調試日誌，False 表示禁用
+        bool: True 表示啟用除錯日誌，False 表示停用
     """
-    debug_env = os.getenv("RQ_WORKER_DEBUG_LOG", "true").lower()
-    return debug_env in ("true", "1", "yes", "")
+    debug_env = os.getenv("RQ_WORKER_DEBUG_LOG", "false").lower()
+    return debug_env in ("true", "1", "yes")
 
 
 def _debug_log(hypothesis_id, location, message, data=None):
     """
-    調試日誌函數
-    
-    可通過環境變數 RQ_WORKER_DEBUG_LOG 控制是否啟用：
-    - 默認啟用（有助於生產環境問題排查）
-    - 設置 RQ_WORKER_DEBUG_LOG=false 可禁用
-    
+    除錯日誌函式（僅輸出到 stdout / 容器日誌）
+
+    可透過環境變數 RQ_WORKER_DEBUG_LOG 控制是否啟用：
+    - 預設停用
+    - 設定 RQ_WORKER_DEBUG_LOG=true 可啟用
+
     Args:
-        hypothesis_id: 假設 ID（用於調試追蹤）
-        location: 代碼位置
+        hypothesis_id: 假設 ID（用於除錯追蹤）
+        location: 程式碼位置
         message: 日誌訊息
-        data: 附加數據（可選）
+        data: 附加資料（可選）
     """
-    # 檢查是否啟用調試日誌
+    # 檢查是否啟用除錯日誌
     if not _is_debug_log_enabled():
         return
-    
-    log_entry = {
-        "sessionId": "debug-session",
-        "runId": "post-fix-v2",
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data or {},
-        "timestamp": int(time.time() * 1000)
-    }
-    # 同時寫入檔案和 stdout（容器環境可能無法寫入檔案）
-    try:
-        with open(DEBUG_LOG_PATH, "a") as f:
-            f.write(json.dumps(log_entry) + "\n")
-    except Exception:
-        pass
-    # 也輸出到 stdout 以便在容器日誌中看到
+
+    # 輸出到 stdout 以便在容器日誌中看到
     try:
         print(f"[DEBUG] {location}: {message} | {json.dumps(data or {})}", flush=True)
     except Exception:
         pass
-# #endregion
 
 
 def create_rq_redis_client():

@@ -558,8 +558,13 @@ class TenantDatabase:
     @contextmanager
     def get_connection(self):
         """Get a database connection as a context manager"""
-        conn = sqlite3.connect(self.db_path)
+        # timeout=15：連線層等待鎖釋放最長 15 秒（取代預設 5 秒）
+        conn = sqlite3.connect(self.db_path, timeout=15)
         conn.row_factory = sqlite3.Row
+        # WAL 模式讓讀寫不互相阻塞，改善多進程（gunicorn workers + rq worker）併發
+        conn.execute("PRAGMA journal_mode=WAL")
+        # busy_timeout=15000：遇到鎖時最長重試 15 秒後才拋 SQLITE_BUSY
+        conn.execute("PRAGMA busy_timeout=15000")
         try:
             yield conn
             conn.commit()

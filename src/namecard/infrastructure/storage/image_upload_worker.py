@@ -1,178 +1,158 @@
 """
-圖片上傳 Worker
+圖片上傳背景處理
 
-支援兩種模式：
-1. RQ (Redis Queue) - 推薦，支援持久化和自動重試
-2. 內存 Queue - Fallback，當 RQ 不可用時使用
+單一背景執行緒（ThreadPoolExecutor max_workers=1，保序）執行：
+上傳圖片到 ImgBB → 更新 Notion 頁面 → 失敗記錄到 SQLite failed_uploads 表。
 
-失敗任務會記錄到 Redis，可供後續重試。
+失敗任務保留 7 天，可透過 retry_failed_task / retry_all_failed_tasks 重試。
 """
 
-import queue
-import threading
-import structlog
+import os
 import json
-import base64
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from dataclasses import dataclass
-from datetime import datetime
+import sqlite3
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
+import structlog
+
 from src.namecard.infrastructure.storage.image_storage import get_image_storage
-from src.namecard.infrastructure.redis_client import get_redis_client
 
 if TYPE_CHECKING:
     from src.namecard.infrastructure.storage.notion_client import NotionClient
 
 logger = structlog.get_logger()
 
-# RQ 專用的 Redis 客戶端（decode_responses=False）
-_rq_redis_client = None
-
-
-def get_rq_redis_client():
-    """
-    獲取專用於 RQ 的 Redis 客戶端
-    
-    RQ 需要 decode_responses=False 來正確處理序列化的任務資料
-    使用較長的超時和 keepalive 確保連接穩定
-    """
-    global _rq_redis_client
-    
-    if _rq_redis_client is not None:
-        return _rq_redis_client
-    
-    try:
-        import redis
-        from simple_config import settings
-        
-        if not settings.redis_enabled:
-            return None
-        
-        # 優先使用 REDIS_URL
-        if settings.redis_url:
-            _rq_redis_client = redis.from_url(
-                settings.redis_url,
-                decode_responses=False,  # RQ 需要 False
-                socket_timeout=30,  # 30 秒超時（比 Worker 短，因為這是給 API 用的）
-                socket_keepalive=True,
-                health_check_interval=15,
-            )
-        else:
-            _rq_redis_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                db=settings.redis_db,
-                decode_responses=False,  # RQ 需要 False
-                socket_timeout=30,  # 30 秒超時
-                socket_keepalive=True,
-                health_check_interval=15,
-            )
-        
-        # 測試連接
-        _rq_redis_client.ping()
-        logger.info("✅ [RQ] Redis client initialized for RQ (decode_responses=False)")
-        return _rq_redis_client
-        
-    except Exception as e:
-        logger.error("❌ [RQ] Failed to create RQ Redis client", error=str(e))
-        return None
-
-
-# Redis key prefixes
-FAILED_TASK_PREFIX = "failed_upload:"
-PENDING_TASK_PREFIX = "pending_upload:"
-FAILED_TASK_TTL = 86400 * 7  # 7 days
-PENDING_TASK_TTL = 86400  # 1 day
-
-# RQ Queue name
-RQ_QUEUE_NAME = "image_upload"
-
-# Check if RQ is available
-try:
-    from rq import Queue, Retry
-    from redis import Redis
-
-    RQ_AVAILABLE = True
-except Exception as e:
-    # 捕獲所有異常（不只是 ImportError），因為版本不相容可能拋出其他異常
-    RQ_AVAILABLE = False
-    logger.warning(f"RQ import failed: {e}, will use in-memory queue")
-
-
-@dataclass
-class ImageUploadTask:
-    """圖片上傳任務"""
-
-    image_data: bytes
-    page_ids: List[str]
-    notion_client: "NotionClient"
-    user_id: str
+# 失敗任務保留天數
+FAILED_TASK_RETENTION_DAYS = 7
 
 
 # ============================================================
-# RQ-based Worker (持久化，推薦)
+# SQLite 失敗表
 # ============================================================
 
+_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS failed_uploads (
+    task_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    page_ids TEXT NOT NULL,
+    error TEXT,
+    image BLOB,
+    image_url TEXT,
+    created_at TEXT NOT NULL
+)
+"""
 
-def process_upload_task_rq(
-    image_data_b64: str,
-    page_ids: List[str],
+
+def _db_path() -> str:
+    """SQLite 資料庫路徑（每次呼叫讀取環境變數，方便測試覆寫）"""
+    return os.getenv("TENANT_DB_PATH", "data/tenants.db")
+
+
+def _open_conn() -> sqlite3.Connection:
+    """開啟 SQLite 連線並套用慣例 PRAGMA（WAL + busy_timeout），lazy 建表"""
+    path = _db_path()
+    parent = Path(path).parent
+    if str(parent) not in ("", "."):
+        parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=15)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
+    conn.execute(_CREATE_TABLE_SQL)
+    return conn
+
+
+def _purge_expired(conn: sqlite3.Connection) -> None:
+    """刪除超過保留天數的失敗任務（查詢/寫入時順手清理）"""
+    cutoff = (datetime.now() - timedelta(days=FAILED_TASK_RETENTION_DAYS)).isoformat()
+    conn.execute("DELETE FROM failed_uploads WHERE created_at < ?", (cutoff,))
+
+
+def _record_failed_task(
     user_id: str,
-    notion_api_key: str,
-    notion_database_id: str,
-) -> Dict[str, Any]:
-    """
-    RQ 任務處理函數（必須是頂層函數才能被 pickle）
+    page_ids: List[str],
+    error: str,
+    image_data: Optional[bytes] = None,
+    image_url: Optional[str] = None,
+) -> None:
+    """記錄失敗任務到 SQLite（圖片直接存 BLOB）"""
+    try:
+        task_id = str(uuid4())[:8]
+        conn = _open_conn()
+        try:
+            _purge_expired(conn)
+            conn.execute(
+                """
+                INSERT INTO failed_uploads
+                    (task_id, user_id, page_ids, error, image, image_url, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    user_id,
+                    json.dumps(page_ids),
+                    error,
+                    image_data,
+                    image_url,
+                    datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info("Failed upload recorded", task_id=task_id, user_id=user_id, error=error)
+    except Exception as e:
+        logger.error("Failed to record failed upload", error=str(e))
 
-    Args:
-        image_data_b64: Base64 編碼的圖片資料
-        page_ids: Notion 頁面 ID 列表
-        user_id: 用戶 ID
-        notion_api_key: Notion API Key
-        notion_database_id: Notion Database ID
+
+def _delete_failed_task(user_id: str, task_id: str) -> None:
+    """刪除單筆失敗任務記錄"""
+    conn = _open_conn()
+    try:
+        conn.execute(
+            "DELETE FROM failed_uploads WHERE user_id = ? AND task_id = ?",
+            (user_id, task_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ============================================================
+# 上傳核心流程
+# ============================================================
+
+
+def _sync_upload_image(
+    image_data: bytes, page_ids: List[str], notion_client: "NotionClient", user_id: str
+) -> bool:
+    """
+    上傳圖片並更新 Notion 頁面（在背景執行緒或重試時同步執行）
+
+    流程：上傳 ImgBB → 更新所有 Notion 頁面 → 失敗記錄到 SQLite。
 
     Returns:
-        處理結果
+        是否全部頁面更新成功
     """
-    # 延遲導入以避免循環依賴
-    from src.namecard.infrastructure.storage.notion_client import NotionClient
-
-    logger.warning("DEBUG_RQ_TASK_START", user_id=user_id, page_count=len(page_ids), image_size=len(image_data_b64))
-
-    # 解碼圖片資料
-    image_data = base64.b64decode(image_data_b64)
-    logger.warning("DEBUG_RQ_IMAGE_DECODED", decoded_size=len(image_data))
-
-    # 創建 NotionClient
-    notion_client = NotionClient(api_key=notion_api_key, database_id=notion_database_id)
-
     # 1. 上傳圖片到 ImgBB
     image_storage = get_image_storage()
-    logger.warning("DEBUG_RQ_IMAGE_STORAGE", storage_available=image_storage is not None)
-    
     if not image_storage:
-        error_msg = "Image storage not available"
-        logger.warning("DEBUG_RQ_NO_STORAGE", error=error_msg)
-        _record_failed_task_standalone(user_id, page_ids, error_msg, image_data)
-        return {"success": False, "error": error_msg}
+        logger.warning("Image storage not available", user_id=user_id)
+        _record_failed_task(user_id, page_ids, "Image storage not available", image_data)
+        return False
 
-    logger.warning("DEBUG_RQ_UPLOADING_TO_IMGBB", image_size=len(image_data))
     image_url = image_storage.upload(image_data)
-    logger.warning("DEBUG_RQ_IMGBB_RESULT", success=image_url is not None, url_preview=image_url[:50] + "..." if image_url else None)
-
     if not image_url:
-        error_msg = "ImgBB upload failed"
-        logger.warning("DEBUG_RQ_IMGBB_FAILED", user_id=user_id)
-        _record_failed_task_standalone(user_id, page_ids, error_msg, image_data)
-        return {"success": False, "error": error_msg}
-
-    logger.warning("DEBUG_RQ_UPDATING_NOTION", url=image_url[:50] + "...", page_count=len(page_ids))
+        logger.warning("ImgBB upload failed", user_id=user_id)
+        _record_failed_task(user_id, page_ids, "ImgBB upload failed", image_data)
+        return False
 
     # 2. 更新所有 Notion 頁面
     success_count = 0
-    failed_page_ids = []
+    failed_page_ids: List[str] = []
 
     for page_id in page_ids:
         try:
@@ -188,9 +168,9 @@ def process_upload_task_rq(
             )
             failed_page_ids.append(page_id)
 
-    # 記錄失敗的頁面
+    # 3. 更新失敗的頁面記錄到失敗表（圖片已上傳成功，只留 URL 不留 BLOB）
     if failed_page_ids:
-        _record_failed_task_standalone(
+        _record_failed_task(
             user_id,
             failed_page_ids,
             f"Failed to update {len(failed_page_ids)} pages",
@@ -199,442 +179,138 @@ def process_upload_task_rq(
         )
 
     logger.info(
-        "RQ: Image upload task completed",
+        "Image upload task completed",
         user_id=user_id,
         success_count=success_count,
         total_pages=len(page_ids),
     )
-
-    return {
-        "success": success_count == len(page_ids),
-        "success_count": success_count,
-        "total_pages": len(page_ids),
-    }
+    return success_count == len(page_ids)
 
 
-def _record_failed_task_standalone(
-    user_id: str,
-    page_ids: List[str],
-    error: str,
-    image_data: Optional[bytes] = None,
-    image_url: Optional[str] = None,
-) -> None:
-    """
-    記錄失敗任務（獨立函數，供 RQ 任務使用）
-    """
-    redis_client = get_redis_client()
-    if not redis_client:
-        logger.warning("Redis not available, cannot record failed task")
-        return
-
-    try:
-        task_id = str(uuid4())[:8]
-        failed_key = f"{FAILED_TASK_PREFIX}{user_id}:{task_id}"
-
-        failed_data = {
-            "task_id": task_id,
-            "user_id": user_id,
-            "page_ids": page_ids,
-            "error": error,
-            "timestamp": datetime.now().isoformat(),
-            "image_url": image_url,
-            "image_data_b64": base64.b64encode(image_data).decode() if image_data else None,
-        }
-
-        redis_client.setex(failed_key, FAILED_TASK_TTL, json.dumps(failed_data))
-        logger.info("Failed task recorded", task_id=task_id, user_id=user_id, error=error)
-    except Exception as e:
-        logger.error("Failed to record failed task", error=str(e))
-
-
-def submit_to_rq(
-    image_data: bytes, page_ids: List[str], user_id: str, notion_client: "NotionClient"
-) -> bool:
-    """
-    提交任務到 RQ 隊列
-
-    Returns:
-        是否成功提交
-    """
-    if not RQ_AVAILABLE:
-        return False
-
-    # 使用 RQ 專用的 Redis 客戶端（decode_responses=False）
-    redis_client = get_rq_redis_client()
-    if not redis_client:
-        return False
-
-    try:
-        # 創建 RQ Queue
-        rq_queue = Queue(RQ_QUEUE_NAME, connection=redis_client)
-
-        # 準備任務資料（需要可序列化）
-        image_data_b64 = base64.b64encode(image_data).decode()
-
-        # 提交任務（帶自動重試）
-        job = rq_queue.enqueue(
-            process_upload_task_rq,
-            image_data_b64,
-            page_ids,
-            user_id,
-            notion_client.api_key,
-            notion_client.database_id,
-            retry=Retry(max=3, interval=[10, 30, 60]),  # 重試 3 次：10s, 30s, 60s
-            job_timeout=300,  # 5 分鐘超時
-        )
-
-        logger.info(
-            "Task submitted to RQ", job_id=job.id, user_id=user_id, page_count=len(page_ids)
-        )
-        return True
-
-    except Exception as e:
-        logger.error("Failed to submit to RQ", error=str(e))
-        return False
-
-
-# ============================================================
-# In-Memory Queue Worker (Fallback)
-# ============================================================
-
-
-class ImageUploadWorker:
-    """
-    內存隊列 Worker（當 RQ 不可用時使用）
-
-    使用單一背景線程處理所有圖片上傳任務
-    """
-
-    def __init__(self):
-        self._queue: queue.Queue[ImageUploadTask] = queue.Queue()
-        self._worker_thread: Optional[threading.Thread] = None
-        self._running = False
-        self._lock = threading.Lock()
-
-    def start(self) -> None:
-        """啟動 worker 線程"""
-        with self._lock:
-            if self._running:
-                return
-
-            self._running = True
-            self._worker_thread = threading.Thread(
-                target=self._process_queue, daemon=True, name="ImageUploadWorker"
-            )
-            self._worker_thread.start()
-            logger.info("ImageUploadWorker (in-memory) started")
-
-    def stop(self) -> None:
-        """停止 worker 線程"""
-        with self._lock:
-            self._running = False
-            self._queue.put(None)  # type: ignore
-
-    def submit(self, task: ImageUploadTask) -> None:
-        """提交任務"""
-        if not self._running:
-            self.start()
-
-        self._queue.put(task)
-        logger.info(
-            "Task submitted to in-memory queue",
-            user_id=task.user_id,
-            page_count=len(task.page_ids),
-            queue_size=self._queue.qsize(),
-        )
-
-    def _process_queue(self) -> None:
-        """處理任務隊列"""
-        logger.info("ImageUploadWorker processing loop started")
-
-        while self._running:
-            try:
-                task = self._queue.get(timeout=5)
-
-                if task is None:
-                    break
-
-                self._process_task(task)
-                self._queue.task_done()
-
-            except queue.Empty:
-                continue
-            except Exception as e:
-                logger.error("Error in worker loop", error=str(e))
-
-        logger.info("ImageUploadWorker stopped")
-
-    def _process_task(self, task: ImageUploadTask) -> None:
-        """處理單一上傳任務"""
-        logger.warning(
-            "DEBUG_MEMORY_TASK_START", user_id=task.user_id, page_count=len(task.page_ids), image_size=len(task.image_data)
-        )
-
-        # 1. 上傳圖片到 ImgBB
-        image_storage = get_image_storage()
-        logger.warning("DEBUG_MEMORY_IMAGE_STORAGE", storage_available=image_storage is not None)
-        
-        if not image_storage:
-            error_msg = "Image storage not available"
-            logger.warning("DEBUG_MEMORY_NO_STORAGE", error=error_msg)
-            self._record_failed_task(task, error_msg)
-            return
-
-        logger.warning("DEBUG_MEMORY_UPLOADING_TO_IMGBB", image_size=len(task.image_data))
-        image_url = image_storage.upload(task.image_data)
-        logger.warning("DEBUG_MEMORY_IMGBB_RESULT", success=image_url is not None, url_preview=image_url[:50] + "..." if image_url else None)
-
-        if not image_url:
-            error_msg = "ImgBB upload failed"
-            logger.warning("DEBUG_MEMORY_IMGBB_FAILED", user_id=task.user_id)
-            self._record_failed_task(task, error_msg)
-            return
-
-        logger.warning("DEBUG_MEMORY_UPDATING_NOTION", url=image_url[:50] + "...", page_count=len(task.page_ids))
-
-        # 2. 更新所有 Notion 頁面
-        success_count = 0
-        failed_page_ids = []
-
-        for page_id in task.page_ids:
-            try:
-                result = task.notion_client.update_page_with_image(page_id, image_url)
-                if result:
-                    success_count += 1
-                    logger.info("Page updated with image", page_id=page_id[:10] + "...")
-                else:
-                    failed_page_ids.append(page_id)
-            except Exception as e:
-                logger.error(
-                    "Failed to update page with image", page_id=page_id[:10] + "...", error=str(e)
-                )
-                failed_page_ids.append(page_id)
-
-        if failed_page_ids:
-            self._record_failed_task(
-                task,
-                f"Failed to update {len(failed_page_ids)} pages",
-                failed_page_ids=failed_page_ids,
-                image_url=image_url,
-            )
-
-        logger.info(
-            "Image upload task completed",
-            user_id=task.user_id,
-            success_count=success_count,
-            total_pages=len(task.page_ids),
-        )
-
-    def _record_failed_task(
-        self,
-        task: ImageUploadTask,
-        error: str,
-        failed_page_ids: Optional[List[str]] = None,
-        image_url: Optional[str] = None,
-    ) -> None:
-        """記錄失敗任務到 Redis"""
-        _record_failed_task_standalone(
-            task.user_id,
-            failed_page_ids or task.page_ids,
-            error,
-            image_data=task.image_data if not image_url else None,
-            image_url=image_url,
-        )
-
-
-# ============================================================
-# Public API
-# ============================================================
-
-# 全域 worker 實例（單例）
-_worker: Optional[ImageUploadWorker] = None
-_worker_lock = threading.Lock()
-
-
-def _is_rq_available() -> bool:
-    """
-    檢查 RQ 是否可用且有 Worker 運行
-    
-    關鍵改進：不僅檢查 Redis 連接，還檢查是否有 Worker 運行。
-    如果沒有 Worker，返回 False 讓系統使用同步上傳，避免任務堆積。
-    
-    注意：不緩存結果，每次都檢查 Worker 狀態（Worker 可能隨時啟動/停止）
-    """
-    if not RQ_AVAILABLE:
-        return False
-
-    # 使用 RQ 專用的 Redis 客戶端（decode_responses=False）
-    redis_client = get_rq_redis_client()
-    if not redis_client:
-        logger.info("Redis not available, RQ disabled")
-        return False
-
-    # 關鍵：檢查是否有 Worker 運行
-    try:
-        from rq import Worker
-        workers = Worker.all(connection=redis_client)
-        if not workers:
-            logger.warning("No RQ workers running, will use sync upload to ensure reliability")
-            return False
-        logger.info("RQ workers found", worker_count=len(workers))
-        return True
-    except Exception as e:
-        logger.error("Failed to check RQ workers", error=str(e))
-        return False
-
-
-def get_upload_worker() -> ImageUploadWorker:
-    """獲取內存 worker 實例（當 RQ 不可用時使用）"""
-    global _worker
-
-    with _worker_lock:
-        if _worker is None:
-            _worker = ImageUploadWorker()
-            _worker.start()
-        return _worker
-
-
-def _sync_upload_image(
+def _run_upload_task(
     image_data: bytes, page_ids: List[str], notion_client: "NotionClient", user_id: str
-) -> None:
-    """
-    同步上傳圖片（當 RQ 不可用時使用）
-    
-    直接在當前線程執行上傳，確保可靠性
-    """
-    logger.warning("DEBUG_SYNC_UPLOAD_START", user_id=user_id[:10] + "..." if user_id else None, page_count=len(page_ids))
-    
-    # 1. 上傳圖片到 ImgBB
-    image_storage = get_image_storage()
-    if not image_storage:
-        logger.warning("DEBUG_SYNC_NO_STORAGE", error="Image storage not available")
-        _record_failed_task_standalone(user_id, page_ids, "Image storage not available", image_data)
-        return
-    
-    logger.warning("DEBUG_SYNC_UPLOADING_TO_IMGBB", image_size=len(image_data))
-    image_url = image_storage.upload(image_data)
-    logger.warning("DEBUG_SYNC_IMGBB_RESULT", success=image_url is not None, url_preview=image_url[:50] + "..." if image_url else None)
-    
-    if not image_url:
-        logger.warning("DEBUG_SYNC_IMGBB_FAILED", user_id=user_id)
-        _record_failed_task_standalone(user_id, page_ids, "ImgBB upload failed", image_data)
-        return
-    
-    # 2. 更新所有 Notion 頁面
-    logger.warning("DEBUG_SYNC_UPDATING_NOTION", url=image_url[:50] + "...", page_count=len(page_ids))
-    success_count = 0
-    failed_page_ids = []
-    
-    for page_id in page_ids:
-        try:
-            result = notion_client.update_page_with_image(page_id, image_url)
-            if result:
-                success_count += 1
-                logger.info("Sync: Page updated with image", page_id=page_id[:10] + "...")
-            else:
-                failed_page_ids.append(page_id)
-        except Exception as e:
-            logger.error("Sync: Failed to update page", page_id=page_id[:10] + "...", error=str(e))
-            failed_page_ids.append(page_id)
-    
-    if failed_page_ids:
-        _record_failed_task_standalone(
-            user_id, failed_page_ids, 
-            f"Failed to update {len(failed_page_ids)} pages",
-            image_data=None, image_url=image_url
-        )
-    
-    logger.warning("DEBUG_SYNC_UPLOAD_COMPLETE", success_count=success_count, total_pages=len(page_ids))
+) -> bool:
+    """背景執行緒的任務入口：包住核心流程，未預期例外也要留下失敗記錄"""
+    try:
+        return _sync_upload_image(image_data, page_ids, notion_client, user_id)
+    except Exception as e:
+        logger.error("Image upload task crashed", user_id=user_id, error=str(e))
+        _record_failed_task(user_id, page_ids, f"Unexpected error: {e}", image_data)
+        return False
+
+
+# ============================================================
+# 背景執行緒（單一 worker，保序）
+# ============================================================
+
+_executor: Optional[ThreadPoolExecutor] = None
+_executor_lock = threading.Lock()
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    """取得模組層級的單執行緒 executor（lazy 建立）"""
+    global _executor
+    with _executor_lock:
+        if _executor is None:
+            _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ImageUpload")
+        return _executor
 
 
 def submit_image_upload(
     image_data: bytes, page_ids: List[str], notion_client: "NotionClient", user_id: str
-) -> None:
+) -> "Future[bool]":
     """
-    提交圖片上傳任務
-
-    優先使用 RQ，若不可用則同步上傳（確保可靠性）
+    提交圖片上傳任務到背景執行緒（單一 worker，依提交順序執行）
 
     Args:
         image_data: 圖片二進位資料
         page_ids: Notion 頁面 ID 列表
         notion_client: NotionClient 實例
-        user_id: 用戶 ID
-    """
-    logger.warning("DEBUG_SUBMIT_IMAGE_UPLOAD_START", 
-                   user_id=user_id[:10] + "..." if user_id else None,
-                   page_count=len(page_ids),
-                   image_size=len(image_data),
-                   notion_db_id=notion_client.database_id[:10] + "..." if notion_client.database_id else None)
-    
-    # 優先使用 RQ
-    rq_available = _is_rq_available()
-    logger.warning("DEBUG_RQ_CHECK", rq_available=rq_available)
-    
-    if rq_available:
-        rq_success = submit_to_rq(image_data, page_ids, user_id, notion_client)
-        logger.warning("DEBUG_RQ_SUBMIT_RESULT", success=rq_success)
-        if rq_success:
-            return
-        logger.warning("RQ submit failed, falling back to sync upload")
+        user_id: 使用者 ID
 
-    # Fallback 到同步上傳（比內存隊列更可靠）
-    logger.warning("DEBUG_USING_SYNC_UPLOAD", reason="RQ not available")
-    _sync_upload_image(image_data, page_ids, notion_client, user_id)
+    Returns:
+        背景任務的 Future（呼叫端可忽略；測試可用來等待完成）
+    """
+    future = _get_executor().submit(
+        _run_upload_task, image_data, page_ids, notion_client, user_id
+    )
+    logger.info(
+        "Image upload task submitted",
+        user_id=user_id[:10] + "..." if user_id else None,
+        page_count=len(page_ids),
+        image_size=len(image_data),
+    )
+    return future
 
 
 # ============================================================
-# Failed Task Management
+# 失敗任務管理
 # ============================================================
 
 
 def get_failed_tasks(user_id: str) -> List[Dict[str, Any]]:
-    """查詢用戶的失敗任務列表"""
-    redis_client = get_redis_client()
-    if not redis_client:
-        return []
-
+    """查詢使用者的失敗任務列表（不含圖片 BLOB，新到舊排序）"""
     try:
-        pattern = f"{FAILED_TASK_PREFIX}{user_id}:*"
-        keys = redis_client.keys(pattern)
+        conn = _open_conn()
+        try:
+            _purge_expired(conn)
+            conn.commit()
+            rows = conn.execute(
+                """
+                SELECT task_id, user_id, page_ids, error, image_url, created_at
+                FROM failed_uploads
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            conn.close()
 
-        failed_tasks = []
-        for key in keys:
-            data = redis_client.get(key)
-            if data:
-                task_data = json.loads(data)
-                task_data.pop("image_data_b64", None)  # 不返回大資料
-                failed_tasks.append(task_data)
-
-        failed_tasks.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        return failed_tasks
+        return [
+            {
+                "task_id": row[0],
+                "user_id": row[1],
+                "page_ids": json.loads(row[2]),
+                "error": row[3],
+                "image_url": row[4],
+                "timestamp": row[5],
+            }
+            for row in rows
+        ]
     except Exception as e:
         logger.error("Failed to get failed tasks", error=str(e))
         return []
 
 
 def retry_failed_task(user_id: str, task_id: str, notion_client: "NotionClient") -> bool:
-    """重試失敗的任務"""
-    redis_client = get_redis_client()
-    if not redis_client:
-        logger.warning("Redis not available for retry")
-        return False
-
+    """重試單一失敗任務"""
     try:
-        failed_key = f"{FAILED_TASK_PREFIX}{user_id}:{task_id}"
-        data = redis_client.get(failed_key)
+        conn = _open_conn()
+        try:
+            _purge_expired(conn)
+            conn.commit()
+            row = conn.execute(
+                """
+                SELECT page_ids, image, image_url
+                FROM failed_uploads
+                WHERE user_id = ? AND task_id = ?
+                """,
+                (user_id, task_id),
+            ).fetchone()
+        finally:
+            conn.close()
 
-        if not data:
+        if not row:
             logger.warning("Failed task not found", task_id=task_id)
             return False
 
-        task_data = json.loads(data)
+        page_ids = json.loads(row[0])
+        image_data = row[1]
+        image_url = row[2]
 
-        # 如果有已上傳的圖片 URL，直接更新頁面
-        if task_data.get("image_url"):
-            image_url = task_data["image_url"]
-            page_ids = task_data["page_ids"]
-
+        # 圖片已上傳過：直接補更新 Notion 頁面
+        if image_url:
             success_count = 0
             for page_id in page_ids:
                 try:
@@ -645,22 +321,19 @@ def retry_failed_task(user_id: str, task_id: str, notion_client: "NotionClient")
                     logger.error("Retry: Failed to update page", error=str(e))
 
             if success_count == len(page_ids):
-                redis_client.delete(failed_key)
+                _delete_failed_task(user_id, task_id)
                 logger.info("Retry successful, removed failed task", task_id=task_id)
             return success_count > 0
 
-        # 如果需要重新上傳圖片
-        elif task_data.get("image_data_b64"):
-            image_data = base64.b64decode(task_data["image_data_b64"])
-            page_ids = task_data["page_ids"]
+        # 需要重新上傳圖片：先刪舊記錄再同步重跑（失敗會寫入新記錄）
+        if image_data:
+            _delete_failed_task(user_id, task_id)
+            success = _sync_upload_image(image_data, page_ids, notion_client, user_id)
+            logger.info("Retry re-upload finished", task_id=task_id, success=success)
+            return success
 
-            submit_image_upload(image_data, page_ids, notion_client, user_id)
-            redis_client.delete(failed_key)
-            logger.info("Retry submitted, removed old failed task", task_id=task_id)
-            return True
-        else:
-            logger.warning("No image data or URL available for retry", task_id=task_id)
-            return False
+        logger.warning("No image data or URL available for retry", task_id=task_id)
+        return False
 
     except Exception as e:
         logger.error("Failed to retry task", task_id=task_id, error=str(e))
@@ -668,7 +341,7 @@ def retry_failed_task(user_id: str, task_id: str, notion_client: "NotionClient")
 
 
 def retry_all_failed_tasks(user_id: str, notion_client: "NotionClient") -> int:
-    """重試用戶所有失敗的任務"""
+    """重試使用者所有失敗任務，回傳成功數"""
     failed_tasks = get_failed_tasks(user_id)
     success_count = 0
 
@@ -686,41 +359,17 @@ def retry_all_failed_tasks(user_id: str, notion_client: "NotionClient") -> int:
 
 
 def clear_failed_tasks(user_id: str) -> int:
-    """清除用戶所有失敗的任務記錄"""
-    redis_client = get_redis_client()
-    if not redis_client:
-        return 0
-
+    """清除使用者所有失敗任務記錄，回傳刪除筆數"""
     try:
-        pattern = f"{FAILED_TASK_PREFIX}{user_id}:*"
-        keys = redis_client.keys(pattern)
-        if keys:
-            redis_client.delete(*keys)
-        return len(keys)
+        conn = _open_conn()
+        try:
+            cursor = conn.execute(
+                "DELETE FROM failed_uploads WHERE user_id = ?", (user_id,)
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            conn.close()
     except Exception as e:
         logger.error("Failed to clear failed tasks", error=str(e))
         return 0
-
-
-def get_queue_info() -> Dict[str, Any]:
-    """獲取隊列狀態資訊（用於監控）"""
-    info = {
-        "rq_available": RQ_AVAILABLE,
-        "rq_enabled": _is_rq_available(),
-        "queue_name": RQ_QUEUE_NAME if _is_rq_available() else "in-memory",
-    }
-
-    if _is_rq_available():
-        try:
-            redis_client = get_redis_client()
-            if redis_client:
-                rq_queue = Queue(RQ_QUEUE_NAME, connection=redis_client)
-                info["pending_jobs"] = len(rq_queue)
-                info["failed_jobs"] = rq_queue.failed_job_registry.count
-        except Exception as e:
-            info["error"] = str(e)
-    else:
-        if _worker:
-            info["queue_size"] = _worker._queue.qsize()
-
-    return info

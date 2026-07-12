@@ -604,6 +604,69 @@ def api_stats():
     return jsonify(stats)
 
 
+# ==================== Worker 失敗任務管理 API ====================
+
+
+@admin_bp.route("/api/worker/failed-tasks", methods=["GET"])
+@login_required
+def api_worker_failed_tasks():
+    """查詢指定使用者的失敗上傳任務列表（SQLite 儲存）"""
+    from src.namecard.infrastructure.storage.image_upload_worker import get_failed_tasks
+
+    user_id = (request.args.get("user_id") or "").strip()
+    if not user_id:
+        return jsonify({"success": False, "error": "請提供 user_id 參數"}), 400
+
+    try:
+        tasks = get_failed_tasks(user_id)
+        return jsonify({
+            "success": True,
+            "user_id": user_id,
+            "total_failed": len(tasks),
+            "tasks": tasks,
+        })
+    except Exception as e:
+        logger.error("API_WORKER_FAILED_TASKS_ERROR", error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@admin_bp.route("/api/worker/retry-all", methods=["POST"])
+@login_required
+def api_worker_retry_all():
+    """重試指定使用者的所有失敗上傳任務（使用預設 Notion 設定）"""
+    from src.namecard.infrastructure.storage.image_upload_worker import (
+        get_failed_tasks,
+        retry_all_failed_tasks,
+    )
+    from src.namecard.infrastructure.storage.notion_client import NotionClient
+    from simple_config import settings
+
+    data = request.get_json(silent=True) or {}
+    user_id = (data.get("user_id") or "").strip()
+    if not user_id:
+        return jsonify({"success": False, "error": "請提供 user_id"}), 400
+
+    try:
+        # 使用預設租戶的 Notion 設定（與既有 retry 流程一致）
+        notion_client = NotionClient(
+            api_key=settings.notion_api_key,
+            database_id=settings.notion_database_id,
+        )
+
+        total = len(get_failed_tasks(user_id))
+        success_count = retry_all_failed_tasks(user_id, notion_client)
+
+        return jsonify({
+            "success": True,
+            "user_id": user_id,
+            "total_tasks": total,
+            "success_count": success_count,
+        })
+    except Exception as e:
+        logger.error("API_WORKER_RETRY_ALL_ERROR", error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ==================== LINE Bot API ====================
 
 

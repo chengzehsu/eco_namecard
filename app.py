@@ -194,9 +194,9 @@ except Exception as e:
     logger.warning("Default tenant initialization skipped", error=str(e))
 
 # ===========================================================
-# RQ Worker 由獨立進程運行（見 Procfile）
+# 圖片上傳由應用程式內的背景執行緒處理（無獨立 worker 處理程序）
 # ===========================================================
-logger.info("RQ Worker runs as separate process via honcho/Procfile")
+logger.info("Image uploads handled by in-process background threads")
 
 # #region agent log
 _debug_log("A", "app.py:startup_complete", "APP_STARTUP_COMPLETE", {"ready_for_gunicorn": True})

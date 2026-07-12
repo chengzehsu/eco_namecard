@@ -2,7 +2,6 @@
 ImgBB 圖片儲存服務
 
 提供圖片上傳功能，用於將名片圖片存儲到 ImgBB 並獲取公開 URL。
-支援同步和非同步上傳模式。
 """
 
 import os
@@ -11,8 +10,7 @@ import time
 import base64
 import requests
 import structlog
-import threading
-from typing import Optional, Callable
+from typing import Optional
 
 # Add project root to path for simple_config import
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../..'))
@@ -120,32 +118,6 @@ class ImageStorage:
             圖片的公開 URL，失敗時回傳 None
         """
         return self._do_upload(image_data)
-
-    def upload_async(
-        self, 
-        image_data: bytes, 
-        callback: Optional[Callable[[Optional[str]], None]] = None
-    ) -> None:
-        """
-        非同步上傳圖片到 ImgBB（不阻塞主線程）
-
-        Args:
-            image_data: 圖片的二進位資料
-            callback: 上傳完成後的回調函數，參數為圖片 URL（成功）或 None（失敗）
-        """
-        def _upload_thread():
-            try:
-                result = self._do_upload(image_data)
-                if callback:
-                    callback(result)
-            except Exception as e:
-                logger.error("Async upload thread error", error=str(e))
-                if callback:
-                    callback(None)
-
-        thread = threading.Thread(target=_upload_thread, daemon=True)
-        thread.start()
-        logger.info("Started async image upload thread")
 
 
 # 全域實例（延遲初始化）

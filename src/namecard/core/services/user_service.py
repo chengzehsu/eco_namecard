@@ -1,204 +1,216 @@
-from typing import Dict, Optional
+import os
+import sqlite3
+import threading
+from contextlib import contextmanager
+from typing import Iterator, Optional
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 import structlog
 from ..models.card import ProcessingStatus, BatchProcessResult
 
 # 台灣時區
 TW_TZ = ZoneInfo("Asia/Taipei")
-RESET_HOUR = 4  # 台灣時間 04:00 重置
+RESET_HOUR = 4  # 台灣時間 04:00 重設
 
 logger = structlog.get_logger()
 
+# user_status 建表語句（IF NOT EXISTS，可重複執行）
+_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS user_status (
+    user_id TEXT PRIMARY KEY,
+    daily_usage INTEGER NOT NULL DEFAULT 0,
+    usage_reset_date TEXT NOT NULL,
+    is_batch_mode INTEGER NOT NULL DEFAULT 0,
+    batch_json TEXT,
+    last_activity TEXT NOT NULL
+)
+"""
+
 
 class UserService:
-    """用戶服務管理 (支援 Redis 持久化)"""
+    """使用者服務管理（SQLite 持久化）
 
-    def __init__(self, redis_client=None, use_redis: bool = True):
+    每次操作開一條短連線（WAL + busy_timeout），單一進程內多執行緒安全。
+    """
+
+    def __init__(self, db_path: Optional[str] = None):
         """
-        初始化用戶服務
+        初始化使用者服務
 
         Args:
-            redis_client: Redis 客戶端實例，如果為 None 則使用記憶體存儲
-            use_redis: 是否使用 Redis（即使提供了 client）
+            db_path: SQLite 資料庫路徑；為 None 時讀取 TENANT_DB_PATH 環境變數，
+                     預設 data/tenants.db
         """
-        self.redis_client = redis_client if use_redis else None
-        self.use_redis = use_redis and redis_client is not None
+        self.db_path = db_path or os.getenv("TENANT_DB_PATH", "data/tenants.db")
 
-        # Fallback to in-memory storage if Redis is not available
-        self._user_sessions: Dict[str, ProcessingStatus] = {}
-        self._rate_limits: Dict[str, int] = {}
+        # 延遲建表：避免模組載入（全域單例）時就寫入磁碟，
+        # 第一次實際操作時才確保 schema 存在
+        self._schema_ready = False
+        self._schema_lock = threading.Lock()
 
         logger.info(
             "UserService initialized",
-            use_redis=self.use_redis,
-            storage_backend="Redis" if self.use_redis else "Memory",
+            storage_backend="SQLite",
+            db_path=self.db_path,
         )
 
-    def _get_redis_key(self, user_id: str, key_type: str = "status") -> str:
-        """生成 Redis key"""
-        return f"namecard:user:{user_id}:{key_type}"
+    def _open_raw(self) -> sqlite3.Connection:
+        """開啟原始 SQLite 連線並套用慣例 PRAGMA（WAL + busy_timeout）"""
+        conn = sqlite3.connect(self.db_path, timeout=15)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=15000")
+        return conn
 
-    def _save_status_to_redis(self, user_id: str, status: ProcessingStatus) -> None:
-        """儲存用戶狀態到 Redis"""
-        if not self.use_redis:
+    def _ensure_schema(self) -> None:
+        """確保資料表存在（延遲建表：避免模組載入全域單例時就寫入磁碟）"""
+        if self._schema_ready:
             return
+        with self._schema_lock:
+            if self._schema_ready:
+                return
+            parent = Path(self.db_path).parent
+            if str(parent) not in ("", "."):
+                parent.mkdir(parents=True, exist_ok=True)
+            conn = self._open_raw()
+            try:
+                conn.execute(_CREATE_TABLE_SQL)
+                conn.commit()
+            finally:
+                conn.close()
+            self._schema_ready = True
 
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """短連線交易情境管理：成功 commit、失敗 rollback，離開時關閉連線"""
+        self._ensure_schema()
+        conn = self._open_raw()
         try:
-            key = self._get_redis_key(user_id, "status")
-            # 使用 Pydantic 的 model_dump_json 來序列化
-            status_json = status.model_dump_json()
-            # 設定 24 小時過期
-            self.redis_client.setex(key, 86400, status_json)
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
-            # 添加詳細日誌
-            logger.info(
-                "💾 [REDIS] User status saved to Redis",
-                user_id=user_id,
-                key=key,
-                daily_usage=status.daily_usage,
-                is_batch_mode=status.is_batch_mode,
-                ttl_seconds=86400,
-                data_size=len(status_json),
-                operation="SAVE",
+    @staticmethod
+    def _row_to_status(row) -> ProcessingStatus:
+        """將資料列還原為 ProcessingStatus"""
+        user_id, daily_usage, usage_reset_date, is_batch_mode, batch_json, last_activity = row
+        current_batch = (
+            BatchProcessResult.model_validate_json(batch_json) if batch_json else None
+        )
+        return ProcessingStatus(
+            user_id=user_id,
+            daily_usage=daily_usage,
+            usage_reset_date=datetime.fromisoformat(usage_reset_date),
+            is_batch_mode=bool(is_batch_mode),
+            current_batch=current_batch,
+            last_activity=datetime.fromisoformat(last_activity),
+        )
+
+    def _write_status(self, status: ProcessingStatus) -> None:
+        """將完整狀態寫回資料庫（upsert）"""
+        batch_json = (
+            status.current_batch.model_dump_json() if status.current_batch else None
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_status
+                    (user_id, daily_usage, usage_reset_date, is_batch_mode, batch_json, last_activity)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    daily_usage = excluded.daily_usage,
+                    usage_reset_date = excluded.usage_reset_date,
+                    is_batch_mode = excluded.is_batch_mode,
+                    batch_json = excluded.batch_json,
+                    last_activity = excluded.last_activity
+                """,
+                (
+                    status.user_id,
+                    status.daily_usage,
+                    status.usage_reset_date.isoformat(),
+                    1 if status.is_batch_mode else 0,
+                    batch_json,
+                    status.last_activity.isoformat(),
+                ),
             )
-        except Exception as e:
-            logger.error(
-                "❌ [REDIS] Failed to save status to Redis",
-                user_id=user_id,
-                error=str(e),
-                operation="SAVE",
-            )
-
-    def _load_status_from_redis(self, user_id: str) -> Optional[ProcessingStatus]:
-        """從 Redis 載入用戶狀態"""
-        if not self.use_redis:
-            return None
-
-        try:
-            key = self._get_redis_key(user_id, "status")
-            status_json = self.redis_client.get(key)
-
-            if status_json:
-                status = ProcessingStatus.model_validate_json(status_json)
-
-                # 添加詳細日誌 - 命中
-                logger.info(
-                    "📖 [REDIS] User status loaded from Redis (HIT)",
-                    user_id=user_id,
-                    key=key,
-                    daily_usage=status.daily_usage,
-                    is_batch_mode=status.is_batch_mode,
-                    data_size=len(status_json),
-                    operation="LOAD",
-                    cache_hit=True,
-                )
-                return status
-            else:
-                # 添加詳細日誌 - 未命中
-                logger.info(
-                    "📖 [REDIS] User status not found in Redis (MISS)",
-                    user_id=user_id,
-                    key=key,
-                    cache_hit=False,
-                )
-                return None
-        except Exception as e:
-            logger.error(
-                "❌ [REDIS] Failed to load status from Redis",
-                user_id=user_id,
-                error=str(e),
-                operation="LOAD",
-            )
-            return None
 
     def get_user_status(self, user_id: str) -> ProcessingStatus:
-        """獲取用戶狀態（優先從 Redis 讀取）"""
-        # 嘗試從 Redis 載入
-        if self.use_redis:
-            status = self._load_status_from_redis(user_id)
-            if status:
-                # 更新記憶體快取
-                self._user_sessions[user_id] = status
+        """獲取使用者狀態（不存在則建立預設列）"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT user_id, daily_usage, usage_reset_date, is_batch_mode, batch_json, last_activity "
+                "FROM user_status WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+
+            if row is None:
+                status = ProcessingStatus(user_id=user_id)
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_status "
+                    "(user_id, daily_usage, usage_reset_date, is_batch_mode, batch_json, last_activity) "
+                    "VALUES (?, ?, ?, 0, NULL, ?)",
+                    (
+                        user_id,
+                        status.daily_usage,
+                        status.usage_reset_date.isoformat(),
+                        status.last_activity.isoformat(),
+                    ),
+                )
             else:
-                # Redis 中不存在，檢查記憶體或創建新的
-                if user_id not in self._user_sessions:
-                    status = ProcessingStatus(user_id=user_id)
-                    self._user_sessions[user_id] = status
-                    self._save_status_to_redis(user_id, status)
-                else:
-                    status = self._user_sessions[user_id]
-        else:
-            # 僅使用記憶體存儲
-            if user_id not in self._user_sessions:
-                self._user_sessions[user_id] = ProcessingStatus(user_id=user_id)
-            status = self._user_sessions[user_id]
+                status = self._row_to_status(row)
 
-        # 檢查是否需要重置每日使用量（台灣時間 04:00 重置）
-        now_tw = datetime.now(TW_TZ)
+            # 檢查是否需要重設每日使用量（台灣時間 04:00 重設）
+            now_tw = datetime.now(TW_TZ)
 
-        # 計算今天的重置時間點
-        if now_tw.hour >= RESET_HOUR:
-            today_reset = now_tw.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
-        else:
-            # 凌晨 04:00 之前，重置時間點是昨天的 04:00
-            today_reset = (now_tw - timedelta(days=1)).replace(
-                hour=RESET_HOUR, minute=0, second=0, microsecond=0
-            )
+            # 計算今天的重設時間點
+            if now_tw.hour >= RESET_HOUR:
+                today_reset = now_tw.replace(hour=RESET_HOUR, minute=0, second=0, microsecond=0)
+            else:
+                # 凌晨 04:00 之前，重設時間點是昨天的 04:00
+                today_reset = (now_tw - timedelta(days=1)).replace(
+                    hour=RESET_HOUR, minute=0, second=0, microsecond=0
+                )
 
-        # 將 usage_reset_date 轉換為台灣時間比較
-        try:
-            reset_date_tw = status.usage_reset_date.astimezone(TW_TZ)
-        except (ValueError, TypeError):
-            # 如果沒有時區資訊，假設是 UTC 並轉換
-            reset_date_tw = status.usage_reset_date.replace(tzinfo=ZoneInfo("UTC")).astimezone(
-                TW_TZ
-            )
+            # 將 usage_reset_date 轉換為台灣時間比較
+            try:
+                reset_date_tw = status.usage_reset_date.astimezone(TW_TZ)
+            except (ValueError, TypeError):
+                # 如果沒有時區資訊，假設是 UTC 並轉換
+                reset_date_tw = status.usage_reset_date.replace(
+                    tzinfo=ZoneInfo("UTC")
+                ).astimezone(TW_TZ)
 
-        # 如果上次重置時間早於今天的重置時間點，則重置
-        if reset_date_tw < today_reset:
-            status.daily_usage = 0
-            status.usage_reset_date = today_reset
-            logger.info("Reset daily usage at 04:00 TW time", user_id=user_id)
-            # 重置後儲存到 Redis
-            if self.use_redis:
-                self._save_status_to_redis(user_id, status)
+            # 如果上次重設時間早於今天的重設時間點，則重設
+            if reset_date_tw < today_reset:
+                status.daily_usage = 0
+                status.usage_reset_date = today_reset
+                conn.execute(
+                    "UPDATE user_status SET daily_usage = 0, usage_reset_date = ? WHERE user_id = ?",
+                    (today_reset.isoformat(), user_id),
+                )
+                logger.info("Reset daily usage at 04:00 TW time", user_id=user_id)
 
         return status
 
     def check_rate_limit(self, user_id: str, limit: int = 50) -> bool:
-        """檢查用戶是否超過每日限制"""
+        """檢查使用者是否超過每日限制"""
         status = self.get_user_status(user_id)
         return status.daily_usage < limit
 
     def increment_usage(self, user_id: str) -> None:
-        """增加用戶使用次數"""
-        status = self.get_user_status(user_id)
-        old_usage = status.daily_usage
-        status.daily_usage += 1
-        status.last_activity = datetime.now()
+        """增加使用者使用次數（單句原子 UPDATE）"""
+        # 確保列存在並套用每日重設邏輯
+        self.get_user_status(user_id)
 
-        # 儲存到 Redis
-        if self.use_redis:
-            self._save_status_to_redis(user_id, status)
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE user_status SET daily_usage = daily_usage + 1, last_activity = ? "
+                "WHERE user_id = ?",
+                (datetime.now().isoformat(), user_id),
+            )
 
-            # 添加詳細日誌
-            logger.info(
-                "📊 [REDIS] User usage incremented",
-                user_id=user_id,
-                old_usage=old_usage,
-                new_usage=status.daily_usage,
-                action="increment_usage",
-                storage="REDIS",
-            )
-        else:
-            logger.info(
-                "⚠️ [MEMORY] User usage incremented (using in-memory storage)",
-                user_id=user_id,
-                old_usage=old_usage,
-                new_usage=status.daily_usage,
-                storage="MEMORY",
-            )
+        logger.info("User usage incremented", user_id=user_id, storage="SQLite")
 
     def start_batch_mode(self, user_id: str) -> BatchProcessResult:
         """開始批次模式"""
@@ -207,15 +219,13 @@ class UserService:
         if status.is_batch_mode and status.current_batch:
             # 結束當前批次，開始新的
             self.end_batch_mode(user_id)
+            status = self.get_user_status(user_id)
 
         batch_result = BatchProcessResult(user_id=user_id, started_at=datetime.now())
 
         status.is_batch_mode = True
         status.current_batch = batch_result
-
-        # 儲存到 Redis
-        if self.use_redis:
-            self._save_status_to_redis(user_id, status)
+        self._write_status(status)
 
         logger.info("Batch mode started", user_id=user_id)
         return batch_result
@@ -232,10 +242,7 @@ class UserService:
 
         status.is_batch_mode = False
         status.current_batch = None
-
-        # 儲存到 Redis
-        if self.use_redis:
-            self._save_status_to_redis(user_id, status)
+        self._write_status(status)
 
         logger.info(
             "Batch mode ended",
@@ -262,10 +269,7 @@ class UserService:
         else:
             batch.failed_cards += 1
 
-        # 儲存到 Redis
-        if self.use_redis:
-            self._save_status_to_redis(user_id, status)
-
+        self._write_status(status)
         return True
 
     def get_batch_status(self, user_id: str) -> Optional[str]:
@@ -286,58 +290,21 @@ class UserService:
         )
 
     def cleanup_inactive_sessions(self, hours: int = 24) -> int:
-        """清理非活躍的用戶會話"""
+        """清理非活躍的使用者會話，回傳刪除數"""
         cutoff = datetime.now() - timedelta(hours=hours)
-        inactive_users = []
 
-        if self.use_redis:
-            # 從 Redis 清理
-            try:
-                # 掃描所有用戶狀態 keys
-                pattern = self._get_redis_key("*", "status")
-                keys = list(self.redis_client.scan_iter(match=pattern))
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM user_status WHERE last_activity < ?",
+                (cutoff.isoformat(),),
+            )
+            deleted = cursor.rowcount
 
-                for key in keys:
-                    try:
-                        status_json = self.redis_client.get(key)
-                        if status_json:
-                            status = ProcessingStatus.model_validate_json(status_json)
-                            if status.last_activity < cutoff:
-                                self.redis_client.delete(key)
-                                inactive_users.append(status.user_id)
-                                logger.info(
-                                    "Cleaned up inactive session from Redis", user_id=status.user_id
-                                )
-                    except Exception as e:
-                        logger.error("Error cleaning up Redis key", key=key, error=str(e))
-            except Exception as e:
-                logger.error("Failed to cleanup Redis sessions", error=str(e))
-        else:
-            # 從記憶體清理
-            for user_id, status in list(self._user_sessions.items()):
-                if status.last_activity < cutoff:
-                    inactive_users.append(user_id)
+        if deleted:
+            logger.info("Cleaned up inactive sessions", count=deleted)
 
-            for user_id in inactive_users:
-                del self._user_sessions[user_id]
-                logger.info("Cleaned up inactive session from memory", user_id=user_id)
-
-        return len(inactive_users)
+        return deleted
 
 
-def create_user_service(redis_client=None, use_redis: bool = True) -> UserService:
-    """
-    工廠函數：創建 UserService 實例
-
-    Args:
-        redis_client: Redis 客戶端（可選）
-        use_redis: 是否使用 Redis
-
-    Returns:
-        UserService 實例
-    """
-    return UserService(redis_client=redis_client, use_redis=use_redis)
-
-
-# 全域用戶服務實例（默認使用記憶體存儲，需要手動初始化 Redis）
-user_service = UserService(redis_client=None, use_redis=False)
+# 全域使用者服務實例（event_handler / main.py 以 from-import 綁定）
+user_service = UserService()

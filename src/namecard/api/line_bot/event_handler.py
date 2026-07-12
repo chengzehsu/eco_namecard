@@ -29,6 +29,7 @@ try:
 except ImportError:
     LineBotApiError = MessagingApiException  # fallback
 
+from simple_config import settings
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
@@ -144,12 +145,6 @@ class UnifiedEventHandler:
         try:
             logger.warning("DEBUG_HANDLE_IMAGE_START", user_id=user_id[:10] + "...", message_id=message_id, tenant_id=self.tenant_id)
 
-            # 檢查用戶是否被封鎖
-            if security_service.is_user_blocked(user_id):
-                logger.warning("DEBUG_USER_BLOCKED", user_id=user_id[:10] + "...")
-                self._send_reply(reply_token, "⛔ 您已被暫時封鎖，請稍後再試")
-                return
-
             # 檢查速率限制（向後相容的每日限制）
             status = user_service.get_user_status(user_id)
             logger.warning("DEBUG_USER_STATUS", daily_usage=status.daily_usage, is_batch_mode=status.is_batch_mode)
@@ -240,9 +235,12 @@ class UnifiedEventHandler:
                     return
             
             # 向後相容：無租戶時使用舊的每日限制
-            if not self.tenant_id and status.daily_usage >= 50:
+            if not self.tenant_id and status.daily_usage >= settings.rate_limit_per_user:
                 logger.warning("DEBUG_DAILY_LIMIT_EXCEEDED", daily_usage=status.daily_usage)
-                self._send_reply(reply_token, f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試")
+                self._send_reply(
+                    reply_token,
+                    f"⚠️ 已達每日上限（{status.daily_usage}/{settings.rate_limit_per_user}）\n請明天再試",
+                )
                 return
 
             logger.warning("DEBUG_ALL_CHECKS_PASSED", tenant_id=self.tenant_id, user_id=user_id[:10] + "...")

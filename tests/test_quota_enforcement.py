@@ -91,7 +91,6 @@ class TestQuotaEnforcement:
         - card_processor.process_image 不被呼叫
         - notion 儲存與 ImgBB 上傳都不被觸發
         """
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
 
         mock_status = Mock()
@@ -169,7 +168,6 @@ class TestQuotaEnforcement:
         對照組：配額充足（has_quota=True）時，圖片應正常進入辨識流程。
         用來證明上一個測試的失敗確實來自「配額耗盡」這道閘門，而非測試把所有路徑都擋掉。
         """
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
 
         mock_status = Mock()

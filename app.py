@@ -28,7 +28,7 @@ def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = Non
         with open(_DEBUG_LOG_PATH, "a") as f:
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
-        # 如果無法寫入文件，至少打印到 stdout（Zeabur 會捕獲）
+        # 如果無法寫入檔案，至少輸出到 stdout（Zeabur 會捕獲）
         print(f"DEBUG_LOG: {json.dumps(log_entry) if 'log_entry' in dir() else message}")
 
 _debug_log("A", "app.py:1", "APP_STARTUP_BEGIN", {"step": "imports", "debug_log_path": _DEBUG_LOG_PATH})
@@ -52,7 +52,7 @@ import logging
 # 設定 Python logging 級別為 INFO，讓 structlog 可以輸出 info 級別日誌
 logging.basicConfig(
     format="%(message)s",
-    level=logging.INFO,  # 這是關鍵！沒有這行，默認是 WARNING
+    level=logging.INFO,  # 這是關鍵！沒有這行，預設是 WARNING
 )
 
 structlog.configure(
@@ -102,11 +102,6 @@ app.secret_key = admin_secret_key
 # 註冊管理後台 Blueprint
 from src.namecard.api.admin import admin_bp
 app.register_blueprint(admin_bp)
-
-# ==================== SocketIO 初始化 ====================
-from src.namecard.api.admin.socketio_events import init_socketio, get_socketio
-socketio = init_socketio(app)
-logger.info("SocketIO initialized for real-time sync progress")
 
 # #region agent log
 _debug_log("C", "app.py:before_tenant_db", "INITIALIZING_TENANT_DB", {})
@@ -198,6 +193,17 @@ except Exception as e:
 # ===========================================================
 logger.info("Image uploads handled by in-process background threads")
 
+# ===========================================================
+# 啟動 Drive 同步排程迴圈（croniter 背景執行緒）
+# 必須在應用程式啟動時呼叫，確保部署重啟後 tenants.db 內的
+# 排程立即生效，不需等管理員重新儲存設定
+# ===========================================================
+try:
+    from src.namecard.core.services.scheduler import init_scheduler
+    init_scheduler()
+except Exception as e:
+    logger.warning("Failed to start drive sync scheduler", error=str(e))
+
 # #region agent log
 _debug_log("A", "app.py:startup_complete", "APP_STARTUP_COMPLETE", {"ready_for_gunicorn": True})
 print("[DEBUG] APP_STARTUP_COMPLETE - ready_for_gunicorn=True", flush=True)
@@ -206,7 +212,7 @@ print("[DEBUG] APP_STARTUP_COMPLETE - ready_for_gunicorn=True", flush=True)
 # ===========================================================
 
 def main():
-    """主函數"""
+    """主函式"""
     logger.info("Starting LINE Bot Namecard System",
                 version="3.0.0",
                 port=settings.app_port,
@@ -214,25 +220,13 @@ def main():
                 multi_tenant=True)
     
     try:
-        # 使用 SocketIO 啟動（支援 WebSocket）
-        from src.namecard.api.admin.socketio_events import get_socketio
-        sio = get_socketio()
-        if sio:
-            sio.run(
-                app,
-                host=settings.app_host,
-                port=settings.app_port,
-                debug=settings.debug,
-                allow_unsafe_werkzeug=True,
-            )
-        else:
-            # Fallback to regular Flask
-            app.run(
-                host=settings.app_host,
-                port=settings.app_port,
-                debug=settings.debug,
-                threaded=True
-            )
+        # 開發模式直接用 Flask 內建伺服器啟動（生產環境走 gunicorn）
+        app.run(
+            host=settings.app_host,
+            port=settings.app_port,
+            debug=settings.debug,
+            threaded=True
+        )
     except KeyboardInterrupt:
         logger.info("Application stopped by user")
     except Exception as e:

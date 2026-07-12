@@ -8,7 +8,7 @@ for tenants and admin users.
 import sqlite3
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,6 +18,10 @@ logger = structlog.get_logger()
 
 # Default database path
 DEFAULT_DB_PATH = "data/tenants.db"
+
+# Drive 同步心跳逾時（分鐘）：processing 列超過此時間沒有心跳（updated_at 未更新），
+# 視為背景執行緒已死（部署重啟／例外中斷），自動標記 failed 並放行新同步
+DRIVE_SYNC_STALE_TIMEOUT_MINUTES = 30
 
 
 class TenantDatabase:
@@ -174,6 +178,7 @@ class TenantDatabase:
                     status TEXT DEFAULT 'processing',
                     error_log TEXT,
                     is_scheduled INTEGER DEFAULT 0,
+                    updated_at TEXT,
                     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
                 );
 
@@ -189,6 +194,10 @@ class TenantDatabase:
             if "is_scheduled" not in sync_log_columns:
                 conn.execute("ALTER TABLE drive_sync_logs ADD COLUMN is_scheduled INTEGER DEFAULT 0")
                 logger.info("Migration: is_scheduled column added to drive_sync_logs")
+            # 心跳欄位：每處理完一個檔案更新，供 stale timeout 判斷
+            if "updated_at" not in sync_log_columns:
+                conn.execute("ALTER TABLE drive_sync_logs ADD COLUMN updated_at TEXT")
+                logger.info("Migration: updated_at column added to drive_sync_logs")
 
         # ==================== Commercialization Tables ====================
         
@@ -1254,10 +1263,10 @@ class TenantDatabase:
             conn.execute(
                 """
                 INSERT INTO drive_sync_logs (
-                    id, tenant_id, folder_url, folder_id, started_at, status, is_scheduled
-                ) VALUES (?, ?, ?, ?, ?, 'processing', ?)
+                    id, tenant_id, folder_url, folder_id, started_at, status, is_scheduled, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'processing', ?, ?)
                 """,
-                (log_id, tenant_id, folder_url, folder_id, now, 1 if is_scheduled else 0),
+                (log_id, tenant_id, folder_url, folder_id, now, 1 if is_scheduled else 0, now),
             )
 
         logger.info("Drive sync log created", log_id=log_id, tenant_id=tenant_id, is_scheduled=is_scheduled)
@@ -1323,8 +1332,10 @@ class TenantDatabase:
             fields.append("completed_at = ?")
             values.append(datetime.now().isoformat())
 
-        if not fields:
-            return self.get_drive_sync_log(log_id)
+        # 心跳：每次更新（同步迴圈每處理完一個檔案都會經 progress_callback 呼叫本函式）
+        # 都更新 updated_at，供 get_active_drive_sync 的 stale timeout 判斷
+        fields.append("updated_at = ?")
+        values.append(datetime.now().isoformat())
 
         values.append(log_id)
 
@@ -1353,19 +1364,80 @@ class TenantDatabase:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_active_drive_sync(self, tenant_id: str) -> Optional[Dict[str, Any]]:
-        """Get the currently active (processing) drive sync for a tenant"""
+        """
+        取得租戶目前進行中（processing）的 Drive 同步。
+
+        含 stale timeout 放行機制：processing 列的心跳（updated_at，舊資料退回
+        started_at）超過 DRIVE_SYNC_STALE_TIMEOUT_MINUTES 分鐘未更新，代表背景
+        執行緒已死（部署重啟／例外中斷），自動標記為 failed 並視為無進行中同步，
+        避免該租戶被殭屍列永久卡死無法再同步。
+        """
+        now = datetime.now()
+        stale_cutoff = now - timedelta(minutes=DRIVE_SYNC_STALE_TIMEOUT_MINUTES)
+
         with self.get_connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT * FROM drive_sync_logs
                 WHERE tenant_id = ? AND status = 'processing'
                 ORDER BY started_at DESC
-                LIMIT 1
                 """,
                 (tenant_id,),
             )
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            rows = [dict(r) for r in cursor.fetchall()]
+
+            active: Optional[Dict[str, Any]] = None
+            stale_ids: List[str] = []
+
+            for row in rows:
+                heartbeat_raw = row.get("updated_at") or row.get("started_at")
+                is_stale = True  # 完全沒有時間戳或無法解析 → 一律視為 stale
+                if heartbeat_raw:
+                    try:
+                        heartbeat = datetime.fromisoformat(heartbeat_raw)
+                        is_stale = heartbeat < stale_cutoff
+                    except (ValueError, TypeError):
+                        pass
+
+                if is_stale:
+                    stale_ids.append(row["id"])
+                elif active is None:
+                    active = row
+
+            if stale_ids:
+                now_iso = now.isoformat()
+                error_msg = (
+                    f"同步逾時（stale timeout）：超過 "
+                    f"{DRIVE_SYNC_STALE_TIMEOUT_MINUTES} 分鐘無心跳，自動標記為失敗"
+                )
+                for stale_id in stale_ids:
+                    conn.execute(
+                        """
+                        UPDATE drive_sync_logs
+                        SET status = 'failed', error_log = ?,
+                            completed_at = ?, updated_at = ?
+                        WHERE id = ? AND status = 'processing'
+                        """,
+                        (error_msg, now_iso, now_iso, stale_id),
+                    )
+                    logger.warning(
+                        "Drive sync marked failed by stale timeout",
+                        tenant_id=tenant_id,
+                        sync_log_id=stale_id,
+                        timeout_minutes=DRIVE_SYNC_STALE_TIMEOUT_MINUTES,
+                    )
+
+                # 若已無進行中的同步，同步修正租戶狀態，避免 UI 顯示卡在 processing
+                if active is None:
+                    conn.execute(
+                        """
+                        UPDATE tenants SET google_drive_sync_status = 'failed'
+                        WHERE id = ? AND google_drive_sync_status = 'processing'
+                        """,
+                        (tenant_id,),
+                    )
+
+            return active
 
 
 # Global database instance

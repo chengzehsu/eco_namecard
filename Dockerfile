@@ -37,4 +37,4 @@ HEALTHCHECK --interval=60s --timeout=30s --start-period=30s --retries=5 \
     CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
 # 啟動命令（使用 gunicorn 生產級 WSGI 伺服器）
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 120 app:application"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --worker-class gthread --threads 4 --timeout 120 app:application"]

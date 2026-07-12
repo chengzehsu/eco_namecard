@@ -1028,94 +1028,7 @@
 `;
     document.head.appendChild(style);
 
-    // ==================== SocketIO Setup ====================
-
-    let socket = null;
-    let socketConnected = false;
-
-    function initSocketIO() {
-        // Load SocketIO client
-        if (typeof io === 'undefined') {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.socket.io/4.6.0/socket.io.min.js';
-            script.onload = connectSocket;
-            document.head.appendChild(script);
-        } else {
-            connectSocket();
-        }
-    }
-
-    function connectSocket() {
-        try {
-            socket = io(window.location.origin, {
-                transports: ['websocket', 'polling']
-            });
-
-            socket.on('connect', () => {
-                console.log('SocketIO connected');
-                socketConnected = true;
-                // Join the tenant's sync room
-                socket.emit('join_sync_room', { tenant_id: TENANT_ID });
-            });
-
-            socket.on('disconnect', () => {
-                console.log('SocketIO disconnected');
-                socketConnected = false;
-            });
-
-            socket.on('sync_progress', (data) => {
-                console.log('Sync progress:', data);
-                updateProgressUI(
-                    data.progress_percent || 0,
-                    data.success_count || 0,
-                    data.error_count || 0,
-                    data.skipped_count || 0,
-                    data.processed_files || 0
-                );
-
-                // Update current file being processed
-                if (data.current_file) {
-                    document.getElementById('sync_progress_text').textContent =
-                        `${Math.round(data.progress_percent || 0)}% - ${data.current_file}`;
-                }
-            });
-
-            socket.on('sync_completed', (data) => {
-                console.log('Sync completed:', data);
-
-                // Stop polling if running
-                if (syncPollingInterval) {
-                    clearInterval(syncPollingInterval);
-                    syncPollingInterval = null;
-                }
-
-                if (data.status === 'completed') {
-                    showSyncResult('success',
-                        `同步完成！成功 ${data.success_count || 0} 張，失敗 ${data.error_count || 0} 張`
-                    );
-                } else if (data.status === 'failed') {
-                    showSyncResult('error', data.error || '同步失敗');
-                } else if (data.status === 'cancelled') {
-                    showSyncResult('warning', '同步已取消');
-                }
-
-                // Refresh folder info
-                setTimeout(() => fetchDriveFolderInfo(), 1000);
-            });
-
-            socket.on('room_joined', (data) => {
-                console.log('Joined sync room:', data.room);
-            });
-
-        } catch (error) {
-            console.error('SocketIO connection failed:', error);
-            socketConnected = false;
-        }
-    }
-
-    // Initialize SocketIO when page loads
     {% if is_edit %}
-    document.addEventListener('DOMContentLoaded', initSocketIO);
     document.addEventListener('DOMContentLoaded', loadSubscriptionInfo);
     {% endif %}
 
@@ -1522,26 +1435,13 @@
         document.getElementById('sync_skipped_count').textContent = skipped;
     }
 
-    // Start polling for sync status (fallback when WebSocket not connected)
+    // 以輪詢方式取得同步進度（後端進度寫入 DB，由 sync-status 端點讀出）
     function startSyncPolling() {
-        // If WebSocket is connected, don't use polling
-        if (socketConnected) {
-            console.log('Using WebSocket for progress updates');
-            return;
-        }
-
         if (syncPollingInterval) {
             clearInterval(syncPollingInterval);
         }
 
         syncPollingInterval = setInterval(async () => {
-            // Stop polling if WebSocket connected
-            if (socketConnected) {
-                clearInterval(syncPollingInterval);
-                syncPollingInterval = null;
-                return;
-            }
-
             try {
                 const response = await fetch(`/admin/api/drive/sync-status/${TENANT_ID}`);
                 const data = await response.json();

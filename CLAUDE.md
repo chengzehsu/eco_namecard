@@ -1,3 +1,31 @@
+<!-- SPECTRA:START v1.0.1 -->
+
+# Spectra Instructions
+
+This project uses Spectra for Spec-Driven Development(SDD). Specs live in `openspec/specs/`, change proposals in `openspec/changes/`.
+
+## Use `/spectra:*` skills when:
+
+- A discussion needs structure before coding → `/spectra:discuss`
+- User wants to plan, propose, or design a change → `/spectra:propose`
+- Tasks are ready to implement → `/spectra:apply`
+- There's an in-progress change to continue → `/spectra:ingest`
+- User asks about specs or how something works → `/spectra:ask`
+- Implementation is done → `/spectra:archive`
+
+## Workflow
+
+discuss? → propose → apply ⇄ ingest → archive
+
+- `discuss` is optional — skip if requirements are clear
+- Requirements change mid-work? Plan mode → `ingest` → resume `apply`
+
+## Parked Changes
+
+Changes can be parked（暫存）— temporarily moved out of `openspec/changes/`. Parked changes won't appear in `spectra list` but can be found with `spectra list --parked`. To restore: `spectra unpark <name>`. The `/spectra:apply` and `/spectra:ingest` skills handle parked changes automatically.
+
+<!-- SPECTRA:END -->
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -597,14 +625,14 @@ UnifiedEventHandler(
 
 ### 支援的文字指令
 
-| 指令 | 別名 | 功能 |
-|------|------|------|
-| `help` | `說明`, `幫助` | 顯示使用說明 |
-| `批次` | `batch`, `批量` | 開始批次處理模式 |
-| `狀態` | `status`, `進度` | 查看處理進度 |
+| 指令       | 別名                    | 功能                   |
+| ---------- | ----------------------- | ---------------------- |
+| `help`     | `說明`, `幫助`          | 顯示使用說明           |
+| `批次`     | `batch`, `批量`         | 開始批次處理模式       |
+| `狀態`     | `status`, `進度`        | 查看處理進度           |
 | `結束批次` | `end batch`, `完成批次` | 結束批次模式並顯示總結 |
-| `重試` | `retry`, `重新上傳` | 重試失敗的圖片上傳 |
-| `清除失敗` | `clear failed` | 清除失敗任務記錄 |
+| `重試`     | `retry`, `重新上傳`     | 重試失敗的圖片上傳     |
+| `清除失敗` | `clear failed`          | 清除失敗任務記錄       |
 
 ### 核心方法
 
@@ -614,207 +642,116 @@ UnifiedEventHandler(
 
 ```
 流程:
-1. 檢查用戶封鎖狀態 (security_service.is_user_blocked)
-2. 檢查每日限額 (user_service.get_user_status)
-3. 下載圖片 (line_bot_api.get_message_content)
-4. 驗證圖片 (security_service.validate_image_data)
-5. AI 識別名片 (card_processor.process_image)
-6. 儲存到 Notion (notion_client.save_business_card)
-7. 回覆用戶處理結果
-8. 非同步上傳圖片到 ImgBB (submit_image_upload)
+1. 檢查每日限額與租戶配額 (user_service.get_user_status / quota_service.check_scan_quota)
+2. 下載圖片 (line_bot_api.get_message_content)
+3. 驗證圖片 (security_service.validate_image_data)
+4. AI 識別名片 (card_processor.process_image)
+5. 儲存到 Notion (notion_client.save_business_card)
+6. 回覆使用者處理結果
+7. 背景執行緒上傳圖片到 ImgBB (submit_image_upload)
 ```
 
 ### 私有方法
 
-| 方法 | 功能 |
-|------|------|
-| `_send_help_message` | 發送說明訊息 + Quick Reply |
-| `_start_batch_mode` | 開始批次模式 |
-| `_show_status` | 顯示處理狀態 |
-| `_end_batch_mode` | 結束批次並顯示總結 |
-| `_retry_failed_uploads` | 重試失敗的上傳任務 |
-| `_clear_failed_uploads` | 清除失敗任務記錄 |
+| 方法                      | 功能                        |
+| ------------------------- | --------------------------- |
+| `_send_help_message`      | 發送說明訊息 + Quick Reply  |
+| `_start_batch_mode`       | 開始批次模式                |
+| `_show_status`            | 顯示處理狀態                |
+| `_end_batch_mode`         | 結束批次並顯示總結          |
+| `_retry_failed_uploads`   | 重試失敗的上傳任務          |
+| `_clear_failed_uploads`   | 清除失敗任務記錄            |
 | `_send_processing_result` | 發送處理結果 (Flex Message) |
-| `_send_flex_message` | 發送 Flex Message |
-| `_send_reply` | 發送純文字回覆 |
-| `_save_user_profile` | 儲存用戶 LINE 資訊 (多租戶) |
+| `_send_flex_message`      | 發送 Flex Message           |
+| `_send_reply`             | 發送純文字回覆              |
+| `_save_user_profile`      | 儲存用戶 LINE 資訊 (多租戶) |
 
 ---
 
-## Image Upload Worker (圖片上傳工作器)
+## Image Upload (圖片上傳背景處理)
 
 ### 概述
 
 **位置**: `src/namecard/infrastructure/storage/image_upload_worker.py`
 
-非同步處理名片圖片上傳到 ImgBB 並更新 Notion 頁面。
+以應用程式內的單一背景執行緒處理名片圖片上傳到 ImgBB 並更新 Notion 頁面。
+不依賴 Redis / RQ / 獨立 worker 處理程序 — 整個系統只有一個 gunicorn 處理程序
+（`--workers 1 --worker-class gthread --threads 4`，單 replica）。
 
-**雙模式架構**:
+**架構**:
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │                 submit_image_upload()                │
 │                         │                            │
-│            ┌────────────┴────────────┐               │
-│            ▼                         ▼               │
-│   ┌─────────────────┐     ┌──────────────────┐       │
-│   │  RQ (推薦)       │     │  In-Memory Queue │       │
-│   │                 │     │    (Fallback)    │       │
-│   │ - Redis 持久化   │     │                  │       │
-│   │ - 自動重試 3 次   │     │ - 無持久化       │       │
-│   │ - 分散式處理     │     │ - 單線程處理     │       │
-│   └─────────────────┘     └──────────────────┘       │
-│            │                         │               │
-│            └────────────┬────────────┘               │
 │                         ▼                            │
-│             ┌───────────────────────┐                │
-│             │ 1. 上傳圖片到 ImgBB   │                │
-│             │ 2. 更新 Notion 頁面   │                │
-│             │ 3. 失敗記錄到 Redis   │                │
-│             └───────────────────────┘                │
+│        ThreadPoolExecutor(max_workers=1)             │
+│        （應用程式內單一背景執行緒，依提交順序執行）      │
+│                         │                            │
+│                         ▼                            │
+│        _sync_upload_image()                          │
+│        1. 上傳圖片到 ImgBB（timeout 20s，重試 1 次）  │
+│        2. 更新 Notion 頁面                            │
+│        3. 失敗記錄到 SQLite failed_uploads 表         │
 └──────────────────────────────────────────────────────┘
 ```
-
-### RQ Worker (推薦)
-
-**啟動方式**:
-
-```bash
-# 開發環境
-python -m src.namecard.infrastructure.storage.rq_worker
-
-# 生產環境
-rq worker image_upload --url redis://localhost:6379/0
-```
-
-**任務配置**:
-
-```python
-retry=Retry(max=3, interval=[10, 30, 60])  # 重試 3 次：10s, 30s, 60s
-job_timeout=300  # 5 分鐘超時
-```
-
-**核心函數**:
-
-- `process_upload_task_rq()`: RQ 任務處理函數（必須是頂層函數才能被 pickle）
-- `submit_to_rq()`: 提交任務到 RQ 隊列
-- `get_rq_redis_client()`: 獲取 RQ 專用 Redis 客戶端 (`decode_responses=False`)
-
-### In-Memory Queue Worker (Fallback)
-
-當 RQ 或 Redis 不可用時自動使用。
-
-**ImageUploadWorker 類**:
-
-```python
-class ImageUploadWorker:
-    def start(self)   # 啟動單一背景線程
-    def stop(self)    # 停止 worker
-    def submit(task)  # 提交 ImageUploadTask
-```
-
-**單例模式**: 使用 `get_upload_worker()` 獲取全域實例
 
 ### Public API
 
 ```python
-# 主要入口 - 自動選擇 RQ 或內存隊列
+# 主要入口 — 提交到背景執行緒，回傳 Future（呼叫端可忽略；測試可用來等待完成）
 submit_image_upload(
     image_data: bytes,       # 圖片二進位資料
     page_ids: List[str],     # Notion 頁面 ID 列表
     notion_client: NotionClient,
     user_id: str
-)
+) -> Future[bool]
 ```
 
 ### 失敗任務管理
 
-失敗的任務會記錄到 Redis，保留 7 天。
+失敗的任務記錄在 SQLite `failed_uploads` 表（與租戶資料同一個資料庫，
+路徑由 `TENANT_DB_PATH` 決定，預設 `data/tenants.db`），圖片以 BLOB 直接存表，
+保留 7 天（查詢/寫入時順手清除過期記錄）。
 
-**Redis Key 格式**: `failed_upload:{user_id}:{task_id}`
+**資料表結構**:
 
-**管理函數**:
-
-| 函數 | 功能 |
-|------|------|
-| `get_failed_tasks(user_id)` | 查詢用戶的失敗任務列表 |
-| `retry_failed_task(user_id, task_id, notion_client)` | 重試單一失敗任務 |
-| `retry_all_failed_tasks(user_id, notion_client)` | 重試用戶所有失敗任務 |
-| `clear_failed_tasks(user_id)` | 清除用戶所有失敗任務記錄 |
-| `get_queue_info()` | 獲取隊列狀態（用於監控） |
-
-### 失敗任務資料結構
-
-```json
-{
-  "task_id": "abc12345",
-  "user_id": "U1234567890abcdef",
-  "page_ids": ["page-id-1", "page-id-2"],
-  "error": "ImgBB upload failed",
-  "timestamp": "2024-01-15T10:30:00",
-  "image_url": null,
-  "image_data_b64": "base64_encoded_image_data..."
-}
+```sql
+CREATE TABLE IF NOT EXISTS failed_uploads (
+    task_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    page_ids TEXT NOT NULL,   -- JSON 陣列
+    error TEXT,
+    image BLOB,               -- 原始圖片
+    image_url TEXT,           -- 已上傳成功的 ImgBB URL（若 Notion 更新失敗）
+    created_at TEXT NOT NULL
+)
 ```
 
-### 環境變數
+**管理函式**:
 
-| 變數 | 說明 | 預設值 |
-|------|------|--------|
-| `REDIS_ENABLED` | 是否啟用 Redis | `false` |
-| `REDIS_URL` | Redis 連線 URL | - |
-| `REDIS_HOST` | Redis 主機 | `localhost` |
-| `REDIS_PORT` | Redis 端口 | `6379` |
-| `REDIS_PASSWORD` | Redis 密碼 | - |
-| `REDIS_DB` | Redis 資料庫 | `0` |
-| `REDIS_SOCKET_TIMEOUT` | 連線超時 | `5` |
+| 函式                                                 | 功能                                      |
+| ---------------------------------------------------- | ----------------------------------------- |
+| `get_failed_tasks(user_id)`                          | 查詢使用者的失敗任務列表（不含圖片 BLOB） |
+| `retry_failed_task(user_id, task_id, notion_client)` | 重試單一失敗任務                          |
+| `retry_all_failed_tasks(user_id, notion_client)`     | 重試使用者所有失敗任務                    |
+| `clear_failed_tasks(user_id)`                        | 清除使用者所有失敗任務記錄                |
 
-### 監控端點
+**LINE 使用者指令**: 「重試」重新上傳失敗的圖片、「清除失敗」清除失敗任務記錄（見 Event Handler 章節）。
+
+### Worker Admin API
+
+位於 admin blueprint 下，需登入（session）:
 
 ```bash
-# 獲取隊列狀態
-curl https://eco-namecard.zeabur.app/debug/queue-info
+# 查詢指定使用者的失敗上傳任務
+curl "https://eco-namecard.zeabur.app/admin/api/worker/failed-tasks?user_id=<LINE_USER_ID>"
 
-# 回傳範例
-{
-  "rq_available": true,
-  "rq_enabled": true,
-  "queue_name": "image_upload",
-  "pending_jobs": 0,
-  "failed_jobs": 2
-}
+# 重試指定使用者的所有失敗任務（使用預設 Notion 設定）
+curl -X POST https://eco-namecard.zeabur.app/admin/api/worker/retry-all \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "<LINE_USER_ID>"}'
 ```
-
-### Worker Admin API (v1.2.0+)
-
-```bash
-# 查看 Worker 狀態
-curl https://eco-namecard.zeabur.app/admin/worker/status
-
-# 查看失敗的上傳任務
-curl https://eco-namecard.zeabur.app/admin/worker/failed-tasks
-
-# 重試所有失敗任務
-curl -X POST https://eco-namecard.zeabur.app/admin/worker/retry-all
-
-# 重啟內嵌 Worker
-curl -X POST https://eco-namecard.zeabur.app/admin/worker/restart
-```
-
-### 內嵌 RQ Worker (v1.2.0+)
-
-系統會在啟動時自動啟動內嵌 RQ Worker：
-
-- 使用 Redis 分散式鎖確保只有一個 Worker 運行
-- 支援多 Gunicorn 進程環境
-- 環境變數 `ENABLE_EMBEDDED_RQ_WORKER=true` (預設開啟)
-
-**Fallback 機制**：
-
-當 Redis 不可用時，系統自動切換到同步上傳模式：
-- 圖片直接在請求中上傳到 ImgBB
-- 然後更新 Notion 頁面
-- 不需要 RQ Worker
 
 ---
 
@@ -826,13 +763,13 @@ curl -X POST https://eco-namecard.zeabur.app/admin/worker/restart
 
 ### 支援格式
 
-| 輸入格式 | 輸出 (E.164) |
-|---------|--------------|
-| `0912345678` | `+886912345678` |
-| `0912-345-678` | `+886912345678` |
-| `02-12345678` | `+886212345678` |
-| `(02) 1234-5678` | `+886212345678` |
-| `+1-123-456-7890` | `+11234567890` |
+| 輸入格式            | 輸出 (E.164)     |
+| ------------------- | ---------------- |
+| `0912345678`        | `+886912345678`  |
+| `0912-345-678`      | `+886912345678`  |
+| `02-12345678`       | `+886212345678`  |
+| `(02) 1234-5678`    | `+886212345678`  |
+| `+1-123-456-7890`   | `+11234567890`   |
 | `+86-138-1234-5678` | `+8613812345678` |
 
 ### 使用方式
@@ -861,16 +798,17 @@ info = parse_phone_info("0912345678")
 ### AI 識別策略
 
 AI 在識別名片時會優先提取手機號碼：
+
 - 優先順序：手機 (09開頭) > 市話 (02,03,04等) > 其他
 - 只有明確標示「傳真」「Fax」的才放入 fax 欄位
 - 其他電話號碼放入 phone 欄位
 
 ### BusinessCard 模型欄位
 
-| 欄位 | 說明 | 正規化 |
-|------|------|--------|
-| `phone` | 電話（正規化後）| ✅ E.164 |
-| `phone_raw` | 原始電話 | ❌ |
-| `mobile` | 手機（正規化後）| ✅ E.164 |
-| `mobile_raw` | 原始手機 | ❌ |
-| `fax` | 傳真（正規化後）| ✅ E.164 |
+| 欄位         | 說明             | 正規化   |
+| ------------ | ---------------- | -------- |
+| `phone`      | 電話（正規化後） | ✅ E.164 |
+| `phone_raw`  | 原始電話         | ❌       |
+| `mobile`     | 手機（正規化後） | ✅ E.164 |
+| `mobile_raw` | 原始手機         | ❌       |
+| `fax`        | 傳真（正規化後） | ✅ E.164 |

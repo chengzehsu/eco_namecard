@@ -28,7 +28,7 @@ def _debug_log(hypothesis_id: str, location: str, message: str, data: dict = Non
         with open(_DEBUG_LOG_PATH, "a") as f:
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
-        # 如果無法寫入文件，至少打印到 stdout（Zeabur 會捕獲）
+        # 如果無法寫入檔案，至少輸出到 stdout（Zeabur 會捕獲）
         print(f"DEBUG_LOG: {json.dumps(log_entry) if 'log_entry' in dir() else message}")
 
 _debug_log("A", "app.py:1", "APP_STARTUP_BEGIN", {"step": "imports", "debug_log_path": _DEBUG_LOG_PATH})
@@ -52,7 +52,7 @@ import logging
 # 設定 Python logging 級別為 INFO，讓 structlog 可以輸出 info 級別日誌
 logging.basicConfig(
     format="%(message)s",
-    level=logging.INFO,  # 這是關鍵！沒有這行，默認是 WARNING
+    level=logging.INFO,  # 這是關鍵！沒有這行，預設是 WARNING
 )
 
 structlog.configure(
@@ -75,41 +75,13 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
-# 初始化 Redis 和服務
-from src.namecard.infrastructure.redis_client import get_redis_client, close_redis_client
-from src.namecard.core.services.user_service import user_service, create_user_service
-from src.namecard.core.services.security import security_service, create_security_service
-
-# 初始化 Redis
-redis_client = get_redis_client()
-
-# 如果 Redis 可用，重新創建服務實例
-if redis_client:
-    # 使用新的 user_service 實例替換全域實例
-    import src.namecard.core.services.user_service as user_service_module
-    import src.namecard.core.services.security as security_module
-
-    user_service_module.user_service = create_user_service(
-        redis_client=redis_client,
-        use_redis=True
-    )
-
-    security_module.security_service = create_security_service(
-        redis_client=redis_client,
-        use_redis=True
-    )
-
-    logger.info("Services initialized with Redis backend",
-               services=["UserService", "SecurityService"])
-else:
-    logger.info("Services using in-memory backend (Redis not available)",
-               services=["UserService", "SecurityService"])
+# 狀態服務（SQLite 後端）由各模組單例（user_service / security_service）自行初始化
 
 # #region agent log
 _debug_log("B", "app.py:before_main_import", "IMPORTING_LINE_BOT_MAIN", {})
 # #endregion
 
-# 導入主應用（在 Redis 初始化之後）
+# 導入主應用
 try:
     from src.namecard.api.line_bot.main import app
     # #region agent log
@@ -130,11 +102,6 @@ app.secret_key = admin_secret_key
 # 註冊管理後台 Blueprint
 from src.namecard.api.admin import admin_bp
 app.register_blueprint(admin_bp)
-
-# ==================== SocketIO 初始化 ====================
-from src.namecard.api.admin.socketio_events import init_socketio, get_socketio
-socketio = init_socketio(app)
-logger.info("SocketIO initialized for real-time sync progress")
 
 # #region agent log
 _debug_log("C", "app.py:before_tenant_db", "INITIALIZING_TENANT_DB", {})
@@ -222,9 +189,20 @@ except Exception as e:
     logger.warning("Default tenant initialization skipped", error=str(e))
 
 # ===========================================================
-# RQ Worker 由獨立進程運行（見 Procfile）
+# 圖片上傳由應用程式內的背景執行緒處理（無獨立 worker 處理程序）
 # ===========================================================
-logger.info("RQ Worker runs as separate process via honcho/Procfile")
+logger.info("Image uploads handled by in-process background threads")
+
+# ===========================================================
+# 啟動 Drive 同步排程迴圈（croniter 背景執行緒）
+# 必須在應用程式啟動時呼叫，確保部署重啟後 tenants.db 內的
+# 排程立即生效，不需等管理員重新儲存設定
+# ===========================================================
+try:
+    from src.namecard.core.services.scheduler import init_scheduler
+    init_scheduler()
+except Exception as e:
+    logger.warning("Failed to start drive sync scheduler", error=str(e))
 
 # #region agent log
 _debug_log("A", "app.py:startup_complete", "APP_STARTUP_COMPLETE", {"ready_for_gunicorn": True})
@@ -234,7 +212,7 @@ print("[DEBUG] APP_STARTUP_COMPLETE - ready_for_gunicorn=True", flush=True)
 # ===========================================================
 
 def main():
-    """主函數"""
+    """主函式"""
     logger.info("Starting LINE Bot Namecard System",
                 version="3.0.0",
                 port=settings.app_port,
@@ -242,33 +220,19 @@ def main():
                 multi_tenant=True)
     
     try:
-        # 使用 SocketIO 啟動（支援 WebSocket）
-        from src.namecard.api.admin.socketio_events import get_socketio
-        sio = get_socketio()
-        if sio:
-            sio.run(
-                app,
-                host=settings.app_host,
-                port=settings.app_port,
-                debug=settings.debug,
-                allow_unsafe_werkzeug=True,
-            )
-        else:
-            # Fallback to regular Flask
-            app.run(
-                host=settings.app_host,
-                port=settings.app_port,
-                debug=settings.debug,
-                threaded=True
-            )
+        # 開發模式直接用 Flask 內建伺服器啟動（生產環境走 gunicorn）
+        app.run(
+            host=settings.app_host,
+            port=settings.app_port,
+            debug=settings.debug,
+            threaded=True
+        )
     except KeyboardInterrupt:
         logger.info("Application stopped by user")
     except Exception as e:
         logger.error("Application startup failed", error=str(e))
         sys.exit(1)
     finally:
-        # 清理 Redis 連接
-        close_redis_client()
         logger.info("Application shutdown complete")
 
 # 導出 Flask 應用實例供 gunicorn 使用

@@ -29,6 +29,7 @@ try:
 except ImportError:
     LineBotApiError = MessagingApiException  # fallback
 
+from simple_config import settings
 from src.namecard.core.services.user_service import user_service
 from src.namecard.core.services.security import security_service, error_handler
 from src.namecard.infrastructure.ai.card_processor import CardProcessor
@@ -144,12 +145,6 @@ class UnifiedEventHandler:
         try:
             logger.warning("DEBUG_HANDLE_IMAGE_START", user_id=user_id[:10] + "...", message_id=message_id, tenant_id=self.tenant_id)
 
-            # 檢查用戶是否被封鎖
-            if security_service.is_user_blocked(user_id):
-                logger.warning("DEBUG_USER_BLOCKED", user_id=user_id[:10] + "...")
-                self._send_reply(reply_token, "⛔ 您已被暫時封鎖，請稍後再試")
-                return
-
             # 檢查速率限制（向後相容的每日限制）
             status = user_service.get_user_status(user_id)
             logger.warning("DEBUG_USER_STATUS", daily_usage=status.daily_usage, is_batch_mode=status.is_batch_mode)
@@ -171,7 +166,7 @@ class UnifiedEventHandler:
                         from datetime import timedelta
                         from src.namecard.core.services.tenant_service import get_tenant_service
                         tenant_service = get_tenant_service()
-                        tenant = tenant_service.get_tenant(self.tenant_id)
+                        tenant = tenant_service.get_tenant_by_id(self.tenant_id)
                         
                         now = datetime.now()
                         reset_cycle = getattr(tenant, 'quota_reset_cycle', 'monthly') or 'monthly'
@@ -197,13 +192,21 @@ class UnifiedEventHandler:
                             days_until = (next_month - now).days
                             reset_msg = f"{days_until} 天後 ({next_month.strftime('%m/%d')})"
                         
-                        self._send_reply(
-                            reply_token,
-                            f"⚠️ 掃描配額已用完\n\n"
-                            f"📊 已使用 {quota_check['current_month_scans']}/{quota_check['total_quota']} 張\n"
-                            f"🔄 將於 {reset_msg} 重置\n\n"
-                            f"💡 需要更多配額？請洽詢服務人員升級方案"
-                        )
+                        if "current_month_scans" in quota_check and "total_quota" in quota_check:
+                            # 正常配額用完：顯示用量與下次重置時間
+                            self._send_reply(
+                                reply_token,
+                                f"⚠️ 掃描配額已用完\n\n"
+                                f"📊 已使用 {quota_check['current_month_scans']}/{quota_check['total_quota']} 張\n"
+                                f"🔄 將於 {reset_msg} 重置\n\n"
+                                f"💡 需要更多配額？請洽詢服務人員升級方案"
+                            )
+                        else:
+                            # 精簡錯誤字典（如訂閱狀態異常）：check_scan_quota 未回傳用量欄位
+                            self._send_reply(
+                                reply_token,
+                                quota_check.get("message") or "⚠️ 目前無法使用，請洽詢服務人員"
+                            )
                         return
                     
                     # 檢查用戶限制（只有新用戶時才檢查）
@@ -225,13 +228,19 @@ class UnifiedEventHandler:
                             )
                             return
                 except Exception as e:
+                    # Fail-closed：配額檢查發生例外時，一律中止並回覆，避免放行造成配額被繞過
                     logger.warning("DEBUG_QUOTA_CHECK_EXCEPTION", error=str(e), error_type=type(e).__name__)
-                    logger.warning("Quota check failed, falling back to default limit", error=str(e))
+                    logger.error("Quota check failed, aborting to avoid fail-open", error=str(e))
+                    self._send_reply(reply_token, "⚠️ 系統忙碌，請稍後再試")
+                    return
             
             # 向後相容：無租戶時使用舊的每日限制
-            if not self.tenant_id and status.daily_usage >= 50:
+            if not self.tenant_id and status.daily_usage >= settings.rate_limit_per_user:
                 logger.warning("DEBUG_DAILY_LIMIT_EXCEEDED", daily_usage=status.daily_usage)
-                self._send_reply(reply_token, f"⚠️ 已達每日上限（{status.daily_usage}/50）\n請明天再試")
+                self._send_reply(
+                    reply_token,
+                    f"⚠️ 已達每日上限（{status.daily_usage}/{settings.rate_limit_per_user}）\n請明天再試",
+                )
                 return
 
             logger.warning("DEBUG_ALL_CHECKS_PASSED", tenant_id=self.tenant_id, user_id=user_id[:10] + "...")

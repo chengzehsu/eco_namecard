@@ -604,6 +604,69 @@ def api_stats():
     return jsonify(stats)
 
 
+# ==================== Worker 失敗任務管理 API ====================
+
+
+@admin_bp.route("/api/worker/failed-tasks", methods=["GET"])
+@login_required
+def api_worker_failed_tasks():
+    """查詢指定使用者的失敗上傳任務列表（SQLite 儲存）"""
+    from src.namecard.infrastructure.storage.image_upload_worker import get_failed_tasks
+
+    user_id = (request.args.get("user_id") or "").strip()
+    if not user_id:
+        return jsonify({"success": False, "error": "請提供 user_id 參數"}), 400
+
+    try:
+        tasks = get_failed_tasks(user_id)
+        return jsonify({
+            "success": True,
+            "user_id": user_id,
+            "total_failed": len(tasks),
+            "tasks": tasks,
+        })
+    except Exception as e:
+        logger.error("API_WORKER_FAILED_TASKS_ERROR", error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@admin_bp.route("/api/worker/retry-all", methods=["POST"])
+@login_required
+def api_worker_retry_all():
+    """重試指定使用者的所有失敗上傳任務（使用預設 Notion 設定）"""
+    from src.namecard.infrastructure.storage.image_upload_worker import (
+        get_failed_tasks,
+        retry_all_failed_tasks,
+    )
+    from src.namecard.infrastructure.storage.notion_client import NotionClient
+    from simple_config import settings
+
+    data = request.get_json(silent=True) or {}
+    user_id = (data.get("user_id") or "").strip()
+    if not user_id:
+        return jsonify({"success": False, "error": "請提供 user_id"}), 400
+
+    try:
+        # 使用預設租戶的 Notion 設定（與既有 retry 流程一致）
+        notion_client = NotionClient(
+            api_key=settings.notion_api_key,
+            database_id=settings.notion_database_id,
+        )
+
+        total = len(get_failed_tasks(user_id))
+        success_count = retry_all_failed_tasks(user_id, notion_client)
+
+        return jsonify({
+            "success": True,
+            "user_id": user_id,
+            "total_tasks": total,
+            "success_count": success_count,
+        })
+    except Exception as e:
+        logger.error("API_WORKER_RETRY_ALL_ERROR", error=str(e))
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ==================== LINE Bot API ====================
 
 
@@ -1023,9 +1086,6 @@ def start_drive_sync(tenant_id: str):
         # Start sync in background thread
         def run_sync():
             try:
-                # Import SocketIO emit functions
-                from src.namecard.api.admin.socketio_events import emit_sync_progress, emit_sync_completed
-                
                 sync_service = DriveSyncService(
                     tenant_id=tenant_id,
                     drive_client=drive_client,
@@ -1046,10 +1106,7 @@ def start_drive_sync(tenant_id: str):
                         status=progress.status,
                         error_log="\n".join(progress.errors) if progress.errors else None,
                     )
-                    
-                    # Emit WebSocket event for real-time updates
-                    emit_sync_progress(tenant_id, progress.to_dict())
-                
+
                 result = sync_service.sync_folder(
                     folder_url=folder_url,
                     progress_callback=progress_callback,
@@ -1074,10 +1131,7 @@ def start_drive_sync(tenant_id: str):
                     "google_drive_sync_status": result.status,
                     "google_drive_last_sync": datetime.now().isoformat(),
                 })
-                
-                # Emit completion event via WebSocket
-                emit_sync_completed(tenant_id, result.to_dict())
-                
+
                 logger.info(
                     "DRIVE_SYNC_COMPLETED",
                     tenant_id=tenant_id,
@@ -1097,17 +1151,7 @@ def start_drive_sync(tenant_id: str):
                 db.update_tenant(tenant_id, {
                     "google_drive_sync_status": "failed",
                 })
-                
-                # Emit failure event via WebSocket
-                try:
-                    from src.namecard.api.admin.socketio_events import emit_sync_completed
-                    emit_sync_completed(tenant_id, {
-                        "status": "failed",
-                        "error": str(e),
-                    })
-                except Exception:
-                    pass  # Don't fail if SocketIO not available
-        
+
         # Start background thread
         sync_thread = threading.Thread(target=run_sync, daemon=True)
         sync_thread.start()
@@ -1227,62 +1271,47 @@ def save_drive_schedule(tenant_id: str):
     
     enabled = request.json.get("enabled", False)
     schedule = request.json.get("schedule", "0 9 * * *")
-    
-    # Update tenant settings
-    from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
-    db = get_tenant_db()
-    
-    db.update_tenant(tenant_id, {
-        "google_drive_sync_enabled": enabled,
-        "google_drive_sync_schedule": schedule,
-    })
-    
-    # Update scheduler
+
     try:
+        # 排程的真實來源就是租戶配置（tenants.db），沒有獨立 jobstore；
+        # 背景排程迴圈（core/services/scheduler.py）每分鐘讀取配置判斷是否到期。
         from src.namecard.core.services.scheduler import (
-            schedule_drive_sync, cancel_drive_sync, get_scheduler, init_scheduler
+            schedule_drive_sync, cancel_drive_sync
         )
-        
-        # Initialize scheduler if not already
-        if get_scheduler() is None:
-            init_scheduler()
-        
-        if enabled and tenant.google_drive_folder_url:
-            # Get API keys
-            from simple_config import settings
-            
-            google_api_key = tenant.google_api_key if not tenant.use_shared_google_api else settings.google_api_key
-            notion_api_key = tenant.notion_api_key if not tenant.use_shared_notion_api else settings.notion_api_key
-            
-            success = schedule_drive_sync(
-                tenant_id=tenant_id,
-                cron_expression=schedule,
-                folder_url=tenant.google_drive_folder_url,
-                notion_api_key=notion_api_key,
-                notion_database_id=tenant.notion_database_id,
-                google_api_key=google_api_key,
-            )
-            
-            if not success:
-                logger.warning("Failed to schedule drive sync", tenant_id=tenant_id)
+
+        if enabled:
+            # 先驗證 cron 合法，不合法就不寫入配置
+            if not schedule_drive_sync(tenant_id, schedule):
+                return jsonify({
+                    "success": False,
+                    "error": "無效的 cron 排程格式",
+                }), 400
         else:
-            # Cancel existing schedule
             cancel_drive_sync(tenant_id)
-        
+
+        # 寫入租戶配置（排程迴圈以此為準）
+        from src.namecard.infrastructure.storage.tenant_db import get_tenant_db
+        db = get_tenant_db()
+
+        db.update_tenant(tenant_id, {
+            "google_drive_sync_enabled": enabled,
+            "google_drive_sync_schedule": schedule,
+        })
+
         logger.info(
             "Drive schedule updated",
             tenant_id=tenant_id,
             enabled=enabled,
             schedule=schedule,
         )
-        
+
         return jsonify({
             "success": True,
             "message": "排程設定已儲存",
             "enabled": enabled,
             "schedule": schedule,
         })
-        
+
     except Exception as e:
         logger.error("Failed to update drive schedule", tenant_id=tenant_id, error=str(e))
         return jsonify({

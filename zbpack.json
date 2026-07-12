@@ -1,4 +1,4 @@
 {
   "build_command": "pip install -r requirements.txt",
-  "start_command": "honcho start"
+  "start_command": "gunicorn --bind 0.0.0.0:$PORT --workers 1 --worker-class gthread --threads 4 --timeout 120 --access-logfile - --error-logfile - app:application"
 }

@@ -82,14 +82,7 @@ SECRET_KEY=your_secret_key
 APP_PORT=5002
 RATE_LIMIT_PER_USER=50
 BATCH_SIZE_LIMIT=10
-
-# RQ Worker 調試日誌（可選）
-RQ_WORKER_DEBUG_LOG=true  # 默認啟用，設置為 false 可禁用
 ```
-
-**注意：Redis 配置**
-- 在 Zeabur 上：在專案中新增 Redis 服務，Zeabur 會自動設定 `REDIS_URL` 環境變數
-- 本地開發：參考 [REDIS_SETUP.md](REDIS_SETUP.md) 進行配置
 
 ### GitHub Actions Secrets
 
@@ -288,11 +281,10 @@ pre-commit install
    - 檢查 NOTION_API_KEY 和 DATABASE_ID
    - 確認 Notion 整合權限正確
 
-5. **RQ Worker 啟動失敗**
-   - 確認 Redis 服務已在 Zeabur 中配置
-   - 檢查 `REDIS_URL` 環境變數是否自動設定
-   - 查看 Zeabur Logs 中的 worker 啟動日誌
-   - 如果出現 "duplicate worker" 錯誤，系統會自動清理並重試
+5. **圖片補傳失敗**
+   - 失敗任務存於 SQLite failed_uploads 表（保留 7 天）
+   - 使用者可在 LINE 輸入「重試」重新上傳，或「清除失敗」清空記錄
+   - 管理員可透過 /admin/api/worker/failed-tasks 查詢（需登入）
 
 ### 日誌查看
 

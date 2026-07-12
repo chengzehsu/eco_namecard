@@ -75,7 +75,6 @@ class TestImageProcessingFlow:
         5. ImgBB 上傳提交 ✓
         """
         # 設置 mocks
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
         
         mock_status = Mock()
@@ -108,13 +107,25 @@ class TestImageProcessingFlow:
             tenant_id="test_tenant"
         )
         
-        # 執行
-        handler.handle_image_message(
-            self.test_user_id,
-            self.test_message_id,
-            self.test_reply_token
-        )
-        
+        # 執行（mock 租戶配額路徑，讓流程放行）
+        with patch('src.namecard.core.services.quota_service.get_quota_service') as mock_get_quota, \
+             patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_tenant:
+            mock_quota = Mock()
+            mock_quota.check_scan_quota.return_value = {
+                "has_quota": True, "remaining_scans": 40,
+                "total_quota": 50, "current_month_scans": 10,
+            }
+            mock_quota.check_user_limit.return_value = {
+                "allowed": True, "current_users": 1, "user_limit": 100,
+            }
+            mock_get_quota.return_value = mock_quota
+            mock_get_tenant.return_value = Mock()  # get_line_user 回 Mock（truthy）→ 視為既有使用者
+            handler.handle_image_message(
+                self.test_user_id,
+                self.test_message_id,
+                self.test_reply_token
+            )
+
         # 驗證流程
         # 1. 圖片下載
         mock_line_api.get_message_content.assert_called_once_with(self.test_message_id)
@@ -156,7 +167,6 @@ class TestImageProcessingFlow:
         - ImgBB 上傳不應被調用
         """
         # 設置 mocks
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
         
         mock_status = Mock()
@@ -189,13 +199,25 @@ class TestImageProcessingFlow:
             tenant_id="test_tenant"
         )
         
-        # 執行
-        handler.handle_image_message(
-            self.test_user_id,
-            self.test_message_id,
-            self.test_reply_token
-        )
-        
+        # 執行（mock 租戶配額路徑，讓流程放行）
+        with patch('src.namecard.core.services.quota_service.get_quota_service') as mock_get_quota, \
+             patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_tenant:
+            mock_quota = Mock()
+            mock_quota.check_scan_quota.return_value = {
+                "has_quota": True, "remaining_scans": 40,
+                "total_quota": 50, "current_month_scans": 10,
+            }
+            mock_quota.check_user_limit.return_value = {
+                "allowed": True, "current_users": 1, "user_limit": 100,
+            }
+            mock_get_quota.return_value = mock_quota
+            mock_get_tenant.return_value = Mock()  # get_line_user 回 Mock（truthy）→ 視為既有使用者
+            handler.handle_image_message(
+                self.test_user_id,
+                self.test_message_id,
+                self.test_reply_token
+            )
+
         # 驗證 ImgBB 上傳未被調用
         mock_submit_upload.assert_not_called()
         
@@ -215,7 +237,6 @@ class TestImageProcessingFlow:
         測試 AI 未識別到名片的情況
         """
         # 設置 mocks
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
         
         mock_status = Mock()
@@ -260,36 +281,8 @@ class TestImageProcessingFlow:
 
     @patch('src.namecard.api.line_bot.event_handler.user_service')
     @patch('src.namecard.api.line_bot.event_handler.security_service')
-    def test_user_blocked(self, mock_security, mock_user_service):
-        """測試被封鎖用戶"""
-        mock_security.is_user_blocked.return_value = True
-        
-        mock_line_api = Mock()
-        mock_processor = Mock()
-        mock_notion = Mock()
-        
-        handler = UnifiedEventHandler(
-            line_bot_api=mock_line_api,
-            card_processor=mock_processor,
-            notion_client=mock_notion,
-        )
-        
-        handler.handle_image_message(
-            self.test_user_id,
-            self.test_message_id,
-            self.test_reply_token
-        )
-        
-        # 驗證未進行任何處理
-        mock_line_api.get_message_content.assert_not_called()
-        mock_processor.process_image.assert_not_called()
-        mock_notion.save_business_card.assert_not_called()
-
-    @patch('src.namecard.api.line_bot.event_handler.user_service')
-    @patch('src.namecard.api.line_bot.event_handler.security_service')
     def test_daily_limit_exceeded(self, mock_security, mock_user_service):
         """測試超過每日限額"""
-        mock_security.is_user_blocked.return_value = False
         
         mock_status = Mock()
         mock_status.daily_usage = 50  # 達到限額
@@ -319,7 +312,6 @@ class TestImageProcessingFlow:
     @patch('src.namecard.api.line_bot.event_handler.security_service')
     def test_invalid_image(self, mock_security, mock_user_service):
         """測試無效圖片"""
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = False  # 圖片驗證失敗
         
         mock_status = Mock()
@@ -451,7 +443,6 @@ class TestMultiTenantImageProcessing:
     ):
         """測試租戶使用記錄"""
         # 設置 mocks
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
         
         mock_status = Mock()
@@ -491,10 +482,20 @@ class TestMultiTenantImageProcessing:
         
         # 創建 handler with tenant_id
         # 注意：get_tenant_service 是在 handle_image_message 內部動態 import 的
-        with patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_service:
+        with patch('src.namecard.core.services.tenant_service.get_tenant_service') as mock_get_service, \
+             patch('src.namecard.core.services.quota_service.get_quota_service') as mock_get_quota:
             mock_tenant_service = Mock()
             mock_get_service.return_value = mock_tenant_service
-            
+            mock_quota = Mock()
+            mock_quota.check_scan_quota.return_value = {
+                "has_quota": True, "remaining_scans": 40,
+                "total_quota": 50, "current_month_scans": 10,
+            }
+            mock_quota.check_user_limit.return_value = {
+                "allowed": True, "current_users": 1, "user_limit": 100,
+            }
+            mock_get_quota.return_value = mock_quota
+
             handler = UnifiedEventHandler(
                 line_bot_api=mock_line_api,
                 card_processor=mock_processor,
@@ -520,7 +521,6 @@ class TestImageProcessingErrorHandling:
     @patch('src.namecard.api.line_bot.event_handler.security_service')
     def test_line_api_error_handled(self, mock_security, mock_user_service):
         """測試 LINE API 錯誤處理"""
-        mock_security.is_user_blocked.return_value = False
         
         mock_status = Mock()
         mock_status.daily_usage = 10
@@ -565,7 +565,6 @@ class TestImageProcessingErrorHandling:
     @patch('src.namecard.api.line_bot.event_handler.security_service')
     def test_ai_processing_error_handled(self, mock_security, mock_user_service):
         """測試 AI 處理錯誤處理"""
-        mock_security.is_user_blocked.return_value = False
         mock_security.validate_image_data.return_value = True
         
         mock_status = Mock()

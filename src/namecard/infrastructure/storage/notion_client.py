@@ -79,7 +79,7 @@ class NotionClient:
         
     @property
     def api_key(self) -> str:
-        """公開 API key 供序列化使用（例如 RQ 任務）"""
+        """公開 API key 供背景上傳任務重建客戶端使用"""
         return self._api_key
 
     def _test_connection(self) -> None:

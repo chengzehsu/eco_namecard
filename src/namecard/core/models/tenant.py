@@ -226,10 +226,6 @@ class TenantContext:
             )
         return self._notion_client
 
-    def get_redis_key_prefix(self) -> str:
-        """Get Redis key prefix for this tenant"""
-        return f"namecard:{self.tenant_id}"
-
 
 class UsageStats(BaseModel):
     """Usage statistics for a tenant"""
